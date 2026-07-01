@@ -1,0 +1,85 @@
+# OpsGenie
+
+WhatsApp-first daily financial operating assistant for B2B distributors.
+
+OpsGenie converts existing business records (Tally/Vyapar exports) into daily operational decisions delivered through WhatsApp — with zero learning curve for the distributor.
+
+## Status
+
+**Phase 0 complete** — project foundation, FastAPI app, async PostgreSQL connection, Alembic, health check, dev tooling.
+
+Product requirements and technical design: [`SPEC.md`](SPEC.md)
+
+## Quick Start
+
+```powershell
+# Install dependencies
+uv sync --all-extras
+
+# Start PostgreSQL (Docker)
+docker compose -f docker/docker-compose.yml up -d postgres
+
+# Run API
+make dev
+# or: uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+
+# Health check
+curl http://127.0.0.1:8000/health
+```
+
+## Project Structure
+
+```
+app/
+  core/          Settings, logging, exception handlers
+  api/           HTTP routes
+  db/            SQLAlchemy async engine and session
+  main.py        FastAPI application factory
+alembic/         Database migrations
+tests/           Pytest suite
+docs/            Developer documentation
+scripts/         Dev helper scripts (PowerShell + Bash)
+docker/          Dockerfile and docker-compose
+```
+
+## Commands
+
+| Make target | Description |
+|-------------|-------------|
+| `make install` | Install all dependencies with uv |
+| `make dev` | Run API with hot reload |
+| `make test` | Run pytest |
+| `make lint` | Ruff lint |
+| `make format` | Ruff format |
+| `make migrate` | Apply Alembic migrations |
+| `make docker-up` | Start Postgres + API in Docker |
+| `make pre-commit` | Install and run pre-commit hooks |
+
+Windows without `make`: use `scripts/dev.ps1` (`.\scripts\dev.ps1 dev`).
+
+## Environment
+
+Copy or edit `.env` (`.env.example` is the template):
+
+```
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/opsgenie
+```
+
+For Neon/cloud Postgres, append `?ssl=require` when required.
+
+## Engineering Principles
+
+From the product spec — these never change:
+
+- LLMs never own business state, calculate money, or decide recommendations
+- Every briefing number traces to a real database record
+- All business rules live in deterministic Python code
+
+## Documentation
+
+- [Getting Started](docs/getting-started.md)
+- [Product & Technical Spec](SPEC.md)
+
+## License
+
+Proprietary — all rights reserved.
