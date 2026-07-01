@@ -16,7 +16,18 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Index, String, Uuid, func
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    Uuid,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -67,6 +78,8 @@ class Invoice(UUIDMixin, TimestampMixin, Base):
             "dealer_id IS NOT NULL OR supplier_id IS NOT NULL",
             name="ck_invoices_dealer_or_supplier",
         ),
+        # Two invoices from the same company cannot share an invoice number.
+        UniqueConstraint("company_id", "invoice_number", name="uq_invoices_company_invoice_number"),
         Index("ix_invoices_company_id", "company_id"),
         Index("ix_invoices_company_status", "company_id", "status"),
         Index("ix_invoices_company_due_date", "company_id", "due_date"),
