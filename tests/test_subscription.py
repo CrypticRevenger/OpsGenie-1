@@ -43,7 +43,7 @@ def welcome_calls(monkeypatch):
     calls = []
 
     async def _fake_template(to, template_name, language_code, body_params=None):
-        calls.append((to, template_name, language_code))
+        calls.append((to, template_name, language_code, body_params))
         return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
 
     class _Settings:
@@ -68,7 +68,9 @@ async def test_activate_flips_flag_and_sends_welcome(
     assert data["subscription_active"] is True
     assert data["welcome_sent"] is True
     assert len(welcome_calls) == 1
-    assert welcome_calls[0][0] == company.whatsapp_number
+    to, _template, _lang, body_params = welcome_calls[0]
+    assert to == company.whatsapp_number
+    assert body_params == [company.business_name]  # personalized with the business name
 
     await db.refresh(company)
     assert company.subscription_active is True

@@ -153,6 +153,11 @@ async def _send_welcome(db: AsyncSession, company: Company) -> bool:
             company.whatsapp_number,
             settings.welcome_template_name,
             settings.welcome_template_language,
+            # Fills the template's {{1}} body variable. The approved
+            # `opsgenie_welcome` template must have exactly one body variable;
+            # a variable-less template would be rejected by Meta for having a
+            # parameter, and vice-versa — the two must match.
+            body_params=[company.business_name],
         )
     except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
         logger.warning("Welcome template to %s not sent: %s", company.whatsapp_number, exc)
