@@ -50,18 +50,18 @@ class Settings(BaseSettings):
 
     # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
     # every scheduler_poll_interval_minutes and, per company, acts when the
-    # company's own business-local hour matches these targets. scheduler_enabled
-    # gates the whole thing off in tests / when running one-off scripts.
-    scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
+    # company's own business-local hour matches these targets. NotificationEngine
+    # rules run every tick and dedup internally, so no separate interval is
+    # needed. Defaults to False (fail-closed, like admin_api_key/whatsapp_token)
+    # so an accidental boot never fires real WhatsApp sends — a real deployment
+    # must set SCHEDULER_ENABLED=true explicitly.
+    scheduler_enabled: bool = Field(default=False, alias="SCHEDULER_ENABLED")
     scheduler_poll_interval_minutes: int = Field(
         default=15, alias="SCHEDULER_POLL_INTERVAL_MINUTES"
     )
     briefing_hour: int = Field(default=8, alias="BRIEFING_HOUR")
     briefing_retry_hour: int = Field(default=9, alias="BRIEFING_RETRY_HOUR")
     followup_hour: int = Field(default=10, alias="FOLLOWUP_HOUR")
-    notification_check_interval_minutes: int = Field(
-        default=60, alias="NOTIFICATION_CHECK_INTERVAL_MINUTES"
-    )
 
     # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
     # pluggable LLMProvider + automatic failover chain. llm_provider is the
