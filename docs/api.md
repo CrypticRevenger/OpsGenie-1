@@ -14,10 +14,42 @@ Monetary values (`opening_balance`, `credit_limit`) are strings in decimal notat
 Timestamps are ISO 8601 with timezone (`2026-07-01T14:00:00Z`).
 
 ### Authentication
-None in V0.0 / V0.1. These are founder-only admin endpoints. Do not expose to the internet.
+Every `/admin/*` route requires a shared secret via the `X-API-Key` header, checked against
+`ADMIN_API_KEY` in the server's environment. `/health` is intentionally unauthenticated (for
+infra probes). There is no per-user login — this is still a single-founder tool, per SPEC.md:
+"Authentication / API keys | When external users are onboarded." A missing/wrong key, or a
+server with `ADMIN_API_KEY` unset, all return the same generic response:
+
+```json
+{ "detail": "Unauthorized" }
+```
+
+with status `401`. The reason is intentionally not distinguished in the response — logged
+server-side only.
+
+**Example request**
+```
+GET /admin/companies
+X-API-Key: <your ADMIN_API_KEY>
+```
 
 ### Pagination
-Not implemented in Phase 2. Will be added in Phase 6+ if needed.
+Every list endpoint (`GET /admin/companies`, `.../dealers`, `.../suppliers`, `.../invoices`,
+`.../payments`) accepts `?page=&limit=` (`page` 1-indexed, default `1`; `limit` default `50`,
+max `200`) and returns a wrapped response instead of a bare array:
+
+```json
+{
+  "items": [ ... ],
+  "total": 127,
+  "page": 2,
+  "limit": 50,
+  "pages": 3
+}
+```
+
+`total`/`pages` reflect whatever filters were applied to that request (e.g. `direction`/`status`
+on invoices) — not the company's full unfiltered count.
 
 ---
 
@@ -117,18 +149,29 @@ Create a new B2B distributor company.
 
 List all companies, ordered by `created_at` descending (newest first).
 
-**Response 200** — array of `CompanyResponse`
-```json
-[
-  {
-    "id": "018f3b2a-...",
-    "business_name": "Sharma Distributors",
-    ...
-  }
-]
-```
+**Query parameters**
 
-> **Note:** No pagination in Phase 2. Returns all rows.
+| Parameter | Type | Default | Notes |
+|-----------|------|---------|-------|
+| `page` | integer | `1` | 1-indexed |
+| `limit` | integer | `50` | Max `200` |
+
+**Response 200** — `Page<CompanyResponse>`
+```json
+{
+  "items": [
+    {
+      "id": "018f3b2a-...",
+      "business_name": "Sharma Distributors",
+      ...
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "limit": 50,
+  "pages": 1
+}
+```
 
 ---
 
@@ -216,9 +259,10 @@ Add a dealer to a company.
 
 ### `GET /admin/companies/{company_id}/dealers`
 
-List all dealers for a company, ordered by `name` ascending.
+List all dealers for a company, ordered by `name` ascending. Accepts `?page=&limit=` (see
+[Pagination](#pagination)).
 
-**Response 200** — array of `DealerResponse`
+**Response 200** — `Page<DealerResponse>`
 
 **Error responses**
 
@@ -308,9 +352,10 @@ Add a supplier to a company.
 
 ### `GET /admin/companies/{company_id}/suppliers`
 
-List all suppliers for a company, ordered by `name` ascending.
+List all suppliers for a company, ordered by `name` ascending. Accepts `?page=&limit=` (see
+[Pagination](#pagination)).
 
-**Response 200** — array of `SupplierResponse`
+**Response 200** — `Page<SupplierResponse>`
 
 **Error responses**
 
@@ -414,11 +459,14 @@ Validation errors (422) use the expanded format:
 
 ## Roadmap notes
 
-| Future endpoint | Phase |
-|----------------|-------|
-| `POST /admin/companies/{id}/import` | Phase 3 — CSV/Excel import |
-| `GET /admin/companies/{id}/invoices` | Phase 4 — Invoice read APIs |
-| `GET /admin/companies/{id}/cashflow` | Phase 5 — Cashflow engine |
-| `GET /admin/companies/{id}/briefing` | Phase 5 — Morning briefing |
-| Pagination (`?page=&limit=`) | Phase 6+ |
-| Authentication / API keys | When external users are onboarded |
+This document was last written at Phase 2 and hasn't tracked every endpoint added since — see
+`SPEC.md` for the authoritative feature roadmap. Items below are resolved as of Phase 6:
+
+| Item | Status |
+|------|--------|
+| `POST /admin/companies/{id}/import` | Done — Phase 3, CSV/Excel import |
+| `GET /admin/companies/{id}/invoices`, `.../payments` | Done — Phase 4, invoice/payment read APIs |
+| `GET /admin/companies/{id}/cashflow` | Done — Phase 5A, cashflow engine |
+| `POST`/`GET /admin/companies/{id}/briefing` | Done — Phase 5B, LLM-narrated morning briefing |
+| Pagination (`?page=&limit=`) | Done — Phase 6, see [Pagination](#pagination) |
+| Authentication / API keys | Done — Phase 6, see [Authentication](#authentication) |

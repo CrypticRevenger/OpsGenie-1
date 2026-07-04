@@ -23,14 +23,20 @@ async def write_import_log(
     Called at the end of every import regardless of success or failure.
     The log is written even when rows_succeeded == 0, so the founder can
     see what went wrong.
+
+    ImportLog's schema has no rows_skipped column (idempotent re-imports are
+    a newer concept than this table). Skipped rows count as succeeded here —
+    no error occurred, nothing new needed to happen — the full succeeded vs.
+    skipped breakdown is available in the synchronous API response.
     """
+    persisted_succeeded = result.rows_succeeded + result.rows_skipped
     log = ImportLog(
         company_id=company_id,
         filename=result.filename,
         source_format=result.source_format,
         imported_at=datetime.now(UTC),
         rows_processed=result.rows_processed,
-        rows_succeeded=result.rows_succeeded,
+        rows_succeeded=persisted_succeeded,
         rows_failed=result.rows_failed,
         error_detail_json=result.error_detail_json if result.errors else None,
     )
@@ -38,9 +44,11 @@ async def write_import_log(
     await db.commit()
     await db.refresh(log)
     logger.info(
-        "ImportLog written: %s — %d/%d rows succeeded",
+        "ImportLog written: %s — %d/%d rows succeeded (%d newly imported, %d already imported)",
         result.filename,
-        result.rows_succeeded,
+        persisted_succeeded,
         result.rows_processed,
+        result.rows_succeeded,
+        result.rows_skipped,
     )
     return log

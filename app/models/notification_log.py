@@ -41,6 +41,9 @@ class NotificationLog(UUIDMixin, Base):
         nullable=False,
     )
     delivery_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Meta's "wamid" for this send (Phase 8) — the correlation key a later
+    # whatsapp_status_received webhook uses to update delivery_status above.
+    whatsapp_message_id: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
 
     # ── Relationships ────────────────────────────────────────────────────────
     company: Mapped[Company] = relationship("Company", back_populates="notification_logs")

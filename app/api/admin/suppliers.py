@@ -8,13 +8,14 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.company import Company
 from app.models.supplier import Supplier
+from app.schemas.pagination import Page
 from app.schemas.supplier import SupplierCreate, SupplierResponse
 
 logger = logging.getLogger(__name__)
@@ -62,20 +63,28 @@ async def create_supplier(
 
 @router.get(
     "",
-    response_model=list[SupplierResponse],
+    response_model=Page[SupplierResponse],
     summary="List suppliers for a company",
 )
 async def list_suppliers(
     company_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-) -> list[Supplier]:
+) -> Page[SupplierResponse]:
     await _get_company_or_404(company_id, db)
+    total = await db.scalar(
+        select(func.count()).select_from(Supplier).where(Supplier.company_id == company_id)
+    ) or 0
     result = await db.execute(
         select(Supplier)
         .where(Supplier.company_id == company_id)
         .order_by(Supplier.name)
+        .offset((page - 1) * limit)
+        .limit(limit)
     )
-    return list(result.scalars().all())
+    suppliers = list(result.scalars().all())
+    return Page.create(items=suppliers, total=total, page=page, limit=limit)
 
 
 @router.get(

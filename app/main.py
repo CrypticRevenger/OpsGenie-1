@@ -1,11 +1,13 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from app import __version__
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
+from app.api.webhooks import router as webhooks_router
+from app.core.auth import require_api_key
 from app.core.config import get_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
@@ -36,7 +38,13 @@ def create_app() -> FastAPI:
 
     register_exception_handlers(app)
     app.include_router(health_router)
-    app.include_router(admin_router)
+    # Every /admin/* route requires X-API-Key — wired once here rather than
+    # per-router, so no individual admin route file needs to know auth exists.
+    app.include_router(admin_router, dependencies=[Depends(require_api_key)])
+    # Webhooks are called by external services (Meta) that can't send an
+    # X-API-Key — deliberately outside the admin_router's auth dependency.
+    # Each webhook route has its own verification mechanism instead.
+    app.include_router(webhooks_router)
 
     return app
 

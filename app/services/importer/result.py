@@ -29,12 +29,19 @@ class ImportResult:
     source_format: str  # "csv" | "excel"
     rows_processed: int = 0
     rows_succeeded: int = 0
+    rows_skipped: int = 0  # already imported — idempotent re-run, not an error
     rows_failed: int = 0
     errors: list[RowError] = field(default_factory=list)
+    skipped: list[RowError] = field(default_factory=list)
 
     def add_success(self) -> None:
         self.rows_processed += 1
         self.rows_succeeded += 1
+
+    def add_skipped(self, row_number: int, reason: str, raw_value: str = "") -> None:
+        self.rows_processed += 1
+        self.rows_skipped += 1
+        self.skipped.append(RowError(row_number, reason, raw_value))
 
     def add_failure(self, row_number: int, reason: str, raw_value: str = "") -> None:
         self.rows_processed += 1
@@ -59,4 +66,4 @@ class ImportResult:
 
     @property
     def partial(self) -> bool:
-        return self.rows_succeeded > 0 and self.rows_failed > 0
+        return (self.rows_succeeded + self.rows_skipped) > 0 and self.rows_failed > 0

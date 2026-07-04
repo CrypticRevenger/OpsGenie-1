@@ -39,6 +39,11 @@ class BusinessEventType(enum.StrEnum):
     data_imported = "data_imported"
     follow_up_sent = "follow_up_sent"
     follow_up_responded = "follow_up_responded"
+    # Phase 7 — WhatsApp inbound webhook (see app/api/webhooks/whatsapp.py).
+    whatsapp_message_received = "whatsapp_message_received"
+    whatsapp_status_received = "whatsapp_status_received"
+    # Phase 8 — outbound reply to a numbered-menu command or unknown input.
+    whatsapp_reply_sent = "whatsapp_reply_sent"
 
 
 class BusinessEvent(UUIDMixin, Base):

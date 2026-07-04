@@ -25,4 +25,10 @@ COPY app ./app
 
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Apply migrations before serving, then hand PID 1 to uvicorn via exec so it
+# receives signals. `&&` makes a failed migration abort startup (fail fast)
+# rather than serving against an out-of-date schema.
+# NOTE: for a single-instance pilot this is correct. If you scale to multiple
+# replicas, move `alembic upgrade head` into a separate one-shot job so N
+# replicas don't race to migrate on boot.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
