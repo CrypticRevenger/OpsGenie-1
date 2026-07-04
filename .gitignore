@@ -7,9 +7,6 @@
 venv/
 env/
 
-# uv
-uv.lock
-
 # Python
 __pycache__/
 *.py[cod]
@@ -49,3 +46,7 @@ Thumbs.db
 
 # Docker
 docker/data/
+
+# Real business data — never committed regardless of repo visibility
+Dataset for phase 3/
+scripts/convert_phase3_dataset.py

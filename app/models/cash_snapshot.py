@@ -2,7 +2,7 @@
 
 Records the distributor's opening balance at a point in time.
 BusinessSnapshotService derives the current cash position as:
-    opening_balance + Σ payments_received − Σ payments_made
+    opening_balance + Σ payments_received - Σ payments_made
 No running balance is stored — it is always recalculated.
 """
 

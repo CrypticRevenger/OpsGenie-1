@@ -120,6 +120,11 @@ class Invoice(UUIDMixin, TimestampMixin, Base):
         nullable=False,
         default=InvoiceSource.csv_import,
     )
+    # Phase 9 — set when a distributor answers a follow-up with "not yet
+    # received" and gives an expected date (see app/services/followup.py).
+    # InvoiceDueDateFollowUpService's due-today query also matches on this
+    # field, so the promised "follow-up scheduled for Friday" actually fires.
+    expected_payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     # updated_at is the only mutable timestamp in the schema — all event and
     # timeline tables are append-only and have no updated_at by design.
     updated_at: Mapped[datetime] = mapped_column(
@@ -130,7 +135,11 @@ class Invoice(UUIDMixin, TimestampMixin, Base):
     )
 
     # ── Relationships ────────────────────────────────────────────────────────
-    company: Mapped[Company] = relationship("Company", back_populates="invoices")
+    # foreign_keys pins this to invoices.company_id — companies.pending_follow_up_invoice_id
+    # (Phase 9) is a second FK path between the two tables that isn't this relationship.
+    company: Mapped[Company] = relationship(
+        "Company", back_populates="invoices", foreign_keys=[company_id]
+    )
     dealer: Mapped[Dealer | None] = relationship(
         "Dealer", back_populates="invoices", foreign_keys=[dealer_id]
     )

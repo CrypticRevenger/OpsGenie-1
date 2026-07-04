@@ -42,8 +42,34 @@ async def test_create_company(client: AsyncClient) -> None:
     assert data["owner_name"] == "Rajesh Sharma"
     assert data["subscription_active"] is True
     assert data["preferred_language"] == "en"
+    assert data["timezone"] == "Asia/Kolkata"  # default applied
     assert "id" in data
     assert "created_at" in data
+
+
+@pytest.mark.asyncio
+async def test_create_company_accepts_explicit_timezone(client: AsyncClient) -> None:
+    payload = {
+        "business_name": "Dubai Traders",
+        "owner_name": "Owner",
+        "whatsapp_number": _unique_phone(),
+        "timezone": "Asia/Dubai",
+    }
+    resp = await client.post("/admin/companies", json=payload)
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["timezone"] == "Asia/Dubai"
+
+
+@pytest.mark.asyncio
+async def test_create_company_invalid_timezone_returns_422(client: AsyncClient) -> None:
+    payload = {
+        "business_name": "Bad TZ Co",
+        "owner_name": "Owner",
+        "whatsapp_number": _unique_phone(),
+        "timezone": "Mars/Olympus_Mons",
+    }
+    resp = await client.post("/admin/companies", json=payload)
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -118,8 +144,45 @@ async def test_list_companies(client: AsyncClient) -> None:
         )
     resp = await client.get("/admin/companies")
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
-    assert len(resp.json()) >= 2
+    data = resp.json()
+    assert isinstance(data["items"], list)
+    assert len(data["items"]) >= 2
+    assert data["total"] >= 2
+    assert data["page"] == 1
+    assert data["limit"] == 50
+
+
+@pytest.mark.asyncio
+async def test_list_companies_pagination_page_and_limit(client: AsyncClient) -> None:
+    for i in range(3):
+        await client.post(
+            "/admin/companies",
+            json={
+                "business_name": f"Paged Co {i}",
+                "owner_name": "Owner",
+                "whatsapp_number": _unique_phone(),
+            },
+        )
+
+    resp = await client.get("/admin/companies", params={"page": 1, "limit": 1})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["items"]) == 1
+    assert data["page"] == 1
+    assert data["limit"] == 1
+    assert data["total"] >= 3
+    assert data["pages"] >= 3
+
+    # A different page returns a different item (no overlap at the boundary).
+    resp2 = await client.get("/admin/companies", params={"page": 2, "limit": 1})
+    assert resp2.status_code == 200
+    assert resp2.json()["items"][0]["id"] != data["items"][0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_list_companies_limit_over_max_returns_422(client: AsyncClient) -> None:
+    resp = await client.get("/admin/companies", params={"limit": 500})
+    assert resp.status_code == 422
 
 
 # ── Dealer endpoints ──────────────────────────────────────────────────────────
@@ -174,9 +237,11 @@ async def test_list_dealers(client: AsyncClient) -> None:
 
     resp = await client.get(f"/admin/companies/{company_id}/dealers")
     assert resp.status_code == 200
-    names = [d["name"] for d in resp.json()]
+    data = resp.json()
+    names = [d["name"] for d in data["items"]]
     assert "Dealer A" in names
     assert "Dealer B" in names
+    assert data["total"] == 2
 
 
 @pytest.mark.asyncio
@@ -238,9 +303,11 @@ async def test_list_suppliers(client: AsyncClient) -> None:
 
     resp = await client.get(f"/admin/companies/{company_id}/suppliers")
     assert resp.status_code == 200
-    names = [s["name"] for s in resp.json()]
+    data = resp.json()
+    names = [s["name"] for s in data["items"]]
     assert "Supplier X" in names
     assert "Supplier Y" in names
+    assert data["total"] == 2
 
 
 @pytest.mark.asyncio
@@ -276,5 +343,5 @@ async def test_dealers_scoped_to_company(client: AsyncClient) -> None:
 
     resp = await client.get(f"/admin/companies/{company_b}/dealers")
     assert resp.status_code == 200
-    names = [d["name"] for d in resp.json()]
+    names = [d["name"] for d in resp.json()["items"]]
     assert "A's Dealer" not in names

@@ -44,6 +44,11 @@ class CanonicalImporter(BaseImporter):
         "gst_amount": "gst_amount",
         "total_amount": "total_amount",
         "description": "description",
+        # Optional provenance columns — not required, but preserved into
+        # BusinessEvent.payload by ImportEngine when present (traceability
+        # back to the original source document/row).
+        "voucher_reference": "voucher_reference",
+        "source_file": "source_file",
     }
 
     @classmethod

@@ -25,6 +25,41 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
 
+    # Phase 6 — shared-key auth for every /admin/* route (see app/core/auth.py).
+    # None until set in .env; require_api_key fails closed (401) when unset,
+    # rather than silently allowing unauthenticated traffic through.
+    admin_api_key: str | None = Field(default=None, alias="ADMIN_API_KEY")
+
+    # Phase 7 — WhatsApp inbound webhook (see app/api/webhooks/whatsapp.py).
+    # whatsapp_verify_token is Meta's GET handshake secret; whatsapp_app_secret
+    # signs every POST body (X-Hub-Signature-256). Both fail closed when unset,
+    # same convention as admin_api_key.
+    whatsapp_verify_token: str | None = Field(default=None, alias="WHATSAPP_VERIFY_TOKEN")
+    whatsapp_app_secret: str | None = Field(default=None, alias="WHATSAPP_APP_SECRET")
+
+    # Phase 8 — outbound sending (see app/services/whatsapp_client.py). Both
+    # fail closed (WhatsAppNotConfiguredError) when unset, same convention.
+    whatsapp_token: str | None = Field(default=None, alias="WHATSAPP_TOKEN")
+    whatsapp_phone_number_id: str | None = Field(default=None, alias="WHATSAPP_PHONE_NUMBER_ID")
+
+    # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
+    # pluggable LLMProvider + automatic failover chain. llm_provider is the
+    # primary; llm_fallbacks (comma-separated, e.g. "gemini,groq,anthropic")
+    # is tried in order if the primary fails retryably. Any subset of the 4
+    # providers' credentials can be populated at once without conflict — a
+    # provider with no key configured is skipped silently by the chain, never
+    # silently proceeding with a missing key on the one it does try.
+    llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
+    llm_fallbacks: str = Field(default="", alias="LLM_FALLBACKS")
+    anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
+    anthropic_model: str = Field(default="claude-haiku-4-5", alias="ANTHROPIC_MODEL")
+    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.5-flash", alias="GEMINI_MODEL")
+    groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
+    groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
+    openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
+    openrouter_model: str = Field(default="openai/gpt-oss-120b:free", alias="OPENROUTER_MODEL")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:

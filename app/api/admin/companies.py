@@ -10,14 +10,15 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.company import Company
 from app.schemas.company import CompanyCreate, CompanyResponse
+from app.schemas.pagination import Page
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ async def create_company(
         email=payload.email,
         business_type=payload.business_type,
         preferred_language=payload.preferred_language,
+        timezone=payload.timezone,
         opening_balance=payload.opening_balance,
     )
     db.add(company)
@@ -60,14 +62,23 @@ async def create_company(
 
 @router.get(
     "",
-    response_model=list[CompanyResponse],
+    response_model=Page[CompanyResponse],
     summary="List all companies",
 )
 async def list_companies(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-) -> list[Company]:
-    result = await db.execute(select(Company).order_by(Company.created_at.desc()))
-    return list(result.scalars().all())
+) -> Page[CompanyResponse]:
+    total = await db.scalar(select(func.count()).select_from(Company)) or 0
+    result = await db.execute(
+        select(Company)
+        .order_by(Company.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+    )
+    companies = list(result.scalars().all())
+    return Page.create(items=companies, total=total, page=page, limit=limit)
 
 
 @router.get(

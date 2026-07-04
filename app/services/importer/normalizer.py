@@ -82,3 +82,14 @@ def parse_amount(raw: str) -> Decimal:
 def normalise_header(raw: str) -> str:
     """Lower-case, strip whitespace, replace spaces/hyphens with underscores."""
     return re.sub(r"[\s\-]+", "_", raw.strip().lower())
+
+
+def row_by_normalised_header(raw_row: dict[str, str], headers: list[str]) -> dict[str, str]:
+    """Re-key a row from original header text to normalised header text.
+
+    BaseImporter.map_headers()/normalise_row() operate on normalised header
+    strings throughout — this bridges a row keyed by original file headers
+    (as read by engine.parse_file) to that contract. Shared by both the
+    invoice and payment import paths.
+    """
+    return {normalise_header(h): raw_row.get(h, "") for h in headers}

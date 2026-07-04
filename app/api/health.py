@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
@@ -9,6 +10,8 @@ from app import __version__
 from app.core.config import get_settings
 from app.db.session import get_db
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["health"])
 
 
@@ -19,7 +22,11 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
 
     try:
         await db.execute(text("SELECT 1"))
-    except Exception as exc:
+    except Exception:
+        # Log the real error server-side; never return it to the caller — a
+        # driver exception can carry connection-string fragments, and this
+        # endpoint is unauthenticated.
+        logger.exception("Health check database probe failed")
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
@@ -28,7 +35,6 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
                 "version": __version__,
                 "environment": settings.app_env,
                 "database": "disconnected",
-                "error": str(exc),
                 "checked_at": checked_at,
             },
         )

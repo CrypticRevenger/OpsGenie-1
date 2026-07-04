@@ -8,14 +8,15 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.schemas.dealer import DealerCreate, DealerResponse
+from app.schemas.pagination import Page
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +66,28 @@ async def create_dealer(
 
 @router.get(
     "",
-    response_model=list[DealerResponse],
+    response_model=Page[DealerResponse],
     summary="List dealers for a company",
 )
 async def list_dealers(
     company_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-) -> list[Dealer]:
+) -> Page[DealerResponse]:
     await _get_company_or_404(company_id, db)
+    total = await db.scalar(
+        select(func.count()).select_from(Dealer).where(Dealer.company_id == company_id)
+    ) or 0
     result = await db.execute(
         select(Dealer)
         .where(Dealer.company_id == company_id)
         .order_by(Dealer.name)
+        .offset((page - 1) * limit)
+        .limit(limit)
     )
-    return list(result.scalars().all())
+    dealers = list(result.scalars().all())
+    return Page.create(items=dealers, total=total, page=page, limit=limit)
 
 
 @router.get(

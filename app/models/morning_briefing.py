@@ -16,14 +16,22 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
-from app.models._mixins import UUIDMixin
+from app.models._mixins import TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.company import Company
 
 
-class MorningBriefing(UUIDMixin, Base):
-    """A generated morning briefing delivered to a distributor."""
+class MorningBriefing(UUIDMixin, TimestampMixin, Base):
+    """A generated morning briefing delivered to a distributor.
+
+    created_at (via TimestampMixin) added in Phase 5B: sent_at was meant to be
+    the primary timestamp per the original TDD, but stays None until a
+    delivery layer exists (not built yet — no WhatsApp integration). Without
+    it there was no way to order "most recent" for the read endpoint. The
+    Phase 1 audit already flagged this as safe to add later "without
+    consequence" once querying by creation time became necessary.
+    """
 
     __tablename__ = "morning_briefings"
     __table_args__ = (Index("ix_morning_briefings_company_sent", "company_id", "sent_at"),)

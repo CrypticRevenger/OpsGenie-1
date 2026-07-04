@@ -54,7 +54,7 @@ LLMs never own business state. LLMs never calculate money. LLMs never update rec
 
 Never ask the user for information the database already knows. When input is ambiguous, query the database for likely matches and present the best option for confirmation rather than asking an open question.
 
-If you replace Claude with any other model tomorrow, every number and every recommendation must remain identical. Only phrasing may change. If replacing the model changes a business decision, the architecture is wrong.
+If you replace the LLM provider with any other model tomorrow, every number and every recommendation must remain identical. Only phrasing may change. If replacing the model changes a business decision, the architecture is wrong.
 
 ---
 
@@ -152,7 +152,7 @@ Invoice management and lifecycle. Payment management. Business events writer. De
 
 ### Week 3 — Intelligence Layer
 
-Business snapshot generator. Recommendation engine. Morning briefing generator with Claude narration.
+Business snapshot generator. Recommendation engine. Morning briefing generator with LLM narration.
 
 ### Week 4 — Delivery
 
@@ -206,7 +206,7 @@ Recommendation Engine
 (pure Python rules, no LLM)
 ↓
 AI Narration Layer
-(Claude — language only, never business logic)
+(LLM Provider — language only, never business logic)
 ↓
 Notification Engine
 (pure rules, no LLM)
@@ -225,7 +225,7 @@ LLMs never own business state. LLMs never calculate money. LLMs never update rec
 
 Never ask the user for information the database already knows. When input is ambiguous, query for likely matches and confirm rather than asking an open question.
 
-If you replace Claude with any other model, every number and every recommendation must remain identical. Only phrasing may change.
+If you replace the LLM provider with any other model, every number and every recommendation must remain identical. Only phrasing may change.
 
 Every briefing number must be traceable to a specific database record. No estimates, no smoothing.
 
@@ -318,11 +318,11 @@ Pure Python. No LLM. Reads snapshot. Outputs ranked action list as structured JS
 
 Rules in priority order: if net cash position negative, add cash deficit warning as priority 1 with deficit amount and suggested collection target. For each dealer with outstanding above threshold and overdue more than 15 days, add call action ordered by amount descending. For each supplier payment due within 48 hours where cash insufficient, add critical payment warning as priority 1. If data freshness exceeds 24 hours, add stale data warning. For each dealer overdue between 5 and 15 days, add follow-up reminder ordered by amount.
 
-Each action item contains: priority integer, action\_type, entity\_name, entity\_id, amount, reason, days\_overdue. Claude receives this list and converts to natural language. Claude never modifies priority, amounts, or entity names.
+Each action item contains: priority integer, action\_type, entity\_name, entity\_id, amount, reason, days\_overdue. The LLM provider receives this list and converts it to natural language. It never modifies priority, amounts, or entity names.
 
 ### BriefingService
 
-Runs at 8am daily via APScheduler. Calls BusinessSnapshotService. Calls RecommendationEngine. Assembles structured payload. Calls Claude API with system prompt: "You are a WhatsApp financial assistant for a B2B distributor. Convert the following structured business data into a brief, friendly, sectioned WhatsApp morning briefing in [language]. Sections: Cash Position, Attention Required, Today's Actions. Every number comes from the data provided — do not add, estimate, or modify any figure. Keep each section to 3 to 5 lines. Use simple language readable in 30 seconds on a phone screen." Appends confidence indicator showing data freshness. Sends via WhatsApp. Logs to MorningBriefings with full snapshot JSON.
+Runs at 8am daily via APScheduler. Calls BusinessSnapshotService. Calls RecommendationEngine. Assembles structured payload. Calls the configured LLM provider with system prompt: "You are a WhatsApp financial assistant for a B2B distributor. Convert the following structured business data into a brief, friendly, sectioned WhatsApp morning briefing in [language]. Sections: Cash Position, Attention Required, Today's Actions. Every number comes from the data provided — do not add, estimate, or modify any figure. Keep each section to 3 to 5 lines. Use simple language readable in 30 seconds on a phone screen." Appends confidence indicator showing data freshness. Sends via WhatsApp. Logs to MorningBriefings with full snapshot JSON.
 
 ### InvoiceDueDateFollowUpService
 
@@ -340,7 +340,7 @@ Append-only writer called by BusinessEngine on every significant event. Provides
 
 ## 5. Technology Stack
 
-Python 3.11, FastAPI, SQLAlchemy 2.0 async, Alembic for migrations. PostgreSQL 16 on Neon free tier for pilot. Redis via Upstash for snapshot staleness flags and session state. APScheduler inside FastAPI lifespan for 8am briefing and notification schedules. Anthropic Claude API, claude-haiku-4-5 for pilot. Meta WhatsApp Business Cloud API via httpx. Cloudflare R2 for uploaded CSV and Excel files. Railway for pilot deployment. Sentry and Betterstack for error tracking and uptime monitoring.
+Python 3.11, FastAPI, SQLAlchemy 2.0 async, Alembic for migrations. PostgreSQL 16 on Neon free tier for pilot. Redis via Upstash for snapshot staleness flags and session state. APScheduler inside FastAPI lifespan for 8am briefing and notification schedules. Pluggable LLM provider (Anthropic Claude, Google Gemini, Groq, or OpenRouter) with automatic failover across configured providers, selected via LLM\_PROVIDER/LLM\_FALLBACKS — claude-haiku-4-5, gemini-2.5-flash, or another configured model for pilot. Meta WhatsApp Business Cloud API via httpx. Cloudflare R2 for uploaded CSV and Excel files. Railway for pilot deployment. Sentry and Betterstack for error tracking and uptime monitoring.
 
 ---
 
@@ -364,7 +364,7 @@ Step 6: BusinessSnapshotService — build snapshot from real data, verify every 
 
 Step 7: RecommendationEngine — test against multiple snapshot scenarios with known expected outputs. Verify every rule fires correctly.
 
-Step 8: BriefingService — integrate Claude, send to one real distributor, verify every number in the output matches the snapshot exactly.
+Step 8: BriefingService — integrate the LLM provider, send to one real distributor, verify every number in the output matches the snapshot exactly.
 
 Step 9: ImportService — build against the real Tally export file, verify row-level error handling, verify BusinessEngine is triggered correctly per imported record.
 

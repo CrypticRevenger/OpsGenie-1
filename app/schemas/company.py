@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -18,6 +19,9 @@ class CompanyCreate(BaseModel):
     email: str | None = None
     business_type: str | None = None
     preferred_language: str = "en"
+    # IANA timezone that business-day boundaries (overdue, 7-day window) are
+    # computed in. Defaults to India since that's the pilot market.
+    timezone: str = "Asia/Kolkata"
     opening_balance: Decimal = Decimal("0")
 
     @field_validator("whatsapp_number")
@@ -29,6 +33,19 @@ class CompanyCreate(BaseModel):
             raise ValueError(
                 "whatsapp_number must be in E.164 format, e.g. +919876543210"
             )
+        return v
+
+    @field_validator("timezone")
+    @classmethod
+    def must_be_valid_timezone(cls, v: str) -> str:
+        """Reject an unknown IANA zone at create time rather than letting it
+        blow up later inside build_snapshot.
+        """
+        v = v.strip()
+        try:
+            ZoneInfo(v)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"'{v}' is not a valid IANA timezone name.") from exc
         return v
 
     @field_validator("opening_balance")
@@ -51,6 +68,7 @@ class CompanyResponse(BaseModel):
     email: str | None
     business_type: str | None
     preferred_language: str
+    timezone: str
     subscription_active: bool
     opening_balance: Decimal
     created_at: datetime
