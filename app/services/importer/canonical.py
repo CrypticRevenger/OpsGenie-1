@@ -27,7 +27,7 @@ class CanonicalImporter(BaseImporter):
 
     REQUIRED_CANONICAL_COLUMNS = {
         "invoice_number",
-        "direction",       # required only in canonical format
+        "direction",  # required only in canonical format
         "party_name",
         "invoice_date",
         "due_date",
@@ -36,7 +36,7 @@ class CanonicalImporter(BaseImporter):
 
     COLUMN_ALIASES: dict[str, str] = {
         "invoice_number": "invoice_number",
-        "direction": "direction",        # receivable | payable
+        "direction": "direction",  # receivable | payable
         "party_name": "party_name",
         "invoice_date": "invoice_date",
         "due_date": "due_date",

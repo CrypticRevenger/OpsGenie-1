@@ -178,9 +178,7 @@ class TestTallyImporterColumnAliases:
 
 class TestTallyImporterValidation:
     def test_valid_headers_pass(self):
-        headers = normalised(
-            ["Voucher No", "Party Name", "Date", "Due Date", "Net Amount"]
-        )
+        headers = normalised(["Voucher No", "Party Name", "Date", "Due Date", "Net Amount"])
         hmap = TallyImporter.map_headers(headers)
         missing = TallyImporter.validate_required(hmap)
         assert missing == []
@@ -225,8 +223,14 @@ class TestVyaparImporterDetect:
 class TestCanonicalImporterDetect:
     def test_detects_direction_column(self):
         headers = normalised(
-            ["invoice_number", "direction", "party_name", "invoice_date",
-             "due_date", "total_amount"]
+            [
+                "invoice_number",
+                "direction",
+                "party_name",
+                "invoice_date",
+                "due_date",
+                "total_amount",
+            ]
         )
         assert CanonicalImporter.detect(headers) is True
 
@@ -237,8 +241,14 @@ class TestCanonicalImporterDetect:
     def test_requires_direction_as_canonical_column(self):
         # Canonical requires 'direction' — unlike Tally/Vyapar
         headers = normalised(
-            ["invoice_number", "direction", "party_name",
-             "invoice_date", "due_date", "total_amount"]
+            [
+                "invoice_number",
+                "direction",
+                "party_name",
+                "invoice_date",
+                "due_date",
+                "total_amount",
+            ]
         )
         hmap = CanonicalImporter.map_headers(headers)
         missing = CanonicalImporter.validate_required(hmap)
@@ -251,8 +261,14 @@ class TestCanonicalImporterDetect:
 class TestDetectImporter:
     def test_canonical_wins_over_tally_when_direction_present(self):
         # If direction column is present, it MUST be canonical format
-        raw_headers = ["invoice_number", "direction", "party_name",
-                       "invoice_date", "due_date", "total_amount"]
+        raw_headers = [
+            "invoice_number",
+            "direction",
+            "party_name",
+            "invoice_date",
+            "due_date",
+            "total_amount",
+        ]
         result = detect_importer(raw_headers)
         assert result is CanonicalImporter
 
@@ -262,8 +278,14 @@ class TestDetectImporter:
         assert result is TallyImporter
 
     def test_vyapar_detected_for_payment_status_headers(self):
-        raw_headers = ["Invoice No", "Party Name", "Amount", "Payment Status",
-                       "Invoice Date", "Due Date"]
+        raw_headers = [
+            "Invoice No",
+            "Party Name",
+            "Amount",
+            "Payment Status",
+            "Invoice Date",
+            "Due Date",
+        ]
         result = detect_importer(raw_headers)
         assert result is VyaparImporter
 

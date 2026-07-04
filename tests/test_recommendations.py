@@ -106,9 +106,7 @@ def test_urgent_payment_with_sufficient_cash_no_warning():
 
 def test_non_urgent_payment_never_fires_critical_warning_even_if_cash_short():
     payment = _supplier_payment(urgent=False, amount=Decimal("999999.00"))
-    snapshot = _base_snapshot(
-        cash_available_today=Decimal("1.00"), expected_payments_7d=[payment]
-    )
+    snapshot = _base_snapshot(cash_available_today=Decimal("1.00"), expected_payments_7d=[payment])
     actions = build_recommendations(snapshot)
     assert not [a for a in actions if a.action_type == "critical_payment_warning"]
 

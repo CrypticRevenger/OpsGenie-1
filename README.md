@@ -6,9 +6,18 @@ OpsGenie converts existing business records (Tally/Vyapar exports) into daily op
 
 ## Status
 
-**Phase 0 complete** — project foundation, FastAPI app, async PostgreSQL connection, Alembic, health check, dev tooling.
+**Phases 1–9 complete** — full backend from schema through a working WhatsApp integration:
 
-Product requirements and technical design: [`SPEC.md`](SPEC.md)
+- Admin CRUD (company / dealer / supplier) with shared-key auth and pagination
+- CSV/Excel import with idempotent, FIFO payment allocation
+- Invoice & payment read APIs with computed outstanding balances
+- `BusinessSnapshotService` + `RecommendationEngine` (pure Python, no LLM)
+- Morning briefing narration via a pluggable multi-provider LLM chain with automatic failover
+- Inbound WhatsApp webhook, numbered query menu, and stateful invoice due-date follow-up conversations
+
+Deterministic business engine validated against real distributor data; 295 tests passing.
+
+Product requirements and technical design: [`SPEC.md`](SPEC.md) · API reference: [`docs/api.md`](docs/api.md)
 
 ## Quick Start
 

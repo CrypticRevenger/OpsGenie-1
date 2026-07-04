@@ -78,7 +78,9 @@ async def _make_payment(
 ) -> None:
     db.add(
         Payment(
-            company_id=company_id, invoice_id=invoice_id, amount=amount,
+            company_id=company_id,
+            invoice_id=invoice_id,
+            amount=amount,
             payment_date=date(2026, 1, 10),
         )
     )

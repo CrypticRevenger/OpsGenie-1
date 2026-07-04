@@ -104,9 +104,8 @@ async def test_append_only_tables_have_no_updated_at(db: AsyncSession) -> None:
         """)
     )
     rows = result.fetchall()
-    assert rows == [], (
-        "Append-only tables must not have updated_at: "
-        + ", ".join(f"{r[0]}.{r[1]}" for r in rows)
+    assert rows == [], "Append-only tables must not have updated_at: " + ", ".join(
+        f"{r[0]}.{r[1]}" for r in rows
     )
 
 

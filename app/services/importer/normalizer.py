@@ -17,10 +17,10 @@ from decimal import Decimal, InvalidOperation
 # ── Date parsing ──────────────────────────────────────────────────────────────
 
 _DATE_PATTERNS: list[str] = [
-    r"^(\d{4})-(\d{1,2})-(\d{1,2})$",   # YYYY-MM-DD  (ISO)
-    r"^(\d{1,2})-(\d{1,2})-(\d{4})$",   # DD-MM-YYYY  (Tally default)
-    r"^(\d{1,2})/(\d{1,2})/(\d{4})$",   # DD/MM/YYYY  (Vyapar)
-    r"^(\d{4})/(\d{1,2})/(\d{1,2})$",   # YYYY/MM/DD
+    r"^(\d{4})-(\d{1,2})-(\d{1,2})$",  # YYYY-MM-DD  (ISO)
+    r"^(\d{1,2})-(\d{1,2})-(\d{4})$",  # DD-MM-YYYY  (Tally default)
+    r"^(\d{1,2})/(\d{1,2})/(\d{4})$",  # DD/MM/YYYY  (Vyapar)
+    r"^(\d{4})/(\d{1,2})/(\d{1,2})$",  # YYYY/MM/DD
 ]
 
 
@@ -50,8 +50,7 @@ def parse_date(raw: str) -> date:
                 raise ValueError(f"Invalid date components in '{raw}'") from exc
 
     raise ValueError(
-        f"Unrecognised date format '{raw}'. "
-        "Expected DD-MM-YYYY, YYYY-MM-DD, or DD/MM/YYYY."
+        f"Unrecognised date format '{raw}'. Expected DD-MM-YYYY, YYYY-MM-DD, or DD/MM/YYYY."
     )
 
 

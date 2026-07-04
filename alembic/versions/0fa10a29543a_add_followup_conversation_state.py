@@ -49,9 +49,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_column("invoices", "expected_payment_date")
-    op.drop_constraint(
-        "fk_companies_pending_follow_up_invoice_id", "companies", type_="foreignkey"
-    )
+    op.drop_constraint("fk_companies_pending_follow_up_invoice_id", "companies", type_="foreignkey")
     op.drop_column("companies", "pending_follow_up_created_at")
     op.drop_column("companies", "pending_follow_up_state")
     op.drop_column("companies", "pending_follow_up_invoice_id")

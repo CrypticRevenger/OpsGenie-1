@@ -1,7 +1,7 @@
 """Admin follow-up trigger endpoint tests — Phase 9.
 
-    uv run alembic upgrade head
-    uv run pytest tests/test_admin_followup.py -v
+uv run alembic upgrade head
+uv run pytest tests/test_admin_followup.py -v
 """
 
 from __future__ import annotations
@@ -35,9 +35,7 @@ async def _create_company(client: AsyncClient) -> str:
 
 
 @pytest.mark.asyncio
-async def test_send_due_today_sends_when_invoice_due(
-    client: AsyncClient, db: AsyncSession
-) -> None:
+async def test_send_due_today_sends_when_invoice_due(client: AsyncClient, db: AsyncSession) -> None:
     company_id = await _create_company(client)
     dealer = Dealer(company_id=uuid.UUID(company_id), name="Ram Traders")
     db.add(dealer)

@@ -72,10 +72,7 @@ async def list_companies(
 ) -> Page[CompanyResponse]:
     total = await db.scalar(select(func.count()).select_from(Company)) or 0
     result = await db.execute(
-        select(Company)
-        .order_by(Company.created_at.desc())
-        .offset((page - 1) * limit)
-        .limit(limit)
+        select(Company).order_by(Company.created_at.desc()).offset((page - 1) * limit).limit(limit)
     )
     companies = list(result.scalars().all())
     return Page.create(items=companies, total=total, page=page, limit=limit)
