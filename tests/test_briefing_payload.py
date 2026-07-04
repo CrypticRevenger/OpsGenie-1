@@ -16,6 +16,7 @@ from app.services.briefing import (
     assemble_briefing_payload,
     confidence_indicator,
     find_unverified_amounts,
+    stale_data_banner,
 )
 from app.services.recommendations import ActionItem
 from app.services.snapshot import Snapshot
@@ -53,6 +54,31 @@ def _action_item(**overrides) -> ActionItem:
     )
     defaults.update(overrides)
     return ActionItem(**defaults)
+
+
+# ── stale_data_banner (Step 16) ───────────────────────────────────────────────
+
+
+def test_stale_data_banner_none_when_fresh():
+    assert stale_data_banner(1.0) is None
+    assert stale_data_banner(24.0) is None  # exactly at threshold = still fresh
+
+
+def test_stale_data_banner_present_when_stale():
+    banner = stale_data_banner(30.0)
+    assert banner is not None
+    assert banner.startswith("⚠")
+    assert "1 day" in banner
+
+
+def test_stale_data_banner_multi_day():
+    assert "2 day" in stale_data_banner(50.0)
+
+
+def test_stale_data_banner_never_imported():
+    banner = stale_data_banner(None)
+    assert banner is not None
+    assert "No data has been received" in banner
 
 
 # ── assemble_briefing_payload ─────────────────────────────────────────────────
