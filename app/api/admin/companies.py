@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -94,3 +94,36 @@ async def get_company(
             detail=f"Company {company_id} not found.",
         )
     return company
+
+
+@router.delete(
+    "/{company_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a company and all its data",
+    description=(
+        "Permanently deletes a company and everything scoped to it — dealers, "
+        "suppliers, invoices, payments, business events, activity timeline, "
+        "briefings, imports, and notification logs — via database cascade. "
+        "Irreversible."
+    ),
+)
+async def delete_company(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    company = await db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Company {company_id} not found.",
+        )
+    # Core DELETE (not db.delete(company)) so the whole subtree is removed by
+    # Postgres ON DELETE CASCADE in one statement — the ORM cascade would try
+    # to lazy-load every child collection, which raises under async. Postgres
+    # resolves the Phase 9 circular FK (companies.pending_follow_up_invoice_id
+    # -> invoices) and the invoice dealer/supplier CHECK correctly on its own
+    # (verified against real data).
+    await db.execute(delete(Company).where(Company.id == company_id))
+    await db.commit()
+    logger.info("Deleted company %s (%s)", company.business_name, company_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
