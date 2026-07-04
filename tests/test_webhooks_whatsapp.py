@@ -615,3 +615,59 @@ async def test_reply_1_routes_to_pending_follow_up_not_the_menu(
     assert invoice.status == InvoiceStatus.Paid
     await db.refresh(company)
     assert company.pending_follow_up_invoice_id is None
+
+
+# ── Subscription gate (agent only replies to active subscribers) ──────────────
+
+
+@pytest.mark.asyncio
+async def test_inactive_subscription_logs_but_does_not_reply(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company = Company(
+        business_name="Pending Co",
+        owner_name="Owner",
+        whatsapp_number=phone,
+        subscription_active=False,
+    )
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+    company_id = company.id
+    bare_sender = phone.removeprefix("+")
+
+    sent = []
+
+    async def _fake_send(to, body):
+        sent.append(to)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    body = json.dumps(_messages_payload(sender=bare_sender, message_type="text", text="1")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    # Inbound message IS logged...
+    inbound = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.company_id == company_id,
+            BusinessEvent.event_type == BusinessEventType.whatsapp_message_received,
+        )
+    )
+    assert inbound is not None
+    # ...but NO reply was sent or logged.
+    assert sent == []
+    reply = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.company_id == company_id,
+            BusinessEvent.event_type == BusinessEventType.whatsapp_reply_sent,
+        )
+    )
+    assert reply is None
+    log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company_id))
+    assert log is None

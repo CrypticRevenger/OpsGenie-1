@@ -301,6 +301,17 @@ async def receive_whatsapp_webhook(
                 # correlation_id below, regardless of which branch follows.
                 await db.flush()
 
+                # The agent only responds for companies whose subscription is
+                # active. Onboarded-but-not-yet-activated numbers are logged
+                # (above) but get no reply — the subscription is what "turns on
+                # the agent" for them.
+                if not company.subscription_active:
+                    logger.info(
+                        "Inbound from %s but subscription inactive — logged, not responding.",
+                        sender,
+                    )
+                    continue
+
                 if message.get("type") == "text":
                     text = _extract_text_body(message)
                     command: str | None = None

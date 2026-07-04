@@ -48,6 +48,16 @@ class Settings(BaseSettings):
     # None until set; those two alerts are simply skipped (logged) when unset.
     founder_whatsapp_number: str | None = Field(default=None, alias="FOUNDER_WHATSAPP_NUMBER")
 
+    # Self-serve onboarding (see app/api/onboarding.py). The public /onboard
+    # page is gated by this shared access code — fail-closed like admin_api_key
+    # (onboarding rejects everything when unset). welcome_template_* name the
+    # Meta-approved template pushed when a company's subscription is activated
+    # (a free-form welcome to a never-seen number is blocked by WhatsApp's 24h
+    # rule, so it must be a template).
+    onboarding_access_code: str | None = Field(default=None, alias="ONBOARDING_ACCESS_CODE")
+    welcome_template_name: str | None = Field(default=None, alias="WELCOME_TEMPLATE_NAME")
+    welcome_template_language: str = Field(default="en_US", alias="WELCOME_TEMPLATE_LANGUAGE")
+
     # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
     # every scheduler_poll_interval_minutes and, per company, acts when the
     # company's own business-local hour matches these targets. NotificationEngine
