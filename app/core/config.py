@@ -42,6 +42,27 @@ class Settings(BaseSettings):
     whatsapp_token: str | None = Field(default=None, alias="WHATSAPP_TOKEN")
     whatsapp_phone_number_id: str | None = Field(default=None, alias="WHATSAPP_PHONE_NUMBER_ID")
 
+    # Phase 10 — NotificationEngine's two founder-facing ops alerts ("no data
+    # received in 24h", "briefing delivery failed") go to the OpsGenie
+    # operator's own number, distinct from any distributor's whatsapp_number.
+    # None until set; those two alerts are simply skipped (logged) when unset.
+    founder_whatsapp_number: str | None = Field(default=None, alias="FOUNDER_WHATSAPP_NUMBER")
+
+    # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
+    # every scheduler_poll_interval_minutes and, per company, acts when the
+    # company's own business-local hour matches these targets. scheduler_enabled
+    # gates the whole thing off in tests / when running one-off scripts.
+    scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
+    scheduler_poll_interval_minutes: int = Field(
+        default=15, alias="SCHEDULER_POLL_INTERVAL_MINUTES"
+    )
+    briefing_hour: int = Field(default=8, alias="BRIEFING_HOUR")
+    briefing_retry_hour: int = Field(default=9, alias="BRIEFING_RETRY_HOUR")
+    followup_hour: int = Field(default=10, alias="FOLLOWUP_HOUR")
+    notification_check_interval_minutes: int = Field(
+        default=60, alias="NOTIFICATION_CHECK_INTERVAL_MINUTES"
+    )
+
     # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
     # pluggable LLMProvider + automatic failover chain. llm_provider is the
     # primary; llm_fallbacks (comma-separated, e.g. "gemini,groq,anthropic")
