@@ -44,6 +44,9 @@ class BusinessEventType(enum.StrEnum):
     whatsapp_status_received = "whatsapp_status_received"
     # Phase 8 — outbound reply to a numbered-menu command or unknown input.
     whatsapp_reply_sent = "whatsapp_reply_sent"
+    # Phase 10 — NotificationEngine internal ops alert to the founder's number
+    # (payload.reason distinguishes "stale_data" vs "briefing_failed").
+    founder_alert_sent = "founder_alert_sent"
 
 
 class BusinessEvent(UUIDMixin, Base):

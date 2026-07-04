@@ -36,7 +36,11 @@ from app.services.llm import (
     generate_with_fallback,
 )
 from app.services.query_menu import MENU_PROMPT
-from app.services.recommendations import ActionItem, build_recommendations
+from app.services.recommendations import (
+    _STALE_DATA_THRESHOLD_HOURS,
+    ActionItem,
+    build_recommendations,
+)
 from app.services.snapshot import Snapshot, build_snapshot
 
 logger = logging.getLogger(__name__)
@@ -95,6 +99,33 @@ def confidence_indicator(confidence_score: float, data_freshness_hours: float | 
     else:
         freshness = f"data updated {data_freshness_hours:.0f} hour(s) ago"
     return f"({freshness} — confidence {confidence_score:.0f}%)"
+
+
+def stale_data_banner(data_freshness_hours: float | None) -> str | None:
+    """Deterministic, Python-generated warning prepended above the whole
+    briefing when data is stale (SPEC's "Stale Data Briefing" example) —
+    distinct from the confidence indicator footer, which appears on every
+    briefing regardless of freshness. Returns None when data is fresh so the
+    caller can prepend nothing. Reuses RecommendationEngine's own staleness
+    threshold so the banner and the stale_data_warning recommendation can
+    never disagree about what "stale" means.
+    """
+    if data_freshness_hours is None:
+        return (
+            "⚠ No data has been received yet. This briefing cannot reflect your "
+            "actual position. Please ask your operator to send today's Tally export."
+        )
+    if data_freshness_hours <= _STALE_DATA_THRESHOLD_HOURS:
+        return None
+    days = int(data_freshness_hours // 24)
+    if days >= 1:
+        age = f"{days} day(s) ago"
+    else:
+        age = f"{int(round(data_freshness_hours))} hour(s) ago"
+    return (
+        f"⚠ Data last received {age}. This briefing may not reflect today's actual "
+        "position. Please ask your operator to send today's Tally export."
+    )
 
 
 def find_unverified_amounts(generated_text: str, payload: dict) -> list[str]:
@@ -171,7 +202,9 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
         user_content=json.dumps(payload),
     )
     indicator = confidence_indicator(snapshot.confidence_score, snapshot.data_freshness_hours)
-    generated_text = f"{result.text}\n\n{indicator}\n\n{MENU_PROMPT}"
+    banner = stale_data_banner(snapshot.data_freshness_hours)
+    body = f"{banner}\n\n{result.text}" if banner else result.text
+    generated_text = f"{body}\n\n{indicator}\n\n{MENU_PROMPT}"
 
     unverified = find_unverified_amounts(result.text, payload)
     if unverified:
@@ -227,4 +260,5 @@ __all__ = [
     "confidence_indicator",
     "find_unverified_amounts",
     "generate_briefing",
+    "stale_data_banner",
 ]
