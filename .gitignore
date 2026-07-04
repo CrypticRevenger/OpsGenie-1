@@ -50,3 +50,8 @@ docker/data/
 # Real business data — never committed regardless of repo visibility
 Dataset for phase 3/
 scripts/convert_phase3_dataset.py
+
+# Local debugging screenshots (may contain tokens / account IDs)
+z_issue/
+z_issue_solved/
+z_issue*
