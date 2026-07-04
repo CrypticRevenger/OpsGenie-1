@@ -13,7 +13,10 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from app.models.dealer import Dealer
 from httpx import AsyncClient
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -128,6 +131,60 @@ async def test_get_company(client: AsyncClient) -> None:
 async def test_get_company_not_found(client: AsyncClient) -> None:
     resp = await client.get(f"/admin/companies/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_company(client: AsyncClient) -> None:
+    create_resp = await client.post(
+        "/admin/companies",
+        json={
+            "business_name": "To Be Deleted",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    assert create_resp.status_code == 201
+    company_id = create_resp.json()["id"]
+
+    del_resp = await client.delete(f"/admin/companies/{company_id}")
+    assert del_resp.status_code == 204
+
+    # Gone afterwards.
+    assert (await client.get(f"/admin/companies/{company_id}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_company_not_found(client: AsyncClient) -> None:
+    resp = await client.delete(f"/admin/companies/{uuid.uuid4()}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_company_cascades_children(client: AsyncClient, db: AsyncSession) -> None:
+    """Deleting a company must remove everything scoped to it via DB cascade."""
+    create_resp = await client.post(
+        "/admin/companies",
+        json={
+            "business_name": "Cascade Co",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    company_id = uuid.UUID(create_resp.json()["id"])
+
+    dealer = Dealer(company_id=company_id, name="Doomed Dealer")
+    db.add(dealer)
+    await db.commit()
+    dealer_id = dealer.id
+
+    del_resp = await client.delete(f"/admin/companies/{company_id}")
+    assert del_resp.status_code == 204
+
+    # The child dealer row is gone too (cascade), verified directly in the DB.
+    remaining = await db.scalar(
+        select(func.count()).select_from(Dealer).where(Dealer.id == dealer_id)
+    )
+    assert remaining == 0
 
 
 @pytest.mark.asyncio
