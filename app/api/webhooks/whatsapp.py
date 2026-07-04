@@ -345,33 +345,3 @@ async def receive_whatsapp_webhook(
     # surfaced as HTTP errors.
     await db.commit()
     return {"status": "received"}
-
-from fastapi.responses import PlainTextResponse, JSONResponse
-
-@router.get("")
-async def verify_whatsapp_webhook(
-    hub_mode: str | None = Query(None, alias="hub.mode"),
-    hub_verify_token: str | None = Query(None, alias="hub.verify_token"),
-    hub_challenge: str | None = Query(None, alias="hub.challenge"),
-):
-    logger.info(
-        "VERIFY REQUEST: mode=%r token=%r challenge=%r expected=%r",
-        hub_mode,
-        hub_verify_token,
-        hub_challenge,
-        settings.WHATSAPP_VERIFY_TOKEN,
-    )
-
-    if (
-        hub_mode == "subscribe"
-        and hmac.compare_digest(
-            hub_verify_token or "",
-            settings.WHATSAPP_VERIFY_TOKEN,
-        )
-    ):
-        return PlainTextResponse(hub_challenge or "")
-
-    return JSONResponse(
-        status_code=403,
-        content={"detail": "Verification failed."},
-    )
