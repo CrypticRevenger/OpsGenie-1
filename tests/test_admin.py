@@ -297,9 +297,7 @@ async def test_create_supplier_company_not_found(client: AsyncClient) -> None:
 async def test_list_suppliers(client: AsyncClient) -> None:
     company_id = await _create_company(client)
     for name in ("Supplier X", "Supplier Y"):
-        await client.post(
-            f"/admin/companies/{company_id}/suppliers", json={"name": name}
-        )
+        await client.post(f"/admin/companies/{company_id}/suppliers", json={"name": name})
 
     resp = await client.get(f"/admin/companies/{company_id}/suppliers")
     assert resp.status_code == 200

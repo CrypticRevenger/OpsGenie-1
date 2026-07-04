@@ -106,12 +106,20 @@ async def test_list_invoices_returns_all(client: AsyncClient, db: AsyncSession) 
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Dealer A")
     await _make_invoice(
-        db, company_id, invoice_number="INV-L1", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-L1",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
     )
     await _make_invoice(
-        db, company_id, invoice_number="INV-L2", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("2000.00"),
+        db,
+        company_id,
+        invoice_number="INV-L2",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("2000.00"),
     )
 
     resp = await client.get(f"/admin/companies/{company_id}/invoices")
@@ -128,12 +136,20 @@ async def test_list_invoices_filters_by_direction(client: AsyncClient, db: Async
     dealer_id = await _make_dealer(db, company_id, "Dealer B")
     supplier_id = await _make_supplier(db, company_id, "Supplier B")
     await _make_invoice(
-        db, company_id, invoice_number="INV-DIR-R", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-DIR-R",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
     )
     await _make_invoice(
-        db, company_id, invoice_number="INV-DIR-P", direction=InvoiceDirection.payable,
-        supplier_id=supplier_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-DIR-P",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("1000.00"),
     )
 
     resp = await client.get(
@@ -149,12 +165,22 @@ async def test_list_invoices_filters_by_status(client: AsyncClient, db: AsyncSes
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Dealer C")
     await _make_invoice(
-        db, company_id, invoice_number="INV-ST-PAID", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"), status=InvoiceStatus.Paid,
+        db,
+        company_id,
+        invoice_number="INV-ST-PAID",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+        status=InvoiceStatus.Paid,
     )
     await _make_invoice(
-        db, company_id, invoice_number="INV-ST-PENDING", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"), status=InvoiceStatus.Pending,
+        db,
+        company_id,
+        invoice_number="INV-ST-PENDING",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+        status=InvoiceStatus.Pending,
     )
 
     resp = await client.get(f"/admin/companies/{company_id}/invoices", params={"status": "Paid"})
@@ -169,12 +195,20 @@ async def test_list_invoices_filters_by_dealer_id(client: AsyncClient, db: Async
     dealer_a = await _make_dealer(db, company_id, "Dealer D1")
     dealer_b = await _make_dealer(db, company_id, "Dealer D2")
     await _make_invoice(
-        db, company_id, invoice_number="INV-DEALER-A", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_a, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-DEALER-A",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_a,
+        total_amount=Decimal("1000.00"),
     )
     await _make_invoice(
-        db, company_id, invoice_number="INV-DEALER-B", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_b, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-DEALER-B",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_b,
+        total_amount=Decimal("1000.00"),
     )
 
     resp = await client.get(
@@ -196,17 +230,32 @@ async def test_amount_paid_and_outstanding_across_statuses(
     dealer_id = await _make_dealer(db, company_id, "Dealer E")
 
     await _make_invoice(
-        db, company_id, invoice_number="INV-AMT-PENDING", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("5000.00"), status=InvoiceStatus.Pending,
+        db,
+        company_id,
+        invoice_number="INV-AMT-PENDING",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("5000.00"),
+        status=InvoiceStatus.Pending,
     )
     partial = await _make_invoice(
-        db, company_id, invoice_number="INV-AMT-PARTIAL", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("5000.00"), status=InvoiceStatus.Partially_Paid,
+        db,
+        company_id,
+        invoice_number="INV-AMT-PARTIAL",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("5000.00"),
+        status=InvoiceStatus.Partially_Paid,
     )
     await _make_payment(db, company_id, partial.id, Decimal("2000.00"))
     paid = await _make_invoice(
-        db, company_id, invoice_number="INV-AMT-PAID", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("5000.00"), status=InvoiceStatus.Paid,
+        db,
+        company_id,
+        invoice_number="INV-AMT-PAID",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("5000.00"),
+        status=InvoiceStatus.Paid,
     )
     await _make_payment(db, company_id, paid.id, Decimal("5000.00"))
 
@@ -231,8 +280,13 @@ async def test_get_invoice_includes_payments(client: AsyncClient, db: AsyncSessi
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Dealer F")
     invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-DETAIL", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("9000.00"), status=InvoiceStatus.Partially_Paid,
+        db,
+        company_id,
+        invoice_number="INV-DETAIL",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("9000.00"),
+        status=InvoiceStatus.Partially_Paid,
     )
     await _make_payment(db, company_id, invoice.id, Decimal("3000.00"))
     await _make_payment(db, company_id, invoice.id, Decimal("1000.00"))
@@ -259,8 +313,12 @@ async def test_get_invoice_wrong_company_returns_404(client: AsyncClient, db: As
     company_b = await _make_company(db)
     dealer_id = await _make_dealer(db, company_a, "Dealer G")
     invoice = await _make_invoice(
-        db, company_a, invoice_number="INV-CROSS", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"),
+        db,
+        company_a,
+        invoice_number="INV-CROSS",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
     )
 
     resp = await client.get(f"/admin/companies/{company_b}/invoices/{invoice.id}")
@@ -276,8 +334,12 @@ async def test_invoices_scoped_to_company(client: AsyncClient, db: AsyncSession)
     company_b = await _make_company(db)
     dealer_a = await _make_dealer(db, company_a, "Dealer H")
     await _make_invoice(
-        db, company_a, invoice_number="INV-ISOLATED", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_a, total_amount=Decimal("1000.00"),
+        db,
+        company_a,
+        invoice_number="INV-ISOLATED",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_a,
+        total_amount=Decimal("1000.00"),
     )
 
     resp = await client.get(f"/admin/companies/{company_b}/invoices")
@@ -304,12 +366,20 @@ async def test_list_invoices_pagination_total_respects_filters(
     supplier_id = await _make_supplier(db, company_id, "Supplier Page")
     for i in range(3):
         await _make_invoice(
-            db, company_id, invoice_number=f"INV-PAGE-R{i}", direction=InvoiceDirection.receivable,
-            dealer_id=dealer_id, total_amount=Decimal("1000.00"),
+            db,
+            company_id,
+            invoice_number=f"INV-PAGE-R{i}",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer_id,
+            total_amount=Decimal("1000.00"),
         )
     await _make_invoice(
-        db, company_id, invoice_number="INV-PAGE-P", direction=InvoiceDirection.payable,
-        supplier_id=supplier_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAGE-P",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("1000.00"),
     )
 
     # total must reflect the filter, not the whole company's invoice count.

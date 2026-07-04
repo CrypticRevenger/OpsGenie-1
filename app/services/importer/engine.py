@@ -114,13 +114,9 @@ def parse_file(contents: bytes, filename: str) -> tuple[list[str], list[dict[str
         return headers, rows
     if lower.endswith(".xlsx"):
         try:
-            workbook = openpyxl.load_workbook(
-                io.BytesIO(contents), read_only=True, data_only=True
-            )
+            workbook = openpyxl.load_workbook(io.BytesIO(contents), read_only=True, data_only=True)
         except (zipfile.BadZipFile, KeyError) as exc:
-            raise UnsupportedFileError(
-                f"{filename!r} is not a valid Excel (.xlsx) file."
-            ) from exc
+            raise UnsupportedFileError(f"{filename!r} is not a valid Excel (.xlsx) file.") from exc
         worksheet = workbook.active
         rows_iter = worksheet.iter_rows(values_only=True)
         try:
@@ -310,9 +306,10 @@ async def run_import(
             async with db.begin_nested():
                 normalised_row = row_by_normalised_header(raw_row, headers)
                 canonical = importer_cls.normalise_row(normalised_row, header_map)
-                voucher_reference = canonical.get("voucher_reference", "").strip() or canonical.get(
-                    "invoice_number", ""
-                ).strip()
+                voucher_reference = (
+                    canonical.get("voucher_reference", "").strip()
+                    or canonical.get("invoice_number", "").strip()
+                )
                 source_file = canonical.get("source_file", "").strip() or filename
                 await _import_invoice_row(
                     db,

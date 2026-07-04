@@ -76,9 +76,12 @@ async def list_dealers(
     db: AsyncSession = Depends(get_db),
 ) -> Page[DealerResponse]:
     await _get_company_or_404(company_id, db)
-    total = await db.scalar(
-        select(func.count()).select_from(Dealer).where(Dealer.company_id == company_id)
-    ) or 0
+    total = (
+        await db.scalar(
+            select(func.count()).select_from(Dealer).where(Dealer.company_id == company_id)
+        )
+        or 0
+    )
     result = await db.execute(
         select(Dealer)
         .where(Dealer.company_id == company_id)

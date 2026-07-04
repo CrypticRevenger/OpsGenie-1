@@ -102,8 +102,12 @@ async def test_list_payments_returns_all(client: AsyncClient, db: AsyncSession) 
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Dealer P1")
     invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-PAY-1", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("5000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAY-1",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("5000.00"),
     )
     await _make_payment(db, company_id, invoice.id, Decimal("2000.00"))
     await _make_payment(db, company_id, invoice.id, Decimal("3000.00"))
@@ -121,12 +125,20 @@ async def test_list_payments_filters_by_invoice_id(client: AsyncClient, db: Asyn
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Dealer P2")
     invoice_a = await _make_invoice(
-        db, company_id, invoice_number="INV-PAY-A", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAY-A",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
     )
     invoice_b = await _make_invoice(
-        db, company_id, invoice_number="INV-PAY-B", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAY-B",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
     )
     await _make_payment(db, company_id, invoice_a.id, Decimal("500.00"))
     await _make_payment(db, company_id, invoice_b.id, Decimal("700.00"))
@@ -146,12 +158,20 @@ async def test_list_payments_filters_by_dealer_id(client: AsyncClient, db: Async
     dealer_a = await _make_dealer(db, company_id, "Dealer P3")
     dealer_b = await _make_dealer(db, company_id, "Dealer P4")
     invoice_a = await _make_invoice(
-        db, company_id, invoice_number="INV-PAY-DA", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_a, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAY-DA",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_a,
+        total_amount=Decimal("1000.00"),
     )
     invoice_b = await _make_invoice(
-        db, company_id, invoice_number="INV-PAY-DB", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_b, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAY-DB",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_b,
+        total_amount=Decimal("1000.00"),
     )
     await _make_payment(db, company_id, invoice_a.id, Decimal("111.00"))
     await _make_payment(db, company_id, invoice_b.id, Decimal("222.00"))
@@ -170,8 +190,12 @@ async def test_list_payments_filters_by_supplier_id(client: AsyncClient, db: Asy
     company_id = await _make_company(db)
     supplier_id = await _make_supplier(db, company_id, "Supplier P1")
     invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-PAY-SUP", direction=InvoiceDirection.payable,
-        supplier_id=supplier_id, total_amount=Decimal("1000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAY-SUP",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("1000.00"),
     )
     await _make_payment(db, company_id, invoice.id, Decimal("999.00"))
 
@@ -190,8 +214,12 @@ async def test_payments_scoped_to_company(client: AsyncClient, db: AsyncSession)
     company_b = await _make_company(db)
     dealer_a = await _make_dealer(db, company_a, "Dealer P5")
     invoice_a = await _make_invoice(
-        db, company_a, invoice_number="INV-PAY-ISOLATED", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_a, total_amount=Decimal("1000.00"),
+        db,
+        company_a,
+        invoice_number="INV-PAY-ISOLATED",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_a,
+        total_amount=Decimal("1000.00"),
     )
     await _make_payment(db, company_a, invoice_a.id, Decimal("444.00"))
 
@@ -217,12 +245,20 @@ async def test_list_payments_pagination_total_respects_filters(
     dealer_a = await _make_dealer(db, company_id, "Dealer P6")
     dealer_b = await _make_dealer(db, company_id, "Dealer P7")
     invoice_a = await _make_invoice(
-        db, company_id, invoice_number="INV-PAGE-PAY-A", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_a, total_amount=Decimal("5000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAGE-PAY-A",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_a,
+        total_amount=Decimal("5000.00"),
     )
     invoice_b = await _make_invoice(
-        db, company_id, invoice_number="INV-PAGE-PAY-B", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_b, total_amount=Decimal("5000.00"),
+        db,
+        company_id,
+        invoice_number="INV-PAGE-PAY-B",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_b,
+        total_amount=Decimal("5000.00"),
     )
     for amount in (Decimal("100.00"), Decimal("200.00"), Decimal("300.00")):
         await _make_payment(db, company_id, invoice_a.id, amount)

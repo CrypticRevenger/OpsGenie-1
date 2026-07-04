@@ -148,9 +148,16 @@ class TallyImporter(BaseImporter):
             return False  # let VyaparImporter handle it
 
         tally_signature_columns = {
-            "voucher_no", "vch_no", "voucher_no.", "vch_no.",
-            "voucher_date", "voucher_number", "vch._no.",
-            "party_ledger_name", "ledger_name", "narration",
+            "voucher_no",
+            "vch_no",
+            "voucher_no.",
+            "vch_no.",
+            "voucher_date",
+            "voucher_number",
+            "vch._no.",
+            "party_ledger_name",
+            "ledger_name",
+            "narration",
         }
         matched = sum(1 for h in normalised_headers if h in cls.COLUMN_ALIASES)
         has_signature = any(h in tally_signature_columns for h in normalised_headers)

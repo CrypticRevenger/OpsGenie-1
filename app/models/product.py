@@ -41,6 +41,4 @@ class Product(UUIDMixin, TimestampMixin, Base):
 
     # ── Relationships ────────────────────────────────────────────────────────
     company: Mapped[Company] = relationship("Company", back_populates="products")
-    invoice_items: Mapped[list[InvoiceItem]] = relationship(
-        "InvoiceItem", back_populates="product"
-    )
+    invoice_items: Mapped[list[InvoiceItem]] = relationship("InvoiceItem", back_populates="product")

@@ -35,7 +35,9 @@ def _unique_phone() -> str:
 
 async def _make_company(db: AsyncSession, opening_balance: Decimal = Decimal("0.00")) -> uuid.UUID:
     company = Company(
-        business_name="Snapshot Test Co", owner_name="Owner", whatsapp_number=_unique_phone(),
+        business_name="Snapshot Test Co",
+        owner_name="Owner",
+        whatsapp_number=_unique_phone(),
         opening_balance=opening_balance,
     )
     db.add(company)
@@ -116,15 +118,24 @@ async def test_cash_available_today_combines_opening_balance_and_payments(db: As
     supplier_id = await _make_supplier(db, company_id, "Supplier A")
 
     receivable_invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-CASH-R", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("50000.00"), due_date=TODAY - timedelta(days=1),
+        db,
+        company_id,
+        invoice_number="INV-CASH-R",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("50000.00"),
+        due_date=TODAY - timedelta(days=1),
         status=InvoiceStatus.Paid,
     )
     await _make_payment(db, company_id, receivable_invoice.id, Decimal("50000.00"), TODAY)
 
     payable_invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-CASH-P", direction=InvoiceDirection.payable,
-        supplier_id=supplier_id, total_amount=Decimal("20000.00"),
+        db,
+        company_id,
+        invoice_number="INV-CASH-P",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("20000.00"),
         due_date=TODAY - timedelta(days=1),
         status=InvoiceStatus.Paid,
     )
@@ -141,12 +152,22 @@ async def test_expected_collections_7d_only_includes_window(db: AsyncSession) ->
     dealer_id = await _make_dealer(db, company_id, "Dealer B")
 
     await _make_invoice(
-        db, company_id, invoice_number="INV-COLL-IN", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("5000.00"), due_date=TODAY + timedelta(days=3),
+        db,
+        company_id,
+        invoice_number="INV-COLL-IN",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("5000.00"),
+        due_date=TODAY + timedelta(days=3),
     )
     await _make_invoice(
-        db, company_id, invoice_number="INV-COLL-OUT", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("9000.00"), due_date=TODAY + timedelta(days=30),
+        db,
+        company_id,
+        invoice_number="INV-COLL-OUT",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("9000.00"),
+        due_date=TODAY + timedelta(days=30),
     )
 
     snapshot = await build_snapshot(db, company_id)
@@ -161,8 +182,13 @@ async def test_expected_collections_use_outstanding_not_gross(db: AsyncSession) 
     dealer_id = await _make_dealer(db, company_id, "Dealer Partial")
 
     invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-PARTIAL", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("10000.00"), due_date=TODAY + timedelta(days=3),
+        db,
+        company_id,
+        invoice_number="INV-PARTIAL",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("10000.00"),
+        due_date=TODAY + timedelta(days=3),
         status=InvoiceStatus.Partially_Paid,
     )
     await _make_payment(db, company_id, invoice.id, Decimal("4000.00"), TODAY)
@@ -184,8 +210,13 @@ async def test_fully_paid_invoice_in_window_excluded_from_expected_collections(
     dealer_id = await _make_dealer(db, company_id, "Dealer Settled")
 
     invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-SETTLED", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("2000.00"), due_date=TODAY + timedelta(days=2),
+        db,
+        company_id,
+        invoice_number="INV-SETTLED",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("2000.00"),
+        due_date=TODAY + timedelta(days=2),
         status=InvoiceStatus.Partially_Paid,
     )
     await _make_payment(db, company_id, invoice.id, Decimal("2000.00"), TODAY)
@@ -201,8 +232,12 @@ async def test_net_cash_position_and_deficit_flag(db: AsyncSession) -> None:
     company_id = await _make_company(db, opening_balance=Decimal("1000.00"))
     supplier_id = await _make_supplier(db, company_id, "Supplier B")
     await _make_invoice(
-        db, company_id, invoice_number="INV-DEFICIT", direction=InvoiceDirection.payable,
-        supplier_id=supplier_id, total_amount=Decimal("50000.00"),
+        db,
+        company_id,
+        invoice_number="INV-DEFICIT",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("50000.00"),
         due_date=TODAY + timedelta(days=2),
     )
 
@@ -217,12 +252,22 @@ async def test_overdue_dealer_days_overdue_uses_oldest_unpaid_invoice(db: AsyncS
     dealer_id = await _make_dealer(db, company_id, "Dealer C", credit_limit=Decimal("1000.00"))
 
     await _make_invoice(
-        db, company_id, invoice_number="INV-OD-OLD", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("10000.00"), due_date=TODAY - timedelta(days=20),
+        db,
+        company_id,
+        invoice_number="INV-OD-OLD",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("10000.00"),
+        due_date=TODAY - timedelta(days=20),
     )
     await _make_invoice(
-        db, company_id, invoice_number="INV-OD-NEW", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("5000.00"), due_date=TODAY - timedelta(days=6),
+        db,
+        company_id,
+        invoice_number="INV-OD-NEW",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("5000.00"),
+        due_date=TODAY - timedelta(days=6),
     )
 
     snapshot = await build_snapshot(db, company_id)
@@ -238,8 +283,13 @@ async def test_dealer_not_overdue_absent_from_overdue_list(db: AsyncSession) -> 
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Dealer D")
     await _make_invoice(
-        db, company_id, invoice_number="INV-NOTDUE", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("3000.00"), due_date=TODAY + timedelta(days=5),
+        db,
+        company_id,
+        invoice_number="INV-NOTDUE",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("3000.00"),
+        due_date=TODAY + timedelta(days=5),
     )
 
     snapshot = await build_snapshot(db, company_id)
@@ -252,8 +302,13 @@ async def test_late_payment_count_6mo(db: AsyncSession) -> None:
     dealer_id = await _make_dealer(db, company_id, "Dealer E")
 
     late_paid_invoice = await _make_invoice(
-        db, company_id, invoice_number="INV-LATE", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("2000.00"), due_date=TODAY - timedelta(days=30),
+        db,
+        company_id,
+        invoice_number="INV-LATE",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("2000.00"),
+        due_date=TODAY - timedelta(days=30),
         status=InvoiceStatus.Paid,
     )
     await _make_payment(
@@ -262,8 +317,13 @@ async def test_late_payment_count_6mo(db: AsyncSession) -> None:
 
     # a second, currently-overdue invoice so the dealer shows up in overdue_dealers
     await _make_invoice(
-        db, company_id, invoice_number="INV-STILL-OPEN", direction=InvoiceDirection.receivable,
-        dealer_id=dealer_id, total_amount=Decimal("1000.00"), due_date=TODAY - timedelta(days=8),
+        db,
+        company_id,
+        invoice_number="INV-STILL-OPEN",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+        due_date=TODAY - timedelta(days=8),
     )
 
     snapshot = await build_snapshot(db, company_id)
@@ -278,9 +338,13 @@ async def test_data_freshness_and_confidence_from_import_log(db: AsyncSession) -
     company_id = await _make_company(db)
     db.add(
         ImportLog(
-            company_id=company_id, filename="x.csv", source_format="csv",
+            company_id=company_id,
+            filename="x.csv",
+            source_format="csv",
             imported_at=datetime.now(UTC) - timedelta(hours=2),
-            rows_processed=1, rows_succeeded=1, rows_failed=0,
+            rows_processed=1,
+            rows_succeeded=1,
+            rows_failed=0,
         )
     )
     await db.commit()

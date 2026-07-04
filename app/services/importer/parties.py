@@ -30,9 +30,7 @@ async def find_or_create_party(
     """
     model = _PARTY_MODEL[direction]
     existing = await db.scalar(
-        select(model).where(
-            model.company_id == company_id, func.lower(model.name) == name.lower()
-        )
+        select(model).where(model.company_id == company_id, func.lower(model.name) == name.lower())
     )
     if existing is not None:
         return existing

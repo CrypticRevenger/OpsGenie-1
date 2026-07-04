@@ -19,9 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "notification_logs", sa.Column("whatsapp_message_id", sa.String(), nullable=True)
-    )
+    op.add_column("notification_logs", sa.Column("whatsapp_message_id", sa.String(), nullable=True))
     op.create_unique_constraint(
         "uq_notification_logs_whatsapp_message_id", "notification_logs", ["whatsapp_message_id"]
     )

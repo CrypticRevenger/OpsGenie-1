@@ -30,9 +30,7 @@ class CompanyCreate(BaseModel):
         """Enforce E.164 format: +<country_code><number>, digits only after +."""
         v = v.strip()
         if not v.startswith("+") or not v[1:].isdigit() or len(v) < 8:
-            raise ValueError(
-                "whatsapp_number must be in E.164 format, e.g. +919876543210"
-            )
+            raise ValueError("whatsapp_number must be in E.164 format, e.g. +919876543210")
         return v
 
     @field_validator("timezone")

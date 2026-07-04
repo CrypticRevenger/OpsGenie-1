@@ -119,9 +119,7 @@ async def test_import_log_written_matches_response(client: AsyncClient, db: Asyn
     )
     data = resp.json()
 
-    log = await db.scalar(
-        select(ImportLog).where(ImportLog.company_id == uuid.UUID(company_id))
-    )
+    log = await db.scalar(select(ImportLog).where(ImportLog.company_id == uuid.UUID(company_id)))
     assert log is not None
     assert log.filename == "invoices.csv"
     assert log.rows_processed == data["rows_processed"]

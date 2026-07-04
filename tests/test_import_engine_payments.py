@@ -92,7 +92,10 @@ async def test_payment_fully_pays_single_invoice(db: AsyncSession) -> None:
     )
 
     result = await run_import(
-        db, company_id=company_id, direction="receivable", file_kind="payments",
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
         filename="payments.csv",
         contents=_csv("Ram Traders,2026-01-10,10000.00,Bank"),
     )
@@ -122,7 +125,10 @@ async def test_payment_splits_fifo_across_two_invoices(db: AsyncSession) -> None
     # Payment of 8000 should fully pay the older (6000) and partially pay the
     # newer (2000 of 6000), oldest invoice_date first.
     result = await run_import(
-        db, company_id=company_id, direction="receivable", file_kind="payments",
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
         filename="payments.csv",
         contents=_csv("Kumar Agency,2026-01-15,8000.00,Bank"),
     )
@@ -151,7 +157,10 @@ async def test_payment_exceeding_outstanding_rejected(db: AsyncSession) -> None:
     )
 
     result = await run_import(
-        db, company_id=company_id, direction="receivable", file_kind="payments",
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
         filename="payments.csv",
         contents=_csv("Ganesh Store,2026-01-10,9000.00,Bank"),
     )
@@ -172,7 +181,10 @@ async def test_payment_with_no_invoice_on_file_rejected_but_party_created(
     company_id = await _make_company(db)
 
     result = await run_import(
-        db, company_id=company_id, direction="payable", file_kind="payments",
+        db,
+        company_id=company_id,
+        direction="payable",
+        file_kind="payments",
         filename="payments.csv",
         contents=_csv("NUTRICROP BIOSCIENCES,2026-01-08,45000.00,Bank"),
     )
@@ -201,22 +213,28 @@ async def test_reimporting_same_payments_file_is_idempotent(db: AsyncSession) ->
     contents = _csv("Sharma Traders,2026-01-10,7000.00,Bank")
 
     first = await run_import(
-        db, company_id=company_id, direction="receivable", file_kind="payments",
-        filename="payments.csv", contents=contents,
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
+        filename="payments.csv",
+        contents=contents,
     )
     assert first.rows_succeeded == 1
     assert first.rows_skipped == 0
 
     second = await run_import(
-        db, company_id=company_id, direction="receivable", file_kind="payments",
-        filename="payments.csv", contents=contents,
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
+        filename="payments.csv",
+        contents=contents,
     )
     assert second.rows_succeeded == 0
     assert second.rows_skipped == 1
 
     payments = (
-        (await db.execute(select(Payment).where(Payment.company_id == company_id)))
-        .scalars()
-        .all()
+        (await db.execute(select(Payment).where(Payment.company_id == company_id))).scalars().all()
     )
     assert len(payments) == 1  # no duplicate payment created
