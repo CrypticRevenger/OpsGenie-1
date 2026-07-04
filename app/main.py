@@ -6,6 +6,7 @@ from fastapi import Depends, FastAPI
 from app import __version__
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
+from app.api.onboarding import router as onboarding_router
 from app.api.webhooks import router as webhooks_router
 from app.core.auth import require_api_key
 from app.core.config import get_settings
@@ -50,6 +51,9 @@ def create_app() -> FastAPI:
     # X-API-Key — deliberately outside the admin_router's auth dependency.
     # Each webhook route has its own verification mechanism instead.
     app.include_router(webhooks_router)
+    # Public self-serve onboarding page — no X-API-Key (distributors reach it);
+    # gated instead by the shared onboarding access code.
+    app.include_router(onboarding_router)
 
     return app
 

@@ -70,3 +70,12 @@ class CompanyResponse(BaseModel):
     subscription_active: bool
     opening_balance: Decimal
     created_at: datetime
+
+
+class SubscriptionResponse(BaseModel):
+    """Result of an activate/deactivate-subscription action."""
+
+    company_id: uuid.UUID
+    subscription_active: bool
+    status: str  # "activated" | "already_active" | "deactivated" | "already_inactive"
+    welcome_sent: bool = False

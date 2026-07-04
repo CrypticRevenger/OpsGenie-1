@@ -15,6 +15,7 @@ from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
     WhatsAppSendResult,
+    send_template_message,
     send_text_message,
 )
 
@@ -131,3 +132,79 @@ async def test_send_text_message_wraps_malformed_response(monkeypatch):
 
     with pytest.raises(WhatsAppSendError):
         await send_text_message("+919999999999", "hello")
+
+
+# ── send_template_message (onboarding welcome) ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_template_message_success(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"messages": [{"id": "wamid.TMPL1"}]}
+
+    async def _fake_post(self, url, json, headers):
+        captured["payload"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    class _Settings:
+        whatsapp_token = "fake-token"
+        whatsapp_phone_number_id = "123456"
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    result = await send_template_message("+919999999999", "welcome", "en_US")
+    assert isinstance(result, WhatsAppSendResult)
+    assert result.message_id == "wamid.TMPL1"
+    assert captured["payload"]["type"] == "template"
+    assert captured["payload"]["template"]["name"] == "welcome"
+    assert captured["payload"]["template"]["language"]["code"] == "en_US"
+    assert "components" not in captured["payload"]["template"]  # no body params
+
+
+@pytest.mark.asyncio
+async def test_send_template_message_with_body_params(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"messages": [{"id": "wamid.TMPL2"}]}
+
+    async def _fake_post(self, url, json, headers):
+        captured["payload"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    class _Settings:
+        whatsapp_token = "fake-token"
+        whatsapp_phone_number_id = "123456"
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    await send_template_message("+919999999999", "welcome", "en_US", body_params=["Spandan"])
+    comps = captured["payload"]["template"]["components"]
+    assert comps[0]["type"] == "body"
+    assert comps[0]["parameters"][0]["text"] == "Spandan"
+
+
+@pytest.mark.asyncio
+async def test_send_template_message_raises_when_not_configured(monkeypatch):
+    class _Settings:
+        whatsapp_token = None
+        whatsapp_phone_number_id = None
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    with pytest.raises(WhatsAppNotConfiguredError):
+        await send_template_message("+919999999999", "welcome", "en_US")
