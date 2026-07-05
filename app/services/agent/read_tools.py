@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
 from app.models.dealer import Dealer
+from app.models.faq import FAQ
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.product import Product
@@ -163,9 +164,28 @@ async def _get_upcoming_payments(db: AsyncSession, company: Company) -> dict:
     }
 
 
-async def _list_products(db: AsyncSession, company: Company) -> dict:
+async def _get_inventory(db: AsyncSession, company: Company) -> dict:
     products = (await db.scalars(select(Product).where(Product.company_id == company.id))).all()
-    return {"products": [p.name for p in products]}
+    return {
+        "inventory": [
+            {
+                "name": p.name,
+                "unit": p.unit,
+                "stock_quantity": str(p.stock_quantity),
+                "selling_price": str(p.selling_price) if p.selling_price is not None else None,
+            }
+            for p in products
+        ]
+    }
+
+
+async def _get_faqs(db: AsyncSession, company: Company) -> dict:
+    faqs = (
+        await db.scalars(
+            select(FAQ).where(FAQ.company_id == company.id).order_by(FAQ.created_at)
+        )
+    ).all()
+    return {"faqs": [{"question": f.question, "answer": f.answer} for f in faqs]}
 
 
 async def _all_parties(db: AsyncSession, company: Company, *, direction: str) -> list[dict]:
@@ -314,10 +334,19 @@ READ_TOOLS: list[AgentTool] = [
         _get_upcoming_payments,
     ),
     AgentTool(
-        "list_products",
-        "The distributor's product catalogue (names).",
+        "get_inventory",
+        "The distributor's product catalogue with unit, current stock quantity, and selling "
+        "price. Use for 'what's my stock', 'how much Rice do I have', or any inventory question.",
         no_params(),
-        _list_products,
+        _get_inventory,
+    ),
+    AgentTool(
+        "get_faqs",
+        "The distributor's founder-authored FAQ list (policy questions like delivery days, "
+        "return policy, minimum order). Use this to answer questions about business policy "
+        "rather than guessing.",
+        no_params(),
+        _get_faqs,
     ),
     AgentTool(
         "list_dealers",

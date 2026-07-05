@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from app.models.cash_snapshot import CashSnapshot
     from app.models.conversation_turn import ConversationTurn
     from app.models.dealer import Dealer
+    from app.models.faq import FAQ
     from app.models.import_log import ImportLog
     from app.models.invoice import Invoice
     from app.models.morning_briefing import MorningBriefing
@@ -220,4 +221,7 @@ class Company(UUIDMixin, TimestampMixin, Base):
         # operations) should join on. Same fix as Company.invoices' own
         # foreign_keys= disambiguation for pending_follow_up_invoice_id.
         foreign_keys="PendingOperation.company_id",
+    )
+    faqs: Mapped[list[FAQ]] = relationship(
+        "FAQ", back_populates="company", cascade="all, delete-orphan"
     )
