@@ -82,6 +82,7 @@ class OnboardingState(enum.StrEnum):
     payable_supplier = "payable_supplier"
     payable_amount = "payable_amount"
     payable_date = "payable_date"
+    awaiting_language = "awaiting_language"
     awaiting_briefing_hour = "awaiting_briefing_hour"
     completed = "completed"
 
