@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/landing.css">
+{% endblock %}
+{% block content %}
+<main>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="container">
+      <div class="hero-copy">
+        <h1>Your Business.<br><span class="accent">Managed from WhatsApp.</span></h1>
+        <p>OpsGenie helps distributors track receivables, supplier payments, cash flow, and business performance — without learning new software.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="{{ onboard_url }}">Start Free on WhatsApp</a>
+          <a class="btn btn-secondary" href="#how-it-works">See Demo</a>
+        </div>
+      </div>
+      <div class="hero-mockup">
+        <div class="wa-phone">
+          <div class="wa-phone-header">
+            <span class="wa-avatar">O</span>
+            OpsGenie
+          </div>
+          <div class="wa-phone-body">
+            <div class="wa-bubble">Good Morning Rajesh ☀️
+
+<strong>Today's Summary</strong>
+<span class="wa-figure">₹1,85,000</span> expected today
+<span class="wa-figure">₹70,000</span> supplier payment due tomorrow
+
+<strong>Cash after dues</strong>
+<span class="wa-figure">₹2,41,000</span></div>
+            <div class="wa-bubble wa-risk"><strong>High Risk</strong>
+Sharma Traders
+12 days overdue
+
+<strong>Suggested Action</strong>
+Call Sharma Traders before noon.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Who is this for? -->
+  <section class="section section--soft">
+    <div class="container">
+      <div class="section-heading">
+        <span class="eyebrow">Built For</span>
+        <h2>Who is this for?</h2>
+      </div>
+      <div class="built-for-list">
+        {% for segment in built_for %}
+        <span class="built-for-badge">✔ {{ segment }}</span>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Problem -->
+  <section class="section">
+    <div class="container">
+      <div class="section-heading">
+        <h2>Running a distribution business shouldn't require five notebooks.</h2>
+      </div>
+      <div class="grid-4">
+        <div class="card problem-card">
+          <div class="icon">💸</div>
+          <h3>Money gets stuck</h3>
+          <p>Retailers delay payments.</p>
+        </div>
+        <div class="card problem-card">
+          <div class="icon">⏰</div>
+          <h3>Supplier dues are missed</h3>
+          <p>Late payments hurt supplier trust.</p>
+        </div>
+        <div class="card problem-card">
+          <div class="icon">🌫️</div>
+          <h3>Cash flow is unclear</h3>
+          <p>Nobody knows what tomorrow looks like.</p>
+        </div>
+        <div class="card problem-card">
+          <div class="icon">📱</div>
+          <h3>WhatsApp is already your office</h3>
+          <p>Why switch to complicated ERP software?</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Solution -->
+  <section class="section section--soft">
+    <div class="container">
+      <div class="section-heading">
+        <h2>OpsGenie works where your business already happens.</h2>
+      </div>
+      <div class="solution-flow">
+        <div class="flow-step">Invoices</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">WhatsApp</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">OpsGenie</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">Morning Brief</div>
+        <div class="flow-arrow">↓</div>
+        <div class="flow-step">Better Decisions</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- See OpsGenie in Action -->
+  <section class="section">
+    <div class="container">
+      <div class="section-heading">
+        <span class="eyebrow">The Product Is WhatsApp</span>
+        <h2>See OpsGenie in Action</h2>
+        <p>No dashboard to learn. Just messages, every morning.</p>
+      </div>
+      <div class="mockups-grid">
+        <div class="mockup-item">
+          <div class="wa-phone">
+            <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
+            <div class="wa-phone-body">
+              <div class="wa-bubble">Good Morning ☀️
+
+<strong>Receivable Today</strong>
+<span class="wa-figure">₹92,000</span>
+
+<strong>Supplier Due</strong>
+<span class="wa-figure">₹40,000</span>
+
+<strong>Expected Cash</strong>
+<span class="wa-figure">₹2,84,000</span></div>
+            </div>
+          </div>
+          <h3>Morning Briefing</h3>
+        </div>
+        <div class="mockup-item">
+          <div class="wa-phone">
+            <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
+            <div class="wa-phone-body">
+              <div class="wa-bubble wa-out">2</div>
+              <div class="wa-bubble"><strong>Outstanding Report</strong>
+
+Siddha Mahaveer Agencies
+<span class="wa-figure">₹3,19,828</span> · High risk
+
+Reliable Medical
+<span class="wa-figure">₹39,986</span> · High risk</div>
+            </div>
+          </div>
+          <h3>Outstanding Report</h3>
+        </div>
+        <div class="mockup-item">
+          <div class="wa-phone">
+            <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
+            <div class="wa-phone-body">
+              <div class="wa-bubble wa-out">Cash position?</div>
+              <div class="wa-bubble"><strong>Cash Position</strong>
+
+Available today: <span class="wa-figure">₹2,41,000</span>
+After Friday's dues: <span class="wa-figure">₹1,58,000</span>
+
+Suggested: delay ABC Foods payment by one day.</div>
+            </div>
+          </div>
+          <h3>Cash Position</h3>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Outcomes -->
+  <section id="features" class="section section--soft">
+    <div class="container">
+      <div class="section-heading">
+        <span class="eyebrow">Why OpsGenie</span>
+        <h2>Know every morning who will pay you, what you owe, and whether you'll run out of cash.</h2>
+      </div>
+      <div class="outcomes-chain">
+        {% for outcome in outcomes %}
+        <div class="outcome-row"><span class="icon">{{ outcome.icon }}</span>{{ outcome.text }}</div>
+        {% if not loop.last %}<div class="outcome-arrow">↓</div>{% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works" class="section">
+    <div class="container">
+      <div class="section-heading">
+        <h2>How It Works</h2>
+      </div>
+      <div class="steps-row">
+        {% for step in how_it_works %}
+        <div class="step-item">
+          <div class="step-num">{{ loop.index }}</div>
+          <p>{{ step }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Why WhatsApp -->
+  <section class="section section--soft">
+    <div class="container">
+      <div class="section-heading">
+        <h2>Why WhatsApp?</h2>
+        <p>Most ERPs ask you to log in. OpsGenie doesn't.</p>
+      </div>
+      <table class="comparison-table">
+        <thead>
+          <tr><th>Traditional ERP</th><th>OpsGenie</th></tr>
+        </thead>
+        <tbody>
+          {% for row in comparison %}
+          <tr><td>{{ row.traditional }}</td><td>{{ row.opsgenie }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Trust -->
+  <section class="section">
+    <div class="container">
+      <div class="card trust-card">
+        <p>Currently onboarding our first distributors in Odisha.</p>
+        <p>Become one of our founding customers.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pricing -->
+  <section id="pricing" class="section section--soft">
+    <div class="container">
+      <div class="section-heading">
+        <h2>Simple Pricing</h2>
+      </div>
+      <div class="card pricing-card">
+        <div class="plan-name">Starter</div>
+        <div class="plan-price">₹999<span>/month</span></div>
+        <ul class="pricing-list">
+          {% for feature in pricing_features %}
+          <li>{{ feature }}</li>
+          {% endfor %}
+        </ul>
+        <a class="btn btn-primary btn-block" href="{{ onboard_url }}">Start Free on WhatsApp</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" class="section">
+    <div class="container">
+      <div class="section-heading">
+        <h2>Frequently Asked Questions</h2>
+      </div>
+      <div class="faq-list">
+        {% for item in faq %}
+        <div class="faq-item">
+          <button class="faq-question">{{ item.question }}</button>
+          <div class="faq-answer"><p>{{ item.answer }}</p></div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </section>
+
+  <!-- Final CTA -->
+  <section class="section section--soft final-cta">
+    <div class="container">
+      <h2>Ready to stop guessing your business numbers?</h2>
+      <a class="btn btn-primary" href="{{ onboard_url }}">Start Free on WhatsApp</a>
+    </div>
+  </section>
+
+</main>
+{% endblock %}

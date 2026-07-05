@@ -1,12 +1,15 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.admin import router as admin_router
 from app.api.health import router as health_router
 from app.api.onboarding import router as onboarding_router
+from app.api.site import router as site_router
 from app.api.webhooks import router as webhooks_router
 from app.core.auth import require_api_key
 from app.core.config import get_settings
@@ -14,6 +17,8 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import get_logger, setup_logging
 from app.core.scheduler import shutdown_scheduler, start_scheduler
 from app.db.session import engine
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 logger = get_logger(__name__)
 
@@ -43,6 +48,7 @@ def create_app() -> FastAPI:
     )
 
     register_exception_handlers(app)
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(health_router)
     # Every /admin/* route requires X-API-Key — wired once here rather than
     # per-router, so no individual admin route file needs to know auth exists.
@@ -51,9 +57,11 @@ def create_app() -> FastAPI:
     # X-API-Key — deliberately outside the admin_router's auth dependency.
     # Each webhook route has its own verification mechanism instead.
     app.include_router(webhooks_router)
-    # Public self-serve onboarding page — no X-API-Key (distributors reach it);
-    # gated instead by the shared onboarding access code.
+    # Public self-serve onboarding wizard — no X-API-Key (distributors reach
+    # it); gated instead by the onboarding_enabled kill-switch.
     app.include_router(onboarding_router)
+    # Public marketing site (landing page, privacy/terms/contact).
+    app.include_router(site_router)
 
     return app
 

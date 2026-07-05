@@ -16,17 +16,11 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.company import Company
-from app.models.notification_log import NotificationLog
 from app.schemas.company import CompanyCreate, CompanyResponse, SubscriptionResponse
 from app.schemas.pagination import Page
-from app.services.whatsapp_client import (
-    WhatsAppNotConfiguredError,
-    WhatsAppSendError,
-    send_template_message,
-)
+from app.services.activation import activate_company
 
 logger = logging.getLogger(__name__)
 
@@ -137,43 +131,6 @@ async def delete_company(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-async def _send_welcome(db: AsyncSession, company: Company) -> bool:
-    """Send the approved welcome template to a newly-activated company and log
-    it. Fail-open like every other send — a missing template or a Meta error
-    is logged, never raised, so activation still succeeds. Returns whether the
-    welcome actually went out.
-    """
-    settings = get_settings()
-    if not settings.welcome_template_name:
-        logger.info("Welcome not sent to %s — WELCOME_TEMPLATE_NAME unset.", company.id)
-        return False
-    send_result = None
-    try:
-        send_result = await send_template_message(
-            company.whatsapp_number,
-            settings.welcome_template_name,
-            settings.welcome_template_language,
-            # Fills the template's {{1}} body variable. The approved
-            # `opsgenie_welcome` template must have exactly one body variable;
-            # a variable-less template would be rejected by Meta for having a
-            # parameter, and vice-versa — the two must match.
-            body_params=[company.business_name],
-        )
-    except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
-        logger.warning("Welcome template to %s not sent: %s", company.whatsapp_number, exc)
-    db.add(
-        NotificationLog(
-            company_id=company.id,
-            notification_type="welcome",
-            recipient_whatsapp=company.whatsapp_number,
-            message_text=f"welcome template: {settings.welcome_template_name}",
-            whatsapp_message_id=send_result.message_id if send_result else None,
-            delivery_status="sent" if send_result else "failed_to_send",
-        )
-    )
-    return send_result is not None
-
-
 @router.post(
     "/{company_id}/activate-subscription",
     response_model=SubscriptionResponse,
@@ -188,28 +145,11 @@ async def activate_subscription(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Company {company_id} not found."
         )
-    if company.subscription_active:
-        # Already live — don't re-send the welcome.
-        return SubscriptionResponse(
-            company_id=company.id,
-            subscription_active=True,
-            status="already_active",
-            welcome_sent=False,
-        )
-    # Commit the activation first — that's the durable, important part — then
-    # send the (best-effort) welcome in a second transaction. This keeps the
-    # ~10s Meta round-trip out of the row lock, and means a commit failure
-    # after a successful send can't leave the flag False (which would re-send
-    # the welcome on retry): a retry sees subscription_active=True and no-ops.
-    company.subscription_active = True
-    await db.commit()
-    welcome_sent = await _send_welcome(db, company)
-    await db.commit()
-    logger.info("Activated subscription for %s (welcome_sent=%s)", company_id, welcome_sent)
+    status_, welcome_sent = await activate_company(db, company)
     return SubscriptionResponse(
         company_id=company.id,
-        subscription_active=True,
-        status="activated",
+        subscription_active=company.subscription_active,
+        status=status_,
         welcome_sent=welcome_sent,
     )
 

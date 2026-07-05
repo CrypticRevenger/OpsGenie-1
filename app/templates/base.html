@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}OpsGenie — Your Business, Managed from WhatsApp{% endblock %}</title>
+<meta name="description" content="{% block description %}OpsGenie helps distributors track receivables, supplier payments, cash flow, and business performance — without learning new software.{% endblock %}">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+{% block extra_css %}{% endblock %}
+</head>
+<body>
+{% block navbar %}
+{% include "_navbar.html" %}
+{% endblock %}
+{% block content %}{% endblock %}
+{% include "_footer.html" %}
+<script src="/static/js/main.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

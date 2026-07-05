@@ -11,6 +11,7 @@ dependencies = [
     "asyncpg>=0.30.0",
     "fastapi>=0.115.0",
     "google-genai>=0.3.0",
+    "jinja2>=3.1.6",
     "openai>=1.50.0",
     "openpyxl>=3.1.5",
     "phonenumbers>=9.0.0",
@@ -46,7 +47,6 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
 "app/api/**/*.py" = ["B008"]
-"app/api/onboarding_page.py" = ["E501"]  # HTML/CSS/JS template blob — line length n/a
 "alembic/versions/*.py" = ["E501"]  # generated migration files — line length not enforced
 "app/models/__init__.py" = ["F401"]  # re-export module — all imports are intentional
 
