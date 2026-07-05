@@ -79,6 +79,13 @@ def _is(word: str, *options: str) -> bool:
     return word.strip().lower() in options
 
 
+def _format_quantity(quantity: Decimal) -> str:
+    """Render a stock quantity without parse_amount's forced 2-decimal padding
+    (e.g. Decimal("100.00") -> "100")."""
+    text = format(quantity, "f").rstrip("0").rstrip(".")
+    return text or "0"
+
+
 async def handle_onboarding_message(db: AsyncSession, company: Company, text: str) -> str:
     """Advance the guided setup by one message and return the reply. Only
     mutates state/rows — the caller commits.
@@ -101,7 +108,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             "Now add your products — send them one at a time (e.g. Rice), or reply 'done' to skip."
         )
 
-    # ── 2. Products ──────────────────────────────────────────────────────────
+    # ── 2. Products (name -> stock quantity, repeatable) ─────────────────────
     if state == OnboardingState.product_awaiting_name:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.dealer_awaiting_name
@@ -109,8 +116,22 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
                 f"{_progress(2)}\n\n"
                 "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
             )
-        db.add(Product(company_id=company.id, name=stripped))
-        return f"Added product: {stripped}. Send another, or 'done'."
+        company.onboarding_scratch = {"name": stripped}
+        company.onboarding_state = OnboardingState.product_awaiting_quantity
+        return f"How much {stripped} do you have in stock right now? (e.g. 100, or 'skip')"
+
+    if state == OnboardingState.product_awaiting_quantity:
+        quantity = Decimal("0")
+        if not _is(stripped, "skip"):
+            try:
+                quantity = parse_amount(stripped)
+            except ValueError:
+                return "Please send a number, e.g. 100 (or 'skip')."
+        name = scratch.get("name", "Product")
+        db.add(Product(company_id=company.id, name=name, stock_quantity=quantity))
+        company.onboarding_scratch = None
+        company.onboarding_state = OnboardingState.product_awaiting_name
+        return f"Added product: {name} ({_format_quantity(quantity)} in stock). Send another, or 'done'."
 
     # ── 3. Dealers (name -> phone -> credit days, repeatable) ────────────────
     if state == OnboardingState.dealer_awaiting_name:

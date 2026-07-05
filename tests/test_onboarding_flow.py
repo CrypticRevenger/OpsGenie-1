@@ -67,11 +67,17 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     assert company.business_type == "Pharma Distributor"
     assert company.onboarding_state == OnboardingState.product_awaiting_name
 
-    # Products (one, then done)
+    # Products: name -> quantity, then done
     await _send(db, company, "Paracetamol")
+    assert company.onboarding_state == OnboardingState.product_awaiting_quantity
+    await _send(db, company, "150")
+    assert company.onboarding_state == OnboardingState.product_awaiting_name
     await _send(db, company, "done")
     assert company.onboarding_state == OnboardingState.dealer_awaiting_name
     assert await _count(db, Product, company.id) == 1
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.name == "Paracetamol"
+    assert product.stock_quantity == Decimal("150")
 
     # Dealer: name -> phone -> credit
     await _send(db, company, "Ram Traders")
@@ -181,6 +187,27 @@ async def test_bad_amount_reasks_without_advancing(db: AsyncSession) -> None:
     assert "amount" in reply.lower()
     await _send(db, company, "100000")
     assert company.onboarding_state == OnboardingState.receivable_ask
+
+
+@pytest.mark.asyncio
+async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+
+    # Bad quantity re-asks without advancing
+    await _send(db, company, "Rice")
+    assert company.onboarding_state == OnboardingState.product_awaiting_quantity
+    reply = await _send(db, company, "a lot")
+    assert company.onboarding_state == OnboardingState.product_awaiting_quantity  # stayed
+    assert "number" in reply.lower()
+
+    # Skipping quantity defaults to 0
+    await _send(db, company, "skip")
+    assert company.onboarding_state == OnboardingState.product_awaiting_name
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.name == "Rice"
+    assert product.stock_quantity == Decimal("0")
 
 
 @pytest.mark.asyncio
