@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from app.models.morning_briefing import MorningBriefing
     from app.models.notification_log import NotificationLog
     from app.models.payment import Payment
+    from app.models.pending_operation import PendingOperation
     from app.models.product import Product
     from app.models.supplier import Supplier
 
@@ -145,6 +146,27 @@ class Company(UUIDMixin, TimestampMixin, Base):
     # global BRIEFING_HOUR when set. Collected in onboarding.
     briefing_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Phase 2A — guided write workflows (see app/services/workflows/). Plain
+    # string, not an enum, deliberately: unlike onboarding_state (a fixed,
+    # known sequence), new workflow types get added over time (record_payment
+    # now, create_invoice/add_dealer/... later) and a plain string means that
+    # never needs a schema migration. workflow_scratch mirrors
+    # onboarding_scratch's role — the in-flight flow's collected fields.
+    active_workflow: Mapped[str | None] = mapped_column(String, nullable=True)
+    workflow_scratch: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Mirrors pending_follow_up_invoice_id's pattern: an in-memory pointer so
+    # the webhook can check "does this company have a pending confirmation"
+    # with a plain attribute read on the already-loaded Company row, instead
+    # of an extra query on every single inbound message for every company
+    # (including the vast majority who never use a guided write workflow).
+    # Set in app/services/writes/pending_operation.py::create_pending_operation,
+    # cleared whenever that PendingOperation row is deleted.
+    active_pending_operation_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("pending_operations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
     # ── Relationships ────────────────────────────────────────────────────────
     dealers: Mapped[list[Dealer]] = relationship(
         "Dealer", back_populates="company", cascade="all, delete-orphan"
@@ -187,4 +209,15 @@ class Company(UUIDMixin, TimestampMixin, Base):
     )
     conversation_turns: Mapped[list[ConversationTurn]] = relationship(
         "ConversationTurn", back_populates="company", cascade="all, delete-orphan"
+    )
+    pending_operations: Mapped[list[PendingOperation]] = relationship(
+        "PendingOperation",
+        back_populates="company",
+        cascade="all, delete-orphan",
+        # active_pending_operation_id (above) is a second FK path between
+        # companies and pending_operations — without this, SQLAlchemy can't
+        # tell which column this relationship (a company's own pending
+        # operations) should join on. Same fix as Company.invoices' own
+        # foreign_keys= disambiguation for pending_follow_up_invoice_id.
+        foreign_keys="PendingOperation.company_id",
     )

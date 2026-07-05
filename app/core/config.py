@@ -64,9 +64,7 @@ class Settings(BaseSettings):
     # template (e.g. Meta's stock "hello_world" sample) while the real one is
     # pending approval — sending a parameter to a zero-variable template is
     # rejected by Meta.
-    welcome_template_has_variable: bool = Field(
-        default=True, alias="WELCOME_TEMPLATE_HAS_VARIABLE"
-    )
+    welcome_template_has_variable: bool = Field(default=True, alias="WELCOME_TEMPLATE_HAS_VARIABLE")
     # The real, dialable WhatsApp Business number shown to a newly-activated
     # distributor as a "Continue on WhatsApp" wa.me deep link on the /onboard
     # success page. Distinct from whatsapp_phone_number_id (Meta's internal

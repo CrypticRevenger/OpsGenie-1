@@ -17,6 +17,10 @@ across dozens of genuinely distinct transactions — not a unique document
 serial. So dedup here keys on (party, payment_date, amount) instead, checked
 against previously-written BusinessEvent payloads. voucher_reference is still
 preserved in that payload as metadata, just not used as the dedup key.
+
+allocate_payment_fifo is public (not import-only) — Phase 2A's
+app/services/writes/payments.py::record_payment reuses it for WhatsApp-guided
+payment recording, passing source=PaymentSource.whatsapp.
 """
 
 from __future__ import annotations
@@ -101,7 +105,7 @@ async def _already_imported(db: AsyncSession, company_id: uuid.UUID, source_row_
     return existing is not None
 
 
-async def _allocate_payment_fifo(
+async def allocate_payment_fifo(
     db: AsyncSession,
     *,
     company_id: uuid.UUID,
@@ -115,7 +119,14 @@ async def _allocate_payment_fifo(
     source_file: str,
     row_number: int,
     source_row_key: str,
-) -> None:
+    source: PaymentSource = PaymentSource.csv_import,
+    created_by: str = "import",
+) -> list[tuple[Invoice, Decimal, Payment]]:
+    """Returns the (invoice, amount_allocated, payment) splits actually made —
+    the CSV import path ignores this; app/services/writes/payments.py's
+    record_payment uses it to report which invoices a WhatsApp-recorded
+    payment touched.
+    """
     party_column = Invoice.dealer_id if direction == "receivable" else Invoice.supplier_id
     stmt = (
         select(Invoice)
@@ -169,7 +180,7 @@ async def _allocate_payment_fifo(
             amount=allocated,
             payment_date=payment_date,
             method=method or None,
-            source=PaymentSource.csv_import,
+            source=source,
         )
         db.add(payment)
         invoice.status = (
@@ -196,9 +207,11 @@ async def _allocate_payment_fifo(
                     "row_number": row_number,
                     "source_row_key": source_row_key,
                 },
-                created_by="import",
+                created_by=created_by,
             )
         )
+
+    return allocations
 
 
 async def run_payment_import(
@@ -248,7 +261,7 @@ async def run_payment_import(
             party = await find_or_create_party(db, company_id, row_direction, party_name)
 
             async with db.begin_nested():
-                await _allocate_payment_fifo(
+                await allocate_payment_fifo(
                     db,
                     company_id=company_id,
                     direction=row_direction,
