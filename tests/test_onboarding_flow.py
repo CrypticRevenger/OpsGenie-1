@@ -122,8 +122,13 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     await _send(db, company, "friday")
     assert company.onboarding_state == OnboardingState.payable_ask
     await _send(db, company, "no")
-    assert company.onboarding_state == OnboardingState.awaiting_briefing_hour
+    assert company.onboarding_state == OnboardingState.awaiting_language
     assert await _count(db, Supplier, company.id) == 1
+
+    # Language
+    await _send(db, company, "Hindi")
+    assert company.preferred_language == "Hindi"
+    assert company.onboarding_state == OnboardingState.awaiting_briefing_hour
 
     # Briefing hour -> completed
     reply = await _send(db, company, "7")
@@ -152,6 +157,8 @@ async def test_skip_everything_optional(db: AsyncSession) -> None:
     await _send(db, company, "50000")  # opening cash
     await _send(db, company, "no")  # no receivables
     await _send(db, company, "no")  # no payables
+    await _send(db, company, "English")  # language
+    assert company.preferred_language == "English"
     await _send(db, company, "8")  # briefing hour
     assert company.onboarding_state == OnboardingState.completed
     assert company.briefing_hour == 8

@@ -33,13 +33,23 @@ from app.services.importer.parties import find_or_create_party
 from app.services.money_format import format_inr
 from app.services.snapshot import business_now
 
-_TOTAL_STEPS = 8
+_TOTAL_STEPS = 9
 
 # The briefing hour also gates the notification window (scheduler only runs
 # checks from this hour on), so it's clamped to sane morning hours rather than
 # any 0-23 — a briefing at 00:00 or 23:00 would distort that gate.
 _MIN_BRIEFING_HOUR = 5
 _MAX_BRIEFING_HOUR = 11
+
+# Preferred language for the agent/briefing (Company.preferred_language). Stored
+# as a human-readable name the LLM prompt reads naturally; free text is accepted
+# for anything beyond the two common choices.
+_LANGUAGES = {"english": "English", "en": "English", "hindi": "Hindi", "hi": "Hindi"}
+
+
+def _normalize_language(raw: str) -> str:
+    return _LANGUAGES.get(raw.strip().lower(), raw.strip().title() or "English")
+
 
 _INTRO = (
     "👋 Welcome to OpsGenie! Let's set up your business — it takes about 5 minutes, "
@@ -237,15 +247,23 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 7. Outstanding payables ──────────────────────────────────────────────
     if state == OnboardingState.payable_ask:
         if _is(stripped, "no", "skip", "done"):
-            company.onboarding_state = OnboardingState.awaiting_briefing_hour
+            company.onboarding_state = OnboardingState.awaiting_language
             return (
-                f"{_progress(7)}\n\n"
-                "Last step — what time should I send your morning briefing? Reply 7, 8, or 9."
+                f"{_progress(7)}\n\nWhich language should I message you in? Reply English or Hindi."
             )
         if _is(stripped, "yes"):
             company.onboarding_state = OnboardingState.payable_supplier
             return "Which supplier do you owe? (name)"
         return "Please reply yes or no."
+
+    # ── 8. Preferred language ────────────────────────────────────────────────
+    if state == OnboardingState.awaiting_language:
+        company.preferred_language = _normalize_language(stripped)
+        company.onboarding_state = OnboardingState.awaiting_briefing_hour
+        return (
+            f"{_progress(8)}\n\n"
+            "Last step — what time should I send your morning briefing? Reply 7, 8, or 9."
+        )
 
     if state == OnboardingState.payable_supplier:
         company.onboarding_scratch = {"party": stripped}
@@ -283,7 +301,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_state = OnboardingState.payable_ask
         return f"Recorded {format_inr(amount)} to {party}. Any other supplier pending? (yes/no)"
 
-    # ── 8. Briefing time -> done ─────────────────────────────────────────────
+    # ── 9. Briefing time -> done ─────────────────────────────────────────────
     if state == OnboardingState.awaiting_briefing_hour:
         try:
             hour = int(stripped)
