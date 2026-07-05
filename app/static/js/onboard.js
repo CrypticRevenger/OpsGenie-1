@@ -37,12 +37,13 @@
     }
   }
 
-  function showBanner(bannerId, message) {
+  function showBanner(bannerId, message, variant) {
     const banner = document.getElementById(bannerId);
     if (!banner) return;
+    banner.classList.remove("is-error", "is-warning");
     if (message) {
       banner.textContent = message;
-      banner.classList.add("is-visible");
+      banner.classList.add("is-visible", variant === "warning" ? "is-warning" : "is-error");
     } else {
       banner.classList.remove("is-visible");
     }
@@ -88,6 +89,13 @@
       const data = await resp.json();
       if (resp.ok) {
         state.companyId = data.company_id;
+        if (data.status === "already_registered") {
+          showBanner(
+            "step3Banner",
+            "This WhatsApp number is already registered — continuing to activation for that account.",
+            "warning"
+          );
+        }
         showStep(3);
       } else if (resp.status === 422) {
         // Almost always the WhatsApp number — send the user back to fix it.

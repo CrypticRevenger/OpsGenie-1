@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.company import Company
 from app.models.pending_operation import PendingOperation, PendingOperationType
 from app.services.money_format import format_inr
+from app.services.writes.orders import create_order
 from app.services.writes.payments import record_payment
 
 PENDING_OPERATION_TTL_MINUTES = 30
@@ -115,8 +116,42 @@ async def execute_pending_operation(
             f"Remaining outstanding: {format_inr(result.remaining_outstanding)}"
         )
 
-    # Unreachable while PendingOperationType has one member, but never leave
-    # a company stuck on a confirmation type this code doesn't know yet.
+    if op.operation_type == PendingOperationType.create_order:
+        payload = op.payload
+        try:
+            result = await create_order(
+                db,
+                company,
+                dealer_name=payload["dealer_name"],
+                items=payload["items"],
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            # Same reasoning as the record_payment branch above: a re-
+            # validation failure (e.g. a product deleted between preview and
+            # confirm, or a price genuinely missing) degrades to a friendly
+            # reply rather than aborting the whole webhook batch's commit.
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return f"Couldn't create that order: {exc}. Please start again."
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        lines = "\n".join(
+            f"- {line.quantity} x {line.product_name} = {format_inr(line.line_total)}"
+            for line in result.lines
+        )
+        warning = (
+            f"\n⚠️ Stock now negative for: {', '.join(result.negative_stock_warnings)}"
+            if result.negative_stock_warnings
+            else ""
+        )
+        return (
+            f"✅ Order {result.invoice_number} created for {result.dealer_name}.\n{lines}\n"
+            f"Total: {format_inr(result.total_amount)}{warning}"
+        )
+
+    # Unreachable while PendingOperationType has no other members, but never
+    # leave a company stuck on a confirmation type this code doesn't know yet.
     await db.delete(op)
     _clear_active_pending_operation(company)
     return "Something went wrong with that confirmation. Please start again."

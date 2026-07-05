@@ -13,6 +13,7 @@ from decimal import Decimal
 import pytest
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
+from app.models.faq import FAQ
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.product import Product
 from app.services.agent.base import ToolContext
@@ -40,7 +41,15 @@ async def _seed(db: AsyncSession) -> Company:
 
     dealer = Dealer(company_id=company.id, name="Ram Traders")
     db.add(dealer)
-    db.add(Product(company_id=company.id, name="Rice"))
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            unit="kg",
+            selling_price=Decimal("55.00"),
+            stock_quantity=Decimal("120"),
+        )
+    )
     await db.commit()
     await db.refresh(dealer)
 
@@ -129,10 +138,22 @@ async def test_list_top_debtors(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_products(db: AsyncSession) -> None:
+async def test_get_inventory(db: AsyncSession) -> None:
     company = await _seed(db)
-    out = await _call(db, company, "list_products")
-    assert "Rice" in out["products"]
+    out = await _call(db, company, "get_inventory")
+    rice = next(p for p in out["inventory"] if p["name"] == "Rice")
+    assert rice["unit"] == "kg"
+    assert Decimal(rice["selling_price"]) == Decimal("55.00")
+    assert Decimal(rice["stock_quantity"]) == Decimal("120")
+
+
+@pytest.mark.asyncio
+async def test_get_faqs(db: AsyncSession) -> None:
+    company = await _seed(db)
+    db.add(FAQ(company_id=company.id, question="Delivery days?", answer="Mon-Sat"))
+    await db.commit()
+    out = await _call(db, company, "get_faqs")
+    assert out["faqs"] == [{"question": "Delivery days?", "answer": "Mon-Sat"}]
 
 
 @pytest.mark.asyncio
@@ -156,7 +177,7 @@ async def test_context_records_outputs(db: AsyncSession) -> None:
     company = await _seed(db)
     ctx = ToolContext(db=db, company=company, tools=_TOOLS)
     await ctx.execute("get_party_balance", {"name": "ram"})
-    await ctx.execute("list_products", {})
+    await ctx.execute("get_inventory", {})
     assert len(ctx.outputs) == 2  # every execution is recorded for the money gate
 
 

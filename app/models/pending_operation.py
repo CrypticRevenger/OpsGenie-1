@@ -27,13 +27,16 @@ if TYPE_CHECKING:
 
 
 class PendingOperationType(enum.StrEnum):
-    """What kind of write this confirmation is for. Room for create_invoice
-    (Phase 2B) and others (add_dealer, add_supplier, cancel_invoice) later —
-    each new member needs a hand-written ALTER TYPE migration, same
-    convention as every other Postgres enum in this codebase.
+    """What kind of write this confirmation is for. Room for others
+    (add_dealer, add_supplier, cancel_invoice) later — each new member needs
+    a hand-written ALTER TYPE migration, same convention as every other
+    Postgres enum in this codebase.
     """
 
     record_payment = "record_payment"
+    # Phase 2B — guided multi-line-item order creation, see
+    # app/services/workflows/order_flow.py + app/services/writes/orders.py.
+    create_order = "create_order"
 
 
 class PendingOperation(UUIDMixin, TimestampMixin, Base):

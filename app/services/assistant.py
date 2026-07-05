@@ -41,6 +41,13 @@ _SYSTEM_PROMPT = (
     "Rules:\n"
     "- For ANY business number, you MUST call a tool to fetch it. Never guess, "
     "estimate, or calculate a figure yourself. Always write money with a ₹ prefix.\n"
+    "- A short one- or two-word message (e.g. 'invoices', 'payments', 'dealers', "
+    "'suppliers', 'cash') is a request for that data, not small talk — call the "
+    "matching tool immediately instead of asking a clarifying question first. Only "
+    "ask a clarifying question if no tool plausibly matches at all.\n"
+    "- You cannot create orders/invoices or record payments yourself — you have no tool "
+    "for it. If the user wants to place an order or log a payment, tell them to say "
+    "'new order' or 'record payment' to start a guided step-by-step flow.\n"
     "- Party names may be abbreviated ('Ram' means 'Ram Traders') — match loosely.\n"
     "- Be warm and conversational: greet back, answer 'what can you do', thanks, and "
     "light small talk naturally.\n"
@@ -86,16 +93,27 @@ async def _generate_reply(db: AsyncSession, company: Company, text: str) -> str:
         # The money gate lives inside the guard too, so this function keeps its
         # "never raises into the webhook" contract end to end.
         if not result.text.strip():
+            logger.warning(
+                "Assistant (%s) returned empty text for company %s, message %r — using fallback.",
+                result.provider,
+                company.id,
+                text,
+            )
             return _SAFE_FALLBACK
         if reply_has_unverified_money(result.text, result.tool_outputs):
             logger.warning(
-                "Assistant reply for company %s stated an unverified amount — using fallback.",
+                "Assistant (%s) reply for company %s stated an unverified amount — using "
+                "fallback. message=%r reply=%r tool_outputs=%r",
+                result.provider,
                 company.id,
+                text,
+                result.text,
+                result.tool_outputs,
             )
             return _SAFE_FALLBACK
         return result.text
     except Exception as exc:  # noqa: BLE001 - never raise into the webhook
-        logger.warning("Assistant failed for company %s: %s", company.id, exc)
+        logger.warning("Assistant failed for company %s, message %r: %s", company.id, text, exc)
         return _SAFE_FALLBACK
 
 

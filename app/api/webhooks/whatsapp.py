@@ -61,6 +61,10 @@ from app.services.whatsapp_client import (
     WhatsAppSendResult,
     send_text_message,
 )
+from app.services.workflows.order_flow import (
+    handle_order_workflow_message,
+    start_order_workflow,
+)
 from app.services.workflows.payment_flow import (
     handle_payment_workflow_message,
     start_payment_workflow,
@@ -76,6 +80,7 @@ from app.services.writes.pending_operation import (
 # app/models/company.py's active_workflow docstring.
 _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[str]]] = {
     "record_payment": handle_payment_workflow_message,
+    "create_order": handle_order_workflow_message,
 }
 
 # Registry: exact-match keyword -> starter that sets active_workflow and
@@ -90,6 +95,10 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "record a payment": start_payment_workflow,
     "log payment": start_payment_workflow,
     "payment received": start_payment_workflow,
+    "new order": start_order_workflow,
+    "create order": start_order_workflow,
+    "place order": start_order_workflow,
+    "record order": start_order_workflow,
 }
 
 logger = logging.getLogger(__name__)
