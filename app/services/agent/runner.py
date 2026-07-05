@@ -71,6 +71,14 @@ async def run_agent(
         except ProviderUnavailableError as exc:
             logger.warning("Agent provider %r unavailable, trying next: %s", name, exc)
             continue
+        except Exception as exc:  # noqa: BLE001 - resilience: any provider error → try the next
+            # A free-tier model can return a non-retryable quirk (a 400 on a
+            # malformed tool call, an odd response shape). For the agent we'd
+            # rather fall through to the next provider than abort to a fallback,
+            # so every provider failure is skippable here (the final
+            # AllProvidersExhausted is what surfaces to the never-raise caller).
+            logger.warning("Agent provider %r errored, trying next: %s", name, exc)
+            continue
         return AgentResult(
             text=text or "", tool_outputs=ctx.outputs, provider=name, model=provider.model
         )
