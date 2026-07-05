@@ -2,12 +2,13 @@
    main.css. */
 
 .wizard-wrap {
-  min-height: calc(100vh - 72px);
+  min-height: 100vh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 48px 16px;
-  background: var(--bg-soft);
+  background: linear-gradient(180deg, var(--brand-light) 0%, var(--bg-soft) 100%);
+  background-image: var(--wallpaper), linear-gradient(180deg, var(--brand-light) 0%, var(--bg-soft) 100%);
 }
 
 .wizard-card {
@@ -17,11 +18,36 @@
   border-radius: 20px;
   box-shadow: var(--shadow-lg);
   padding: 36px 32px;
+  animation: wizard-card-in 0.4s ease;
 }
 
-.wizard-title {
-  text-align: center;
+@keyframes wizard-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.wizard-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--brand-dark);
+  font-size: 20px;
+  font-weight: 700;
   margin-bottom: 6px;
+}
+
+.wizard-brand .logo-mark {
+  width: 30px;
+  height: 30px;
 }
 
 .wizard-subtitle {
@@ -55,7 +81,8 @@
   transition:
     background 0.2s,
     border-color 0.2s,
-    color 0.2s;
+    color 0.2s,
+    transform 0.2s;
 }
 
 .wizard-progress .bar {
@@ -68,6 +95,7 @@
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
+  transform: scale(1.12);
 }
 
 .wizard-progress .dot.is-done {
@@ -158,6 +186,12 @@
 
 .wizard-actions .btn {
   flex: 1;
+}
+
+.wizard-actions .btn-secondary {
+  flex: 0 0 auto;
+  padding-left: 20px;
+  padding-right: 20px;
 }
 
 .wizard-banner {
@@ -261,6 +295,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  animation: success-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes success-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .success-title {
@@ -306,4 +353,31 @@
 .wizard-foot a {
   color: var(--brand);
   text-decoration: none;
+}
+
+@media (max-width: 400px) {
+  .wizard-wrap {
+    padding: 24px 12px;
+  }
+
+  .wizard-card {
+    padding: 28px 20px;
+    border-radius: 16px;
+  }
+
+  .wizard-progress .dot {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+
+  .wizard-progress .bar {
+    width: 20px;
+  }
+}
+
+@media (hover: none) {
+  .wizard-card {
+    animation-duration: 0.3s;
+  }
 }

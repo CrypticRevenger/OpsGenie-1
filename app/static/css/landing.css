@@ -6,6 +6,18 @@
 
 .hero {
   padding: 72px 0 96px;
+  background: linear-gradient(180deg, var(--brand-light) 0%, #fff 65%);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: var(--wallpaper);
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 .hero .container {
@@ -13,6 +25,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 56px;
   align-items: center;
+  position: relative;
 }
 
 .hero-copy h1 {
@@ -41,16 +54,35 @@
   }
 }
 
+.hero-mockup {
+  animation: hero-float 5s ease-in-out infinite;
+}
+
+@keyframes hero-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-12px);
+  }
+}
+
 /* ── WhatsApp chat mockup (reused by Hero + "See it in action") ──────────── */
 
 .wa-phone {
   background: #e5ddd5;
+  background-image: var(--wallpaper);
   border-radius: 24px;
   border: 10px solid #1f2a33;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
   max-width: 380px;
   margin: 0 auto;
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .wa-phone-header {
@@ -132,6 +164,15 @@
   color: var(--brand-dark);
   font-weight: 600;
   font-size: 15px;
+  transition:
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.built-for-badge:hover {
+  background: var(--brand-bright);
+  color: #fff;
+  transform: translateY(-3px);
 }
 
 .grid-4 {
@@ -208,6 +249,11 @@
   max-width: 280px;
 }
 
+.mockup-item:hover .wa-phone {
+  transform: translateY(-8px);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.16);
+}
+
 .mockup-item .wa-phone-body {
   min-height: 260px;
 }
@@ -244,6 +290,16 @@
   width: 100%;
   font-size: 17px;
   font-weight: 600;
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.outcome-row:hover {
+  transform: translateX(6px);
+  border-color: var(--brand-bright);
+  box-shadow: var(--shadow);
 }
 
 .outcome-row .icon {
@@ -277,6 +333,14 @@
   justify-content: center;
   font-weight: 700;
   margin: 0 auto 14px;
+  transition:
+    transform 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.step-item:hover .step-num {
+  background: var(--brand-bright);
+  transform: scale(1.1);
 }
 
 @media (max-width: 760px) {
@@ -322,6 +386,14 @@
   border-bottom: 1px solid var(--border);
 }
 
+.comparison-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.comparison-table tbody tr:hover {
+  background: var(--brand-light);
+}
+
 .trust-card {
   max-width: 520px;
   margin: 0 auto;
@@ -342,6 +414,14 @@
   text-align: center;
   box-shadow: var(--shadow);
   border: 2px solid var(--brand);
+  transition:
+    transform 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.pricing-card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-lg);
 }
 
 .pricing-card .plan-name {
@@ -406,20 +486,32 @@
   color: var(--ink);
 }
 
+.faq-question {
+  transition: color 0.15s ease;
+}
+
+.faq-question:hover {
+  color: var(--brand);
+}
+
 .faq-question::after {
   content: "+";
   font-size: 22px;
   color: var(--brand);
+  transition: transform 0.25s ease;
+  display: inline-block;
 }
 
 .faq-item.is-open .faq-question::after {
-  content: "−";
+  content: "+";
+  transform: rotate(45deg);
+  color: var(--brand-bright);
 }
 
 .faq-answer {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.2s ease;
+  transition: max-height 0.3s ease;
 }
 
 .faq-item.is-open .faq-answer {
@@ -437,4 +529,54 @@
 
 .final-cta h2 {
   font-size: clamp(28px, 4vw, 40px);
+}
+
+/* ── Small-phone refinements ──────────────────────────────────────────── */
+
+@media (max-width: 480px) {
+  .hero {
+    padding: 48px 0 64px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hero-actions .btn {
+    width: 100%;
+  }
+
+  .wa-phone {
+    border-width: 8px;
+    border-radius: 18px;
+  }
+
+  .wa-phone-body {
+    min-height: 260px;
+  }
+
+  .outcome-row {
+    font-size: 15px;
+    padding: 14px 18px;
+  }
+
+  .comparison-table th,
+  .comparison-table td {
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+}
+
+@media (hover: none) {
+  .hero-mockup {
+    animation: none;
+  }
+
+  .built-for-badge:hover,
+  .outcome-row:hover,
+  .mockup-item:hover .wa-phone,
+  .pricing-card:hover {
+    transform: none;
+  }
 }

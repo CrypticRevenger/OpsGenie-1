@@ -1,7 +1,12 @@
-<header class="navbar">
+<header class="navbar" id="siteNavbar">
   <div class="container">
-    <a class="navbar-logo" href="/">OpsGenie</a>
-    <button class="navbar-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">&#9776;</button>
+    <a class="navbar-logo" href="/">
+      {% include "_logo.html" %}
+      <span>OpsGenie</span>
+    </a>
+    <button class="navbar-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">
+      <span></span><span></span><span></span>
+    </button>
     <nav class="navbar-links" id="navLinks">
       <a href="/#features">Features</a>
       <a href="/#how-it-works">How it Works</a>
