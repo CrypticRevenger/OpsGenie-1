@@ -21,7 +21,7 @@ import pytest
 from app.core.config import get_settings
 from app.main import app
 from app.models.business_event import BusinessEvent, BusinessEventType
-from app.models.company import Company, FollowUpState
+from app.models.company import Company, FollowUpState, OnboardingState
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.notification_log import NotificationLog
@@ -381,9 +381,10 @@ async def test_menu_command_sends_reply_and_logs_traceable_notification(
 
 
 @pytest.mark.asyncio
-async def test_unmatched_text_triggers_unknown_input_fallback(
-    db: AsyncSession, monkeypatch
-) -> None:
+async def test_unmatched_text_routes_to_llm_assistant(db: AsyncSession, monkeypatch) -> None:
+    # Free-form text (not 1-4, no active follow-up, onboarding completed) now
+    # goes to the grounded LLM assistant. answer_question is stubbed so the test
+    # never touches the network.
     phone = _unique_phone()
     company_id = await _make_company(db, phone)
     bare_sender = phone.removeprefix("+")
@@ -391,10 +392,14 @@ async def test_unmatched_text_triggers_unknown_input_fallback(
     async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
         return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
 
+    async def _fake_answer(db_, company, text) -> str:
+        return f"Ram Traders owes you ₹42,000. (you asked: {text})"
+
     monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr("app.api.webhooks.whatsapp.answer_question", _fake_answer)
 
     body = json.dumps(
-        _messages_payload(sender=bare_sender, message_type="text", text="what is my balance")
+        _messages_payload(sender=bare_sender, message_type="text", text="how much does ram owe")
     ).encode()
     async with await _anon_client() as client:
         resp = await client.post(
@@ -406,8 +411,8 @@ async def test_unmatched_text_triggers_unknown_input_fallback(
 
     log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company_id))
     assert log is not None
-    assert log.notification_type == "whatsapp_unknown_input"
-    assert "I didn't understand that." in log.message_text
+    assert log.notification_type == "assistant"
+    assert "Ram Traders owes you" in log.message_text
 
     inbound_event = await db.scalar(
         select(BusinessEvent).where(
@@ -671,3 +676,107 @@ async def test_inactive_subscription_logs_but_does_not_reply(db: AsyncSession, m
     assert reply is None
     log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company_id))
     assert log is None
+
+
+# ── Onboarding routing (guided setup outranks menu + follow-up) ───────────────
+
+
+@pytest.mark.asyncio
+async def test_active_not_started_company_routes_to_onboarding(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company = Company(
+        business_name="Ob Co",
+        owner_name="Owner",
+        whatsapp_number=phone,
+        onboarding_state=OnboardingState.not_started,
+    )
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+    company_id = company.id
+    bare_sender = phone.removeprefix("+")
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    # "1" would be the Cash Position menu command for a set-up company — here it
+    # must instead kick off onboarding (menu never runs).
+    body = json.dumps(_messages_payload(sender=bare_sender, text="1")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company_id))
+    assert log is not None
+    assert log.notification_type == "onboarding"
+    await db.refresh(company)
+    assert company.onboarding_state == OnboardingState.awaiting_business_type
+
+
+@pytest.mark.asyncio
+async def test_onboarding_outranks_pending_follow_up(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company = Company(
+        business_name="Ob Co",
+        owner_name="Owner",
+        whatsapp_number=phone,
+        onboarding_state=OnboardingState.awaiting_business_type,
+    )
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+    company_id = company.id
+    bare_sender = phone.removeprefix("+")
+
+    dealer = Dealer(company_id=company_id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+    await db.refresh(dealer)
+    invoice = Invoice(
+        company_id=company_id,
+        invoice_number=f"INV-{uuid.uuid4().hex[:8]}",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer.id,
+        invoice_date=date.today() - timedelta(days=30),
+        due_date=date.today(),
+        subtotal=Decimal("49350.00"),
+        gst_amount=Decimal("0.00"),
+        total_amount=Decimal("49350.00"),
+        status=InvoiceStatus.Pending,
+        source=InvoiceSource.csv_import,
+    )
+    db.add(invoice)
+    await db.commit()
+    await db.refresh(invoice)
+    company.pending_follow_up_invoice_id = invoice.id
+    company.pending_follow_up_state = FollowUpState.awaiting_confirmation
+    await db.commit()
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="1")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company_id))
+    assert log.notification_type == "onboarding"  # not "follow_up_reply"
+    await db.refresh(invoice)
+    assert invoice.status == InvoiceStatus.Pending  # follow-up did NOT run
+    await db.refresh(company)
+    assert company.pending_follow_up_invoice_id is not None  # follow-up untouched

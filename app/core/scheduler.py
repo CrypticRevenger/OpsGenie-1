@@ -113,13 +113,24 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> None:
         hour = local_now.hour
         today = local_now.date()
 
-        if hour == settings.briefing_hour:
+        # Per-company briefing hour overrides the global default (collected in
+        # onboarding); the retry then runs the following hour. When unset, the
+        # global BRIEFING_HOUR/BRIEFING_RETRY_HOUR pair is used unchanged.
+        if company.briefing_hour is not None:
+            briefing_hour = company.briefing_hour
+            # Wrap so hour 23 retries at 0, not a 24 that could never match.
+            retry_hour = (briefing_hour + 1) % 24
+        else:
+            briefing_hour = settings.briefing_hour
+            retry_hour = settings.briefing_retry_hour
+
+        if hour == briefing_hour:
             existing = await _latest_briefing_today(db, company, today)
             if existing is None:
                 briefing = await generate_briefing(db, company.id)
                 await _deliver_briefing(db, company, briefing)
                 await db.commit()
-        elif hour == settings.briefing_retry_hour:
+        elif hour == retry_hour:
             briefing = await _latest_briefing_today(db, company, today)
             if briefing is not None and briefing.delivery_status == "failed_to_send":
                 delivered = await _deliver_briefing(db, company, briefing)
@@ -135,7 +146,7 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> None:
         # hour onward — so a payment that becomes "due tomorrow" at local
         # midnight doesn't fire a real WhatsApp alert at 00:15. Rules dedup
         # internally, so the first daytime tick is when each alert goes out.
-        if hour >= settings.briefing_hour:
+        if hour >= briefing_hour:
             await run_notification_checks(db, company.id, now=local_now)
             await db.commit()
 
