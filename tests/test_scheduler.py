@@ -241,3 +241,29 @@ async def test_run_tick_isolates_per_company_failure(db: AsyncSession, monkeypat
     # The good company was attempted (and its failure swallowed); the pass
     # covered every active company, so at least this one is present.
     assert good.id in dispatched
+
+
+# ── Per-company briefing hour ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_per_company_briefing_hour_fires_at_that_hour(db: AsyncSession, spies) -> None:
+    company = await _make_company(db)
+    company.briefing_hour = 7  # overrides the global BRIEFING_HOUR (8)
+    await db.commit()
+
+    await _dispatch_for_company(company.id, _at(7))
+    assert spies["generate"] == [company.id]
+    assert len(spies["send"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_per_company_briefing_hour_not_fired_at_global_hour(db: AsyncSession, spies) -> None:
+    company = await _make_company(db)
+    company.briefing_hour = 7
+    await db.commit()
+
+    # Hour 8 is the global default, but this company chose 7 — no briefing here
+    # (8 is now its retry hour, which only resends a failed briefing).
+    await _dispatch_for_company(company.id, _at(8))
+    assert spies["generate"] == []

@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models.company import Company
+from app.models.company import Company, OnboardingState
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,9 @@ async def onboard_company(
         owner_name=owner_name.strip(),
         whatsapp_number=number,
         subscription_active=False,
+        # Self-serve companies walk the guided WhatsApp setup once activated;
+        # the column otherwise defaults to `completed` for founder-created rows.
+        onboarding_state=OnboardingState.not_started,
     )
     db.add(company)
     try:

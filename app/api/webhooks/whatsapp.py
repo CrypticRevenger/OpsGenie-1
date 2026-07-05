@@ -8,13 +8,15 @@ X-Hub-Signature-256 HMAC.
 
 Scope: verify the endpoint, parse Meta's payload, match the sender/recipient
 to a Company, durably log every inbound message/status as a BusinessEvent,
-and reply to (in priority order): (Phase 9) a pending invoice due-date
-follow-up conversation, if one is active for the company; else (Phase 8) a
-numbered-menu command ("1"-"4", via app.services.query_menu's CommandRouter);
-else an "unknown input" fallback. The follow-up check runs first because a
-bare "1"/"2"/"3" means something completely different mid-follow-up ("yes,
-paid in full") than it does as a menu command ("Cash Position") — see
-app.services.followup.handle_follow_up_reply. Every outbound reply is
+and reply to (in priority order): guided onboarding, if the company hasn't
+finished setup; else (Phase 9) a pending invoice due-date follow-up
+conversation, if one is active; else (Phase 8) a numbered-menu command
+("1"-"4", via app.services.query_menu's CommandRouter); else the free-form
+LLM assistant (app.services.assistant), which answers natural-language
+questions from real figures. Onboarding outranks everything (mid-setup a "1"
+is an answer, not "Cash Position"); the follow-up check runs before the menu
+because a bare "1"/"2"/"3" means something completely different mid-follow-up
+("yes, paid in full") than as a menu command. Every outbound reply is
 traceable end-to-end: the inbound BusinessEvent's id becomes a
 `correlation_id` carried on the outbound whatsapp_reply_sent BusinessEvent
 and on the NotificationLog row, and Meta's own returned message id (the
@@ -38,14 +40,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.business_event import BusinessEvent, BusinessEventType
-from app.models.company import Company
+from app.models.company import Company, OnboardingState
 from app.models.notification_log import NotificationLog
+from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.followup import handle_follow_up_reply
-from app.services.query_menu import (
-    UNKNOWN_INPUT_NOTIFICATION_TYPE,
-    UNKNOWN_INPUT_REPLY,
-    menu_router,
-)
+from app.services.onboarding_flow import handle_onboarding_message
+from app.services.query_menu import menu_router
 from app.services.snapshot import build_snapshot
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
@@ -315,7 +315,13 @@ async def receive_whatsapp_webhook(
                 if message.get("type") == "text":
                     text = _extract_text_body(message)
                     command: str | None = None
-                    if company.pending_follow_up_invoice_id is not None:
+                    if company.onboarding_state != OnboardingState.completed:
+                        # Guided setup outranks everything else — mid-onboarding
+                        # a "1" is an answer to the current question, not the
+                        # "Cash Position" menu command.
+                        notification_type = "onboarding"
+                        reply = await handle_onboarding_message(db, company, text)
+                    elif company.pending_follow_up_invoice_id is not None:
                         # A pending follow-up takes priority over the numbered
                         # menu — "1"/"2"/"3" here answers the follow-up
                         # question, not "Cash Position".
@@ -324,12 +330,16 @@ async def receive_whatsapp_webhook(
                     else:
                         command = menu_router.match(text)
                         if command is not None:
+                            # 1-4 stay instant deterministic shortcuts.
                             snapshot = await build_snapshot(db, company.id)
                             result = menu_router.execute(command, snapshot)
                             notification_type, reply = result.notification_type, result.reply
                         else:
-                            notification_type = UNKNOWN_INPUT_NOTIFICATION_TYPE
-                            reply = UNKNOWN_INPUT_REPLY
+                            # Anything else -> the grounded LLM assistant, which
+                            # answers free-form questions from real figures and
+                            # never forwards an unverifiable number.
+                            notification_type = ASSISTANT_NOTIFICATION_TYPE
+                            reply = await answer_question(db, company, text)
                     await _send_reply_and_log(
                         db,
                         company,

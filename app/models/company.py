@@ -12,7 +12,18 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, UniqueConstraint, Uuid, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -42,6 +53,36 @@ class FollowUpState(enum.StrEnum):
     awaiting_confirmation = "awaiting_confirmation"
     awaiting_partial_amount = "awaiting_partial_amount"
     awaiting_expected_date = "awaiting_expected_date"
+
+
+class OnboardingState(enum.StrEnum):
+    """Where a self-serve company is in the guided WhatsApp setup conversation
+    (see app/services/onboarding_flow.py). `completed` is the terminal state and
+    the server default — every existing/admin-created company is treated as
+    already set up, so only companies created through the public /onboard flow
+    walk the conversation.
+    """
+
+    not_started = "not_started"
+    awaiting_business_type = "awaiting_business_type"
+    product_awaiting_name = "product_awaiting_name"
+    dealer_awaiting_name = "dealer_awaiting_name"
+    dealer_awaiting_phone = "dealer_awaiting_phone"
+    dealer_awaiting_credit = "dealer_awaiting_credit"
+    supplier_awaiting_name = "supplier_awaiting_name"
+    supplier_awaiting_phone = "supplier_awaiting_phone"
+    supplier_awaiting_credit = "supplier_awaiting_credit"
+    awaiting_opening_balance = "awaiting_opening_balance"
+    receivable_ask = "receivable_ask"
+    receivable_dealer = "receivable_dealer"
+    receivable_amount = "receivable_amount"
+    receivable_date = "receivable_date"
+    payable_ask = "payable_ask"
+    payable_supplier = "payable_supplier"
+    payable_amount = "payable_amount"
+    payable_date = "payable_date"
+    awaiting_briefing_hour = "awaiting_briefing_hour"
+    completed = "completed"
 
 
 class Company(UUIDMixin, TimestampMixin, Base):
@@ -84,6 +125,21 @@ class Company(UUIDMixin, TimestampMixin, Base):
     pending_follow_up_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+    # Guided WhatsApp onboarding (see app/services/onboarding_flow.py).
+    # server_default `completed` so existing rows and founder/admin-created
+    # companies never get pulled into the setup conversation; the public
+    # /onboard path sets `not_started`. onboarding_scratch buffers the
+    # in-progress dealer/supplier/invoice being collected across messages.
+    onboarding_state: Mapped[OnboardingState] = mapped_column(
+        Enum(OnboardingState, name="onboardingstate", create_constraint=True),
+        nullable=False,
+        server_default=OnboardingState.completed.value,
+    )
+    onboarding_scratch: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Per-company morning-briefing hour (0-23, business-local); overrides the
+    # global BRIEFING_HOUR when set. Collected in onboarding.
+    briefing_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # ── Relationships ────────────────────────────────────────────────────────
     dealers: Mapped[list[Dealer]] = relationship(
