@@ -49,6 +49,7 @@ def welcome_calls(monkeypatch):
     class _Settings:
         welcome_template_name = "welcome"
         welcome_template_language = "en_US"
+        welcome_template_has_variable = True
 
     monkeypatch.setattr("app.services.activation.send_template_message", _fake_template)
     monkeypatch.setattr("app.services.activation.get_settings", lambda: _Settings())
@@ -112,6 +113,7 @@ async def test_activate_welcome_send_failure_still_activates(
     class _Settings:
         welcome_template_name = "welcome"
         welcome_template_language = "en_US"
+        welcome_template_has_variable = True
 
     monkeypatch.setattr("app.services.activation.send_template_message", _failing)
     monkeypatch.setattr("app.services.activation.get_settings", lambda: _Settings())
