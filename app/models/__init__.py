@@ -21,6 +21,7 @@ from app.models.invoice_item import InvoiceItem
 from app.models.morning_briefing import MorningBriefing
 from app.models.notification_log import NotificationLog
 from app.models.payment import Payment, PaymentSource
+from app.models.pending_operation import PendingOperation, PendingOperationType
 from app.models.product import Product
 from app.models.supplier import Supplier
 
@@ -44,6 +45,8 @@ __all__ = [
     "NotificationLog",
     "Payment",
     "PaymentSource",
+    "PendingOperation",
+    "PendingOperationType",
     "Product",
     "Supplier",
 ]

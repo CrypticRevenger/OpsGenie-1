@@ -1,0 +1,135 @@
+"""Generic write-confirmation gate — Phase 2A.
+
+One PendingOperation row = one validated write awaiting the user's explicit
+"YES". payload stores RAW user inputs only, never a pre-computed total, so
+execute_pending_operation always re-derives the actual write fresh against
+current DB state (an outstanding balance can move between preview and
+confirm) rather than trusting what the preview showed. This module is the
+reusable confirm mechanism every future write type (create_invoice in 2B,
+and beyond) dispatches through — only execute_pending_operation's dispatch
+needs a new branch per operation_type.
+
+Company.active_pending_operation_id mirrors the existing
+pending_follow_up_invoice_id pattern: an in-memory pointer so the webhook can
+check "does this company have a pending confirmation" with a plain attribute
+read, instead of an extra query on every inbound message for every company.
+Every path that deletes a PendingOperation row also clears this pointer in
+the same breath — the DB's ondelete=SET NULL is a backstop, not the primary
+mechanism, since the in-memory Company object wouldn't otherwise reflect it
+within the same request.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, date, datetime, timedelta
+from decimal import Decimal
+
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.company import Company
+from app.models.pending_operation import PendingOperation, PendingOperationType
+from app.services.money_format import format_inr
+from app.services.writes.payments import record_payment
+
+PENDING_OPERATION_TTL_MINUTES = 30
+
+_YES_WORDS = {"yes", "y", "1"}
+_NO_WORDS = {"no", "n", "2", "cancel"}
+
+
+def _clear_active_pending_operation(company: Company) -> None:
+    company.active_pending_operation_id = None
+
+
+async def create_pending_operation(
+    db: AsyncSession,
+    company: Company,
+    operation_type: PendingOperationType,
+    payload: dict,
+) -> PendingOperation:
+    """Create a new pending confirmation, replacing any stale one for this
+    company — only one is ever meaningful at a time (the guided flow that
+    creates this always clears active_workflow in the same step).
+    """
+    await db.execute(delete(PendingOperation).where(PendingOperation.company_id == company.id))
+    op = PendingOperation(
+        company_id=company.id,
+        operation_type=operation_type,
+        payload=payload,
+        expires_at=datetime.now(UTC) + timedelta(minutes=PENDING_OPERATION_TTL_MINUTES),
+    )
+    db.add(op)
+    await db.flush()
+    company.active_pending_operation_id = op.id
+    return op
+
+
+async def get_pending_operation(db: AsyncSession, op_id: uuid.UUID) -> PendingOperation | None:
+    """Fetch a specific pending operation by id — the webhook already knows
+    which one it wants via company.active_pending_operation_id, so this is a
+    plain primary-key lookup, not a company-scoped query.
+    """
+    return await db.get(PendingOperation, op_id)
+
+
+async def execute_pending_operation(
+    db: AsyncSession, company: Company, op: PendingOperation
+) -> str:
+    """Dispatch by operation_type, then always remove the row — a definitive
+    outcome (success or a re-validation failure) never leaves a stale
+    confirmation a later "YES" could accidentally re-trigger.
+    """
+    if op.operation_type == PendingOperationType.record_payment:
+        payload = op.payload
+        try:
+            result = await record_payment(
+                db,
+                company,
+                direction=payload["direction"],
+                party_name=payload["party_name"],
+                amount=Decimal(payload["amount"]),
+                payment_date=date.fromisoformat(payload["payment_date"]),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            # ValueError covers the real re-validation failures
+            # (allocate_payment_fifo's no-open-invoice / exceeds-outstanding).
+            # KeyError/TypeError guard against a malformed payload — not
+            # reachable today (the one creation site always populates all
+            # four keys correctly), but this dispatch is designed to be
+            # reused by future operation types, and a raw exception here
+            # would abort the whole webhook batch's commit rather than
+            # degrade to a friendly reply.
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return f"Couldn't record that payment: {exc}. Please start again."
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        verb = "from" if payload["direction"] == "receivable" else "to"
+        invoices = ", ".join(result.invoice_numbers) or "—"
+        return (
+            f"✅ {format_inr(result.amount_allocated)} recorded {verb} {result.party_name}.\n"
+            f"Invoices updated: {invoices}\n"
+            f"Remaining outstanding: {format_inr(result.remaining_outstanding)}"
+        )
+
+    # Unreachable while PendingOperationType has one member, but never leave
+    # a company stuck on a confirmation type this code doesn't know yet.
+    await db.delete(op)
+    _clear_active_pending_operation(company)
+    return "Something went wrong with that confirmation. Please start again."
+
+
+async def handle_pending_operation_reply(
+    db: AsyncSession, company: Company, op: PendingOperation, text: str
+) -> str:
+    stripped = text.strip().lower()
+    if stripped in _YES_WORDS:
+        return await execute_pending_operation(db, company, op)
+    if stripped in _NO_WORDS:
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return "OK, cancelled."
+    return "Reply YES to confirm or NO to cancel."

@@ -9,14 +9,20 @@ X-Hub-Signature-256 HMAC.
 Scope: verify the endpoint, parse Meta's payload, match the sender/recipient
 to a Company, durably log every inbound message/status as a BusinessEvent,
 and reply to (in priority order): guided onboarding, if the company hasn't
-finished setup; else (Phase 9) a pending invoice due-date follow-up
-conversation, if one is active; else (Phase 8) a numbered-menu command
-("1"-"4", via app.services.query_menu's CommandRouter); else the free-form
-LLM assistant (app.services.assistant), which answers natural-language
-questions from real figures. Onboarding outranks everything (mid-setup a "1"
-is an answer, not "Cash Position"); the follow-up check runs before the menu
-because a bare "1"/"2"/"3" means something completely different mid-follow-up
-("yes, paid in full") than as a menu command. Every outbound reply is
+finished setup; else (Phase 2A) an active guided write workflow (e.g.
+recording a payment), if one is in progress; else a pending write
+confirmation ("YES"/"NO" awaiting an invoice/payment preview), if one
+exists; else (Phase 9) a pending invoice due-date follow-up conversation, if
+one is active; else (Phase 8) a numbered-menu command ("1"-"4", via
+app.services.query_menu's CommandRouter); else a plain keyword that starts a
+guided write workflow (e.g. "record payment"); else the free-form LLM
+assistant (app.services.assistant), which answers natural-language questions
+from real figures and never performs a write itself. Onboarding outranks
+everything (mid-setup a "1" is an answer, not "Cash Position"); an active
+write workflow and a pending confirmation both outrank the follow-up/menu
+checks for the same reason the follow-up check already outranked the menu —
+a bare "1"/"2"/"10" mid-flow answers the current question, not a menu
+command or a follow-up reply. Every outbound reply is
 traceable end-to-end: the inbound BusinessEvent's id becomes a
 `correlation_id` carried on the outbound whatsapp_reply_sent BusinessEvent
 and on the NotificationLog row, and Meta's own returned message id (the
@@ -31,6 +37,8 @@ import hmac
 import json
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
@@ -53,6 +61,36 @@ from app.services.whatsapp_client import (
     WhatsAppSendResult,
     send_text_message,
 )
+from app.services.workflows.payment_flow import (
+    handle_payment_workflow_message,
+    start_payment_workflow,
+)
+from app.services.writes.pending_operation import (
+    get_pending_operation,
+    handle_pending_operation_reply,
+)
+
+# Phase 2A — registry of active workflow types -> their per-message handler.
+# Company.active_workflow is a plain string precisely so new workflow types
+# (Phase 2B's create_invoice, etc.) register here without a migration — see
+# app/models/company.py's active_workflow docstring.
+_WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[str]]] = {
+    "record_payment": handle_payment_workflow_message,
+}
+
+# Registry: exact-match keyword -> starter that sets active_workflow and
+# returns the flow's first question verbatim. Deterministic trigger,
+# deliberately not agent tool-calling (see deployment.md's Phase 2A scope
+# note): a tool's reply would flow through LLM narration, which can't
+# guarantee the flow's exact question wording. Same deterministic spirit as
+# menu_router — no fuzzy NLP, and a new workflow's triggers are just more
+# entries here, not a new elif branch.
+_WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
+    "record payment": start_payment_workflow,
+    "record a payment": start_payment_workflow,
+    "log payment": start_payment_workflow,
+    "payment received": start_payment_workflow,
+}
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +359,50 @@ async def receive_whatsapp_webhook(
                         # "Cash Position" menu command.
                         notification_type = "onboarding"
                         reply = await handle_onboarding_message(db, company, text)
+                    elif company.active_workflow is not None:
+                        # A guided write workflow (Phase 2A) outranks the menu
+                        # and the follow-up for the same reason follow-up
+                        # already did — mid-flow, a bare "10" is the quantity/
+                        # amount answer, not a menu command. Dispatch by the
+                        # workflow's own value (not just its presence) so a
+                        # second workflow type (Phase 2B) can register its own
+                        # handler without this branch needing to change.
+                        workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
+                        if workflow_handler is not None:
+                            notification_type = "write_workflow"
+                            reply = await workflow_handler(db, company, text)
+                        else:
+                            # An active_workflow value nothing registers a
+                            # handler for (shouldn't happen) — never leave the
+                            # company stuck on a workflow this code can't run.
+                            company.active_workflow = None
+                            company.workflow_scratch = None
+                            notification_type = "write_workflow_error"
+                            reply = "Something went wrong. Please try again."
+                    elif company.active_pending_operation_id is not None:
+                        # In-memory pointer check (no query) — mirrors
+                        # pending_follow_up_invoice_id below, so companies
+                        # that never use a guided write workflow pay zero
+                        # extra cost on every message.
+                        pending_op = await get_pending_operation(
+                            db, company.active_pending_operation_id
+                        )
+                        if pending_op is None:
+                            # Pointer stale (shouldn't happen — every deletion
+                            # path clears it in the same transaction).
+                            company.active_pending_operation_id = None
+                            notification_type = "pending_operation_missing"
+                            reply = "Something went wrong with that. Please try again."
+                        elif pending_op.expires_at < datetime.now(UTC):
+                            await db.delete(pending_op)
+                            company.active_pending_operation_id = None
+                            notification_type = "pending_operation_expired"
+                            reply = "That confirmation expired. Please start again."
+                        else:
+                            notification_type = "pending_operation_confirm"
+                            reply = await handle_pending_operation_reply(
+                                db, company, pending_op, text
+                            )
                     elif company.pending_follow_up_invoice_id is not None:
                         # A pending follow-up takes priority over the numbered
                         # menu — "1"/"2"/"3" here answers the follow-up
@@ -334,6 +416,14 @@ async def receive_whatsapp_webhook(
                             snapshot = await build_snapshot(db, company.id)
                             result = menu_router.execute(command, snapshot)
                             notification_type, reply = result.notification_type, result.reply
+                        elif (
+                            starter := _WORKFLOW_START_TRIGGERS.get(text.strip().lower())
+                        ) is not None:
+                            # Deterministic keyword trigger — works without AI,
+                            # per Phase 2A's scope (see module docstring).
+                            command = text.strip().lower()
+                            notification_type = "write_workflow"
+                            reply = starter(company)
                         else:
                             # Anything else -> the grounded LLM assistant, which
                             # answers free-form questions from real figures and
