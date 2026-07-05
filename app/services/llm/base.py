@@ -13,7 +13,13 @@ convention: `generate()` takes strings in, returns a string out.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
+
+# execute(tool_name, args) -> JSON-safe dict. Runs a deterministic tool in our
+# Python (never in the provider), so the DB boundary below still holds.
+ExecuteFn = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 class NoApiKeyConfiguredError(RuntimeError):
@@ -41,6 +47,12 @@ class AllProvidersExhaustedError(RuntimeError):
     """
 
 
+class ToolCallingUnsupportedError(RuntimeError):
+    """Raised by a provider whose model/SDK path doesn't do tool calling — the
+    agent runner treats it like a missing key and skips to the next provider.
+    """
+
+
 @dataclass
 class ProviderResult:
     """What a successful chain run returns — not just text, but which
@@ -64,3 +76,22 @@ class LLMProvider(ABC):
     async def generate(self, *, system_prompt: str, user_content: str) -> str:
         """Return the model's narrated text response."""
         raise NotImplementedError
+
+    async def run_tool_loop(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tool_specs: list[dict[str, Any]],
+        execute: ExecuteFn,
+        max_steps: int,
+    ) -> str:
+        """Drive a tool-calling loop and return the final text.
+
+        `messages` is the provider-agnostic dialogue so far
+        (`[{"role": "user"|"assistant", "content": str}, …]`, current message
+        last); `tool_specs` is `[{"name", "description", "parameters"}]`;
+        `execute` runs a tool in our Python and returns a JSON-safe dict.
+        Default: unsupported, so the runner skips this provider.
+        """
+        raise ToolCallingUnsupportedError(f"{type(self).__name__} does not support tool calling.")

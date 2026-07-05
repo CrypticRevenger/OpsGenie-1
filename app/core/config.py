@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
     openrouter_model: str = Field(default="openai/gpt-oss-120b:free", alias="OPENROUTER_MODEL")
 
+    # Agentic WhatsApp assistant: max tool-call rounds per message (loop guard),
+    # and how many prior dialogue turns to load as multi-turn memory.
+    agent_max_steps: int = Field(default=5, alias="AGENT_MAX_STEPS")
+    agent_history_turns: int = Field(default=10, alias="AGENT_HISTORY_TURNS")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:

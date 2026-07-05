@@ -4,9 +4,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import openai
 
-from app.services.llm.base import LLMProvider, NoApiKeyConfiguredError, ProviderUnavailableError
+from app.services.llm._openai_tool_loop import run_openai_tool_loop
+from app.services.llm.base import (
+    ExecuteFn,
+    LLMProvider,
+    NoApiKeyConfiguredError,
+    ProviderUnavailableError,
+)
 
 _BASE_URL = "https://api.groq.com/openai/v1"
 
@@ -40,3 +48,24 @@ class GroqProvider(LLMProvider):
                 raise ProviderUnavailableError(f"Groq server error: {exc}") from exc
             raise
         return response.choices[0].message.content
+
+    async def run_tool_loop(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tool_specs: list[dict[str, Any]],
+        execute: ExecuteFn,
+        max_steps: int,
+    ) -> str:
+        return await run_openai_tool_loop(
+            api_key=self._api_key,
+            base_url=_BASE_URL,
+            model=self.model,
+            label="Groq",
+            system_prompt=system_prompt,
+            messages=messages,
+            tool_specs=tool_specs,
+            execute=execute,
+            max_steps=max_steps,
+        )
