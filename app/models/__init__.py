@@ -13,6 +13,7 @@ from app.models.activity_timeline import ActivityEntityType, ActivityEventType, 
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.cash_snapshot import CashSnapshot
 from app.models.company import Company
+from app.models.conversation_turn import ConversationTurn
 from app.models.dealer import Dealer
 from app.models.import_log import ImportLog
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
@@ -31,6 +32,7 @@ __all__ = [
     "BusinessEventType",
     "CashSnapshot",
     "Company",
+    "ConversationTurn",
     "Dealer",
     "ImportLog",
     "Invoice",

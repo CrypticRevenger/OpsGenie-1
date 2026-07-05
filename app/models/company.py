@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from app.models.activity_timeline import ActivityTimeline
     from app.models.business_event import BusinessEvent
     from app.models.cash_snapshot import CashSnapshot
+    from app.models.conversation_turn import ConversationTurn
     from app.models.dealer import Dealer
     from app.models.import_log import ImportLog
     from app.models.invoice import Invoice
@@ -180,4 +181,7 @@ class Company(UUIDMixin, TimestampMixin, Base):
     )
     notification_logs: Mapped[list[NotificationLog]] = relationship(
         "NotificationLog", back_populates="company", cascade="all, delete-orphan"
+    )
+    conversation_turns: Mapped[list[ConversationTurn]] = relationship(
+        "ConversationTurn", back_populates="company", cascade="all, delete-orphan"
     )
