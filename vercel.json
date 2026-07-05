@@ -1,5 +1,5 @@
 {
-  "installCommand": "python3 -m pip install jinja2",
+  "installCommand": "python3 -m pip install --break-system-packages jinja2",
   "buildCommand": "python3 scripts/build_static_site.py",
   "outputDirectory": "dist",
   "cleanUrls": true
