@@ -11,7 +11,11 @@ class OnboardRequest(BaseModel):
     business_name: str = Field(min_length=1, max_length=200)
     owner_name: str = Field(min_length=1, max_length=200)
     whatsapp_number: str = Field(min_length=1, max_length=32)
-    access_code: str = Field(min_length=1, max_length=200)
+    email: str | None = Field(default=None, max_length=200)
+    business_type: str | None = Field(default=None, max_length=100)
+    preferred_language: str = Field(default="en", max_length=10)
+    city: str | None = Field(default=None, max_length=100)
+    gst_number: str | None = Field(default=None, max_length=32)
 
 
 class OnboardResponse(BaseModel):

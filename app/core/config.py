@@ -48,15 +48,25 @@ class Settings(BaseSettings):
     # None until set; those two alerts are simply skipped (logged) when unset.
     founder_whatsapp_number: str | None = Field(default=None, alias="FOUNDER_WHATSAPP_NUMBER")
 
-    # Self-serve onboarding (see app/api/onboarding.py). The public /onboard
-    # page is gated by this shared access code — fail-closed like admin_api_key
-    # (onboarding rejects everything when unset). welcome_template_* name the
-    # Meta-approved template pushed when a company's subscription is activated
-    # (a free-form welcome to a never-seen number is blocked by WhatsApp's 24h
-    # rule, so it must be a template).
-    onboarding_access_code: str | None = Field(default=None, alias="ONBOARDING_ACCESS_CODE")
+    # Self-serve onboarding (see app/api/onboarding.py). Fully public — no
+    # access code any more. onboarding_enabled is a plain kill-switch (default
+    # True/open) the founder can flip to False in .env if the public form is
+    # abused; both POST /onboard and the public activate route fail closed
+    # when it's False. welcome_template_* name the Meta-approved template
+    # pushed when a company's subscription is activated (a free-form welcome
+    # to a never-seen number is blocked by WhatsApp's 24h rule, so it must be
+    # a template).
+    onboarding_enabled: bool = Field(default=True, alias="ONBOARDING_ENABLED")
     welcome_template_name: str | None = Field(default=None, alias="WELCOME_TEMPLATE_NAME")
     welcome_template_language: str = Field(default="en_US", alias="WELCOME_TEMPLATE_LANGUAGE")
+    # The real, dialable WhatsApp Business number shown to a newly-activated
+    # distributor as a "Continue on WhatsApp" wa.me deep link on the /onboard
+    # success page. Distinct from whatsapp_phone_number_id (Meta's internal
+    # API id, used for sending) — this is cosmetic only, never used to send;
+    # the deep-link button is simply hidden when unset.
+    whatsapp_business_display_number: str | None = Field(
+        default=None, alias="WHATSAPP_BUSINESS_DISPLAY_NUMBER"
+    )
 
     # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
     # every scheduler_poll_interval_minutes and, per company, acts when the

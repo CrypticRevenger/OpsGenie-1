@@ -50,8 +50,8 @@ def welcome_calls(monkeypatch):
         welcome_template_name = "welcome"
         welcome_template_language = "en_US"
 
-    monkeypatch.setattr("app.api.admin.companies.send_template_message", _fake_template)
-    monkeypatch.setattr("app.api.admin.companies.get_settings", lambda: _Settings())
+    monkeypatch.setattr("app.services.activation.send_template_message", _fake_template)
+    monkeypatch.setattr("app.services.activation.get_settings", lambda: _Settings())
     return calls
 
 
@@ -113,8 +113,8 @@ async def test_activate_welcome_send_failure_still_activates(
         welcome_template_name = "welcome"
         welcome_template_language = "en_US"
 
-    monkeypatch.setattr("app.api.admin.companies.send_template_message", _failing)
-    monkeypatch.setattr("app.api.admin.companies.get_settings", lambda: _Settings())
+    monkeypatch.setattr("app.services.activation.send_template_message", _failing)
+    monkeypatch.setattr("app.services.activation.get_settings", lambda: _Settings())
 
     company = await _make_pending_company(db)
     resp = await client.post(f"/admin/companies/{company.id}/activate-subscription")

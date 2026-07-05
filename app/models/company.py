@@ -98,6 +98,8 @@ class Company(UUIDMixin, TimestampMixin, Base):
     whatsapp_number: Mapped[str] = mapped_column(String, nullable=False)
     email: Mapped[str | None] = mapped_column(String, nullable=True)
     business_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    city: Mapped[str | None] = mapped_column(String, nullable=True)
+    gst_number: Mapped[str | None] = mapped_column(String, nullable=True)
     preferred_language: Mapped[str] = mapped_column(String, nullable=False, default="en")
     # IANA timezone name (e.g. "Asia/Kolkata"). Business-day boundaries in the
     # snapshot — "today", overdue, the 7-day window — are computed in this zone,

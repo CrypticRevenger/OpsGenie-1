@@ -1,0 +1,6 @@
+{
+  "installCommand": "python3 -m pip install jinja2",
+  "buildCommand": "python3 scripts/build_static_site.py",
+  "outputDirectory": "dist",
+  "cleanUrls": true
+}

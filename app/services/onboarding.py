@@ -1,18 +1,19 @@
 """Self-serve onboarding — create a *pending* company from the public form.
 
-A distributor submits their details plus a shared access code on /onboard.
-This stores them as a Company with subscription_active=False; the WhatsApp
-agent stays silent for them until the founder activates their subscription
-(app/api/admin/companies.py's activate-subscription), which is also what
-fires the welcome template. The access code is the only gate on this public
-endpoint, so it's checked in constant time and fails closed when unset.
+A distributor submits their details on /onboard. This stores them as a
+Company with subscription_active=False; the WhatsApp agent stays silent for
+them until they self-activate via the wizard's final step (app/api/
+onboarding.py's POST /onboard/{id}/activate, sharing app/services/
+activation.py's activate_company with the founder-only admin route), which is
+also what fires the welcome template. onboarding_enabled is the only gate on
+this public endpoint (a plain kill-switch, not a secret) — fails closed when
+disabled.
 """
 
 from __future__ import annotations
 
 import logging
 import re
-import secrets
 
 import phonenumbers
 from sqlalchemy import select
@@ -26,11 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class OnboardingDisabledError(Exception):
-    """ONBOARDING_ACCESS_CODE is not configured — onboarding is off."""
-
-
-class InvalidAccessCodeError(Exception):
-    """The submitted access code did not match."""
+    """ONBOARDING_ENABLED is false — onboarding is off."""
 
 
 class InvalidPhoneNumberError(Exception):
@@ -73,18 +70,19 @@ async def onboard_company(
     business_name: str,
     owner_name: str,
     whatsapp_number: str,
-    access_code: str,
+    email: str | None = None,
+    business_type: str | None = None,
+    preferred_language: str = "en",
+    city: str | None = None,
+    gst_number: str | None = None,
 ) -> tuple[Company, bool]:
-    """Validate the access code and register a pending company. Returns
-    (company, created) — created is False when the number was already
-    registered (a resubmit), so the caller can report "already registered"
-    rather than error.
+    """Register a pending company. Returns (company, created) — created is
+    False when the number was already registered (a resubmit), so the caller
+    can report "already registered" rather than error.
     """
     settings = get_settings()
-    if not settings.onboarding_access_code:
+    if not settings.onboarding_enabled:
         raise OnboardingDisabledError("Onboarding is not enabled.")
-    if not secrets.compare_digest(access_code or "", settings.onboarding_access_code):
-        raise InvalidAccessCodeError("Invalid access code.")
 
     number = normalize_number(whatsapp_number)
 
@@ -96,6 +94,11 @@ async def onboard_company(
         business_name=business_name.strip(),
         owner_name=owner_name.strip(),
         whatsapp_number=number,
+        email=email.strip() if email else None,
+        business_type=business_type.strip() if business_type else None,
+        preferred_language=preferred_language,
+        city=city.strip() if city else None,
+        gst_number=gst_number.strip() if gst_number else None,
         subscription_active=False,
         # Self-serve companies walk the guided WhatsApp setup once activated;
         # the column otherwise defaults to `completed` for founder-created rows.
