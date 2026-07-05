@@ -1,8 +1,12 @@
 """Read tools — deterministic DB queries the agent can call to ground answers.
 
 Every executor returns a JSON-safe dict with stringified Decimals so the
-money-safety gate can treat the values as the set of "known" amounts. All reuse
-existing services (snapshot, party_outstanding) — no new business logic here.
+money-safety gate can treat the values as the set of "known" amounts, and —
+critically — **every query is scoped to the bound `company.id`**. The company is
+resolved once, from the sender's WhatsApp number, in the webhook; the LLM only
+picks which of these tools to run and never sees another distributor's data.
+These reuse existing services (snapshot, party_outstanding) — no new business
+logic, just broad coverage so a distributor can ask about any of their own data.
 """
 
 from __future__ import annotations
@@ -14,6 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
 from app.models.dealer import Dealer
+from app.models.invoice import Invoice
+from app.models.payment import Payment
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.agent.base import AgentTool, no_params
@@ -162,6 +168,88 @@ async def _list_products(db: AsyncSession, company: Company) -> dict:
     return {"products": [p.name for p in products]}
 
 
+async def _all_parties(db: AsyncSession, company: Company, *, direction: str) -> list[dict]:
+    outstanding = await calculate_outstanding_for_company(
+        db,
+        company_id=company.id,
+        direction=direction,  # type: ignore[arg-type]
+    )
+    model = Dealer if direction == "receivable" else Supplier
+    parties = (await db.scalars(select(model).where(model.company_id == company.id))).all()
+    return [
+        {
+            "name": p.name,
+            "phone": p.phone,
+            "outstanding": str(outstanding.get(p.id, Decimal("0.00"))),
+        }
+        for p in parties
+    ]
+
+
+async def _list_dealers(db: AsyncSession, company: Company) -> dict:
+    return {"dealers": await _all_parties(db, company, direction="receivable")}
+
+
+async def _list_suppliers(db: AsyncSession, company: Company) -> dict:
+    return {"suppliers": await _all_parties(db, company, direction="payable")}
+
+
+def _clamp(limit: int, default: int = 10, hi: int = 25) -> int:
+    try:
+        return max(1, min(int(limit), hi))
+    except (TypeError, ValueError):
+        return default
+
+
+async def _list_recent_invoices(db: AsyncSession, company: Company, limit: int = 10) -> dict:
+    stmt = (
+        select(Invoice, Dealer.name, Supplier.name)
+        .outerjoin(Dealer, Invoice.dealer_id == Dealer.id)
+        .outerjoin(Supplier, Invoice.supplier_id == Supplier.id)
+        .where(Invoice.company_id == company.id)
+        .order_by(Invoice.invoice_date.desc(), Invoice.invoice_number)
+        .limit(_clamp(limit))
+    )
+    rows = (await db.execute(stmt)).all()
+    return {
+        "invoices": [
+            {
+                "number": inv.invoice_number,
+                "direction": inv.direction.value,
+                "party": dealer_name or supplier_name,
+                "total": str(inv.total_amount),
+                "status": inv.status.value,
+                "invoice_date": inv.invoice_date.isoformat(),
+                "due_date": inv.due_date.isoformat(),
+            }
+            for inv, dealer_name, supplier_name in rows
+        ]
+    }
+
+
+async def _list_recent_payments(db: AsyncSession, company: Company, limit: int = 10) -> dict:
+    stmt = (
+        select(Payment, Invoice.invoice_number, Invoice.direction)
+        .join(Invoice, Payment.invoice_id == Invoice.id)
+        .where(Payment.company_id == company.id)
+        .order_by(Payment.payment_date.desc())
+        .limit(_clamp(limit))
+    )
+    rows = (await db.execute(stmt)).all()
+    return {
+        "payments": [
+            {
+                "amount": str(pmt.amount),
+                "payment_date": pmt.payment_date.isoformat(),
+                "method": pmt.method,
+                "against_invoice": invoice_number,
+                "direction": direction.value,
+            }
+            for pmt, invoice_number, direction in rows
+        ]
+    }
+
+
 _LIMIT_PARAM = {
     "type": "object",
     "properties": {"limit": {"type": "integer", "description": "How many to return (max 20)."}},
@@ -230,5 +318,29 @@ READ_TOOLS: list[AgentTool] = [
         "The distributor's product catalogue (names).",
         no_params(),
         _list_products,
+    ),
+    AgentTool(
+        "list_dealers",
+        "All of the distributor's dealers (customers) with phone and current outstanding.",
+        no_params(),
+        _list_dealers,
+    ),
+    AgentTool(
+        "list_suppliers",
+        "All of the distributor's suppliers with phone and current outstanding.",
+        no_params(),
+        _list_suppliers,
+    ),
+    AgentTool(
+        "list_recent_invoices",
+        "Most recent invoices (number, party, total, status, dates), newest first.",
+        _LIMIT_PARAM,
+        _list_recent_invoices,
+    ),
+    AgentTool(
+        "list_recent_payments",
+        "Most recent payments recorded (amount, date, which invoice), newest first.",
+        _LIMIT_PARAM,
+        _list_recent_payments,
     ),
 ]
