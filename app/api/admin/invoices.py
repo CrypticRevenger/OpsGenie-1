@@ -11,7 +11,7 @@ import uuid
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -143,3 +143,41 @@ async def get_invoice(
         **InvoiceResponse.model_validate(invoice).model_dump(),
         payments=[PaymentResponse.model_validate(p) for p in payments],
     )
+
+
+@router.delete(
+    "/invoices/{invoice_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an invoice (cascades to its line items and payments)",
+    description=(
+        "Permanently deletes an invoice and everything scoped to it (line "
+        "items, payments) via database cascade. This does NOT re-run FIFO "
+        "payment reconciliation on any other invoice — real invoice/payment "
+        "writes should normally go through CSV import or the guided "
+        "WhatsApp workflows, which keep amount_outstanding correct. Use "
+        "this only to clean up bad data; spot-check cashflow afterward."
+    ),
+)
+async def delete_invoice(
+    company_id: uuid.UUID,
+    invoice_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await _get_company_or_404(company_id, db)
+    invoice = await db.scalar(
+        select(Invoice).where(Invoice.id == invoice_id, Invoice.company_id == company_id)
+    )
+    if invoice is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Invoice {invoice_id} not found in company {company_id}.",
+        )
+    logger.warning(
+        "Deleting invoice %s for company %s — this does not re-run FIFO "
+        "payment reconciliation; verify cashflow afterward.",
+        invoice_id,
+        company_id,
+    )
+    await db.delete(invoice)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

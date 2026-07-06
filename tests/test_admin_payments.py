@@ -273,3 +273,34 @@ async def test_list_payments_pagination_total_respects_filters(
     assert len(data["items"]) == 2
     assert data["total"] == 3  # filtered count, not all 4 payments in the company
     assert data["pages"] == 2
+
+
+# ── Delete ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delete_payment(client: AsyncClient, db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Dealer Delete Payment")
+    invoice = await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-PAY-DELETE",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+    )
+    payment = await _make_payment(db, company_id, invoice.id, Decimal("300.00"))
+
+    resp = await client.delete(f"/admin/companies/{company_id}/payments/{payment.id}")
+    assert resp.status_code == 204
+
+    list_resp = await client.get(f"/admin/companies/{company_id}/payments")
+    assert list_resp.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_payment_not_found(client: AsyncClient, db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    resp = await client.delete(f"/admin/companies/{company_id}/payments/{uuid.uuid4()}")
+    assert resp.status_code == 404

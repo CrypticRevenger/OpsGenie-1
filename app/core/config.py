@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     # rather than silently allowing unauthenticated traffic through.
     admin_api_key: str | None = Field(default=None, alias="ADMIN_API_KEY")
 
+    # Password-gated server-rendered admin dashboard (see
+    # app/core/dashboard_auth.py, app/api/dashboard/). Same fail-closed
+    # convention as admin_api_key: unset means the login route always rejects.
+    dashboard_password: str | None = Field(default=None, alias="DASHBOARD_PASSWORD")
+
     # Phase 7 — WhatsApp inbound webhook (see app/api/webhooks/whatsapp.py).
     # whatsapp_verify_token is Meta's GET handshake secret; whatsapp_app_secret
     # signs every POST body (X-Hub-Signature-256). Both fail closed when unset,

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
+from app.core.dashboard_auth import DashboardAuthRequired
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -50,6 +51,14 @@ def _error_payload(exc: OpsGenieError) -> dict:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(DashboardAuthRequired)
+    async def handle_dashboard_auth_required(
+        _: Request, __: DashboardAuthRequired
+    ) -> RedirectResponse:
+        # A browser flow, not an API caller — redirect to the login page
+        # instead of the generic JSON error every other exception here returns.
+        return RedirectResponse(url="/dashboard/login", status_code=status.HTTP_303_SEE_OTHER)
+
     @app.exception_handler(OpsGenieError)
     async def handle_opsgenie_error(_: Request, exc: OpsGenieError) -> JSONResponse:
         return JSONResponse(
