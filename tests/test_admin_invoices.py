@@ -19,6 +19,7 @@ from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, Invoice
 from app.models.payment import Payment
 from app.models.supplier import Supplier
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -392,3 +393,56 @@ async def test_list_invoices_pagination_total_respects_filters(
     assert len(data["items"]) == 2
     assert data["total"] == 3
     assert data["pages"] == 2
+
+
+# ── Delete ────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delete_invoice_cascades_items_and_payments(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Dealer Delete")
+    invoice = await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-DELETE",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+    )
+    await _make_payment(db, company_id, invoice.id, Decimal("300.00"))
+
+    resp = await client.delete(f"/admin/companies/{company_id}/invoices/{invoice.id}")
+    assert resp.status_code == 204
+
+    remaining_payments = await db.scalars(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert remaining_payments.all() == []
+
+    get_resp = await client.get(f"/admin/companies/{company_id}/invoices/{invoice.id}")
+    assert get_resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_invoice_not_found(client: AsyncClient, db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    resp = await client.delete(f"/admin/companies/{company_id}/invoices/{uuid.uuid4()}")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_invoice_wrong_company_404(client: AsyncClient, db: AsyncSession) -> None:
+    company_a = await _make_company(db)
+    company_b = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_a, "Dealer Cross Delete")
+    invoice = await _make_invoice(
+        db,
+        company_a,
+        invoice_number="INV-CROSS-DELETE",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+    )
+    resp = await client.delete(f"/admin/companies/{company_b}/invoices/{invoice.id}")
+    assert resp.status_code == 404

@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,3 +144,26 @@ async def update_product(
     await db.refresh(product)
     logger.info("Updated product %s for company %s", product.id, company_id)
     return product
+
+
+@router.delete(
+    "/{product_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a product",
+    description=(
+        "Permanently deletes a product. invoice_items.product_id is a plain "
+        "ON DELETE SET NULL with no CHECK constraint, so historical invoice "
+        "line items survive with product_id set to null."
+    ),
+)
+async def delete_product(
+    company_id: uuid.UUID,
+    product_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await _get_company_or_404(company_id, db)
+    product = await _get_product_or_404(company_id, product_id, db)
+    await db.delete(product)
+    await db.commit()
+    logger.info("Deleted product %s for company %s", product_id, company_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

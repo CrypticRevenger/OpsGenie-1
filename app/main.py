@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.api.admin import router as admin_router
+from app.api.dashboard import router as dashboard_router
 from app.api.health import router as health_router
 from app.api.onboarding import router as onboarding_router
 from app.api.site import router as site_router
@@ -62,6 +63,11 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_router)
     # Public marketing site (landing page, privacy/terms/contact).
     app.include_router(site_router)
+    # Password-gated server-rendered admin dashboard — its own session auth
+    # is internal to its sub-routers (require_dashboard_session), not
+    # require_api_key: a browser can't attach a custom header on normal
+    # navigation.
+    app.include_router(dashboard_router)
 
     return app
 

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}OpsGenie Dashboard{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+<link rel="stylesheet" href="/static/css/dashboard.css">
+</head>
+<body>
+{% block topbar %}
+<div class="topbar">
+  <a class="brand" href="/dashboard/companies">OpsGenie Dashboard</a>
+  <form method="post" action="/dashboard/logout">
+    <button type="submit" class="secondary">Log out</button>
+  </form>
+</div>
+{% endblock %}
+<div class="wrap">
+{% if error %}
+<div class="error-banner">{{ error }}</div>
+{% endif %}
+{% block content %}{% endblock %}
+</div>
+<script src="/static/js/dashboard.js"></script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

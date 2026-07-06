@@ -131,7 +131,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         db.add(Product(company_id=company.id, name=name, stock_quantity=quantity))
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.product_awaiting_name
-        return f"Added product: {name} ({_format_quantity(quantity)} in stock). Send another, or 'done'."
+        return (
+            f"Added product: {name} ({_format_quantity(quantity)} in stock). "
+            "Send another, or 'done'."
+        )
 
     # ── 3. Dealers (name -> phone -> credit days, repeatable) ────────────────
     if state == OnboardingState.dealer_awaiting_name:

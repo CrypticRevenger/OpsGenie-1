@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,3 +90,40 @@ async def list_payments(
     total = await db.scalar(count_stmt) or 0
     payments = list((await db.execute(stmt)).scalars().all())
     return Page.create(items=payments, total=total, page=page, limit=limit)
+
+
+@router.delete(
+    "/payments/{payment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a payment",
+    description=(
+        "Permanently deletes a payment. This does NOT re-run FIFO payment "
+        "reconciliation on the invoice it was applied to — real payments "
+        "should normally go through CSV import or the guided WhatsApp "
+        "workflows. Use this only to clean up bad data; spot-check the "
+        "invoice's amount_outstanding afterward."
+    ),
+)
+async def delete_payment(
+    company_id: uuid.UUID,
+    payment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await _get_company_or_404(company_id, db)
+    payment = await db.scalar(
+        select(Payment).where(Payment.id == payment_id, Payment.company_id == company_id)
+    )
+    if payment is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Payment {payment_id} not found in company {company_id}.",
+        )
+    logger.warning(
+        "Deleting payment %s for company %s — this does not re-run FIFO "
+        "reconciliation; verify the invoice's amount_outstanding afterward.",
+        payment_id,
+        company_id,
+    )
+    await db.delete(payment)
+    await db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
