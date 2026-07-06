@@ -1,25 +1,27 @@
-/* Shared design system — colors, typography, layout primitives, navbar/footer.
-   Page-specific layout lives in landing.css / onboard.css. */
+/* Shared design system — premium dark-forest branding, glassmorphism,
+   layout primitives, navbar/footer, and micro-animations. */
 
 :root {
-  --brand: #128c7e;
-  --brand-dark: #075e54;
-  --brand-bright: #25d366;
-  --brand-bright-dark: #1da851;
-  --brand-light: #e8f5f2;
-  --ink: #1f2a33;
-  --ink-soft: #5b6b76;
-  --ink-faint: #8a97a0;
-  --bg: #ffffff;
-  --bg-soft: #f4f6f8;
-  --border: #e3e8eb;
-  --err: #c0392b;
-  --radius: 14px;
+  --brand: #10b981; /* Premium Emerald */
+  --brand-dark: #064e3b; /* Dark Forest Green */
+  --brand-bright: #34d399; /* Mint Green */
+  --brand-bright-dark: #059669;
+  --brand-light: rgba(16, 185, 129, 0.1);
+  --ink: #f3f4f6; /* Off-white for dark mode */
+  --ink-soft: #9ca3af; /* Muted gray */
+  --ink-faint: #6b7280; /* Darker gray */
+  --bg: #070d0b; /* Deep Dark Green-Black background */
+  --bg-soft: #0c1512; /* Slightly lighter container background */
+  --bg-card: rgba(15, 26, 23, 0.65);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-glow: rgba(52, 211, 153, 0.25);
+  --err: #ef4444;
+  --radius: 16px;
   --radius-sm: 10px;
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.06);
-  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.12);
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.5);
   --max-width: 1120px;
-  --wallpaper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Ccircle cx='6' cy='6' r='1.6' fill='%23128c7e' fill-opacity='0.14'/%3E%3Ccircle cx='36' cy='20' r='1.2' fill='%23128c7e' fill-opacity='0.11'/%3E%3Ccircle cx='20' cy='42' r='1.4' fill='%23128c7e' fill-opacity='0.12'/%3E%3Ccircle cx='50' cy='50' r='1.1' fill='%23128c7e' fill-opacity='0.09'/%3E%3C/svg%3E");
+  --wallpaper: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'%3E%3Cpath d='M40 0l2 2-2 2-2-2zm0 80l2-2-2-2-2 2zm40-40l-2 2-2-2 2-2zm-80 0l2 2 2-2-2-2z' fill='%2310b981' fill-opacity='0.03'/%3E%3Ccircle cx='40' cy='40' r='1' fill='%2310b981' fill-opacity='0.06'/%3E%3C/svg%3E");
 }
 
 * {
@@ -28,6 +30,22 @@
 
 html {
   scroll-behavior: smooth;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--brand-dark);
+  border-radius: 99px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--brand);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -45,19 +63,36 @@ html {
 body {
   margin: 0;
   font-family:
+    "Outfit",
     "Inter",
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     Roboto,
-    Helvetica,
-    Arial,
     sans-serif;
   background: var(--bg);
   color: var(--ink);
-  line-height: 1.55;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
+  position: relative;
+  background-image: var(--wallpaper);
+}
+
+/* Background Glowing Orbs */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.55;
+}
+.orb-green {
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, rgba(16, 185, 129, 0) 70%);
+}
+.orb-mint {
+  background: radial-gradient(circle, rgba(52, 211, 153, 0.12) 0%, rgba(52, 211, 153, 0) 70%);
 }
 
 h1,
@@ -65,9 +100,10 @@ h2,
 h3,
 h4 {
   font-weight: 700;
-  line-height: 1.2;
+  line-height: 1.25;
   margin: 0 0 16px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  color: #ffffff;
 }
 
 p {
@@ -83,38 +119,55 @@ a {
   max-width: var(--max-width);
   margin: 0 auto;
   padding: 0 24px;
+  position: relative;
+  z-index: 2;
 }
 
 .section {
-  padding: 88px 0;
+  padding: 100px 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .section--soft {
   background: var(--bg-soft);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .eyebrow {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--brand);
-  margin-bottom: 12px;
+  color: var(--brand-bright);
+  margin-bottom: 16px;
+}
+
+.eyebrow::before {
+  content: "✦";
+  font-size: 12px;
 }
 
 .section-heading {
   text-align: center;
-  max-width: 640px;
-  margin: 0 auto 56px;
+  max-width: 680px;
+  margin: 0 auto 64px;
 }
 
 .section-heading h2 {
-  font-size: clamp(26px, 3.4vw, 36px);
+  font-size: clamp(28px, 4vw, 42px);
+  background: linear-gradient(135deg, #ffffff 30%, #a7f3d0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 18px;
 }
 
 .section-heading p {
-  font-size: 17px;
+  font-size: 18px;
   margin: 0;
 }
 
@@ -122,36 +175,52 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 14px 28px;
-  border-radius: 999px;
+  gap: 10px;
+  padding: 16px 32px;
+  border-radius: 99px;
   border: none;
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
   text-decoration: none;
   transition:
-    transform 0.18s ease,
-    box-shadow 0.18s ease,
-    background-color 0.18s ease,
-    opacity 0.18s ease;
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.08);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.btn:hover::after {
+  opacity: 1;
 }
 
 .btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-primary {
-  background: var(--brand-bright);
-  color: #fff;
-  box-shadow: 0 6px 18px rgba(37, 211, 102, 0.35);
+  background: linear-gradient(135deg, var(--brand-bright) 0%, var(--brand) 100%);
+  color: #030712;
+  box-shadow: 0 4px 20px rgba(52, 211, 153, 0.25);
+  font-weight: 700;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: var(--brand-bright-dark);
   transform: translateY(-2px);
-  box-shadow: 0 12px 26px rgba(37, 211, 102, 0.4);
+  box-shadow: 0 8px 30px rgba(52, 211, 153, 0.4);
 }
 
 .btn-primary:active:not(:disabled) {
@@ -159,42 +228,28 @@ a {
 }
 
 .btn-pulse {
-  animation: btn-pulse-ring 2.6s ease-out infinite;
+  animation: btn-pulse-glow 2.5s infinite;
 }
 
-.btn-pulse:hover {
-  animation-play-state: paused;
-}
-
-@keyframes btn-pulse-ring {
-  0% {
-    box-shadow:
-      0 6px 18px rgba(37, 211, 102, 0.35),
-      0 0 0 0 rgba(37, 211, 102, 0.45);
+@keyframes btn-pulse-glow {
+  0%, 100% {
+    box-shadow: 0 4px 20px rgba(52, 211, 153, 0.25);
   }
-
-  70% {
-    box-shadow:
-      0 6px 18px rgba(37, 211, 102, 0.35),
-      0 0 0 14px rgba(37, 211, 102, 0);
-  }
-
-  100% {
-    box-shadow:
-      0 6px 18px rgba(37, 211, 102, 0.35),
-      0 0 0 0 rgba(37, 211, 102, 0);
+  50% {
+    box-shadow: 0 4px 32px rgba(52, 211, 153, 0.55);
   }
 }
 
 .btn-secondary {
-  background: #fff;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--ink);
   border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
 }
 
 .btn-secondary:hover:not(:disabled) {
-  border-color: var(--brand);
-  color: var(--brand);
+  border-color: var(--brand-bright);
+  color: var(--brand-bright);
   transform: translateY(-2px);
 }
 
@@ -208,65 +263,67 @@ a {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: var(--brand-dark);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
-  transition:
-    box-shadow 0.25s ease,
-    padding 0.25s ease;
+  background: rgba(7, 13, 11, 0.75);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  transition: all 0.3s ease;
 }
 
 .navbar.is-scrolled {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.22);
+  background: rgba(7, 13, 11, 0.9);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .navbar .container {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 72px;
+  height: 80px;
 }
 
 .navbar-logo {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-size: 19px;
-  font-weight: 700;
+  gap: 12px;
+  font-size: 20px;
+  font-weight: 800;
   color: #fff;
   text-decoration: none;
+  letter-spacing: -0.03em;
 }
 
 .logo-mark {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   flex-shrink: 0;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 0 12px rgba(52, 211, 153, 0.3));
 }
 
 .navbar-links {
   display: flex;
   align-items: center;
-  gap: 30px;
+  gap: 32px;
 }
 
 .navbar-links a:not(.btn) {
   font-size: 15px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--ink-soft);
   text-decoration: none;
   position: relative;
-  transition: color 0.15s ease;
+  transition: color 0.25s ease;
+  padding: 8px 0;
 }
 
 .navbar-links a:not(.btn)::after {
   content: "";
   position: absolute;
   left: 0;
-  bottom: -4px;
+  bottom: 0;
   width: 0;
   height: 2px;
   background: var(--brand-bright);
-  transition: width 0.2s ease;
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .navbar-links a:not(.btn):hover {
@@ -282,7 +339,7 @@ a {
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   background: none;
   border: none;
   cursor: pointer;
@@ -291,17 +348,17 @@ a {
 
 .navbar-toggle span {
   display: block;
-  width: 22px;
+  width: 24px;
   height: 2px;
   background: #fff;
   border-radius: 2px;
   transition:
-    transform 0.25s ease,
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
     opacity 0.2s ease;
 }
 
 .navbar-toggle[aria-expanded="true"] span:nth-child(1) {
-  transform: translateY(7px) rotate(45deg);
+  transform: translateY(8px) rotate(45deg);
 }
 
 .navbar-toggle[aria-expanded="true"] span:nth-child(2) {
@@ -309,26 +366,28 @@ a {
 }
 
 .navbar-toggle[aria-expanded="true"] span:nth-child(3) {
-  transform: translateY(-7px) rotate(-45deg);
+  transform: translateY(-8px) rotate(-45deg);
 }
 
 @media (max-width: 760px) {
   .navbar-links {
     position: absolute;
-    top: 72px;
+    top: 80px;
     left: 0;
     right: 0;
-    background: var(--brand-dark);
+    background: rgba(7, 13, 11, 0.98);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
     flex-direction: column;
     align-items: stretch;
-    padding: 16px 24px 24px;
-    gap: 16px;
+    padding: 24px;
+    gap: 20px;
     display: none;
   }
 
   .navbar-links.is-open {
     display: flex;
-    animation: navbar-drop 0.2s ease;
+    animation: navbar-drop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
   .navbar-links a:not(.btn)::after {
@@ -343,9 +402,8 @@ a {
 @keyframes navbar-drop {
   from {
     opacity: 0;
-    transform: translateY(-8px);
+    transform: translateY(-12px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
@@ -355,9 +413,12 @@ a {
 /* ── Footer ─────────────────────────────────────────────────────────────── */
 
 .footer {
-  background: #054a41;
-  color: #d9efe9;
-  padding: 48px 0;
+  background: #030807;
+  border-top: 1px solid var(--border);
+  color: var(--ink-soft);
+  padding: 64px 0;
+  position: relative;
+  z-index: 2;
 }
 
 .footer .container {
@@ -365,27 +426,28 @@ a {
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 32px;
 }
 
 .footer-logo {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  font-weight: 700;
+  gap: 12px;
+  font-weight: 800;
   color: #fff;
-  font-size: 17px;
+  font-size: 19px;
+  letter-spacing: -0.03em;
 }
 
 .footer-logo .logo-mark {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
 }
 
 .footer-links {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 32px;
   list-style: none;
   margin: 0;
   padding: 0;
@@ -393,51 +455,65 @@ a {
 
 .footer-links a,
 .footer-links span {
-  color: #d9efe9;
+  color: var(--ink-soft);
   text-decoration: none;
   font-size: 14px;
-  transition: color 0.15s ease;
+  transition: color 0.2s ease;
 }
 
 .footer-links a:hover {
-  color: #fff;
+  color: var(--brand-bright);
 }
 
 .footer-links .is-disabled {
   cursor: default;
-  opacity: 0.75;
+  opacity: 0.5;
 }
 
-/* ── Cards ──────────────────────────────────────────────────────────────── */
+/* ── Cards (Glassmorphism + Hover Glows) ────────────────────────────────── */
 
 .card {
-  background: #fff;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 28px;
+  padding: 32px;
+  box-shadow: var(--shadow);
   transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease,
-    border-color 0.25s ease;
+    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(52, 211, 153, 0.05) 0%, rgba(52, 211, 153, 0) 60%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.card:hover::before {
+  opacity: 1;
 }
 
 .card-hover:hover {
   transform: translateY(-6px);
-  box-shadow: var(--shadow);
-  border-color: rgba(18, 140, 126, 0.25);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4), 0 0 20px rgba(52, 211, 153, 0.1);
+  border-color: var(--border-glow);
 }
 
-/* ── Scroll-reveal animation ──────────────────────────────────────────────
-   Elements start hidden/offset and fade+rise into place once .is-visible is
-   toggled by an IntersectionObserver (see main.js). Falls back to always-
-   visible if JS never runs (progressive enhancement, no FOUC risk). */
+/* ── Scroll-reveal animation ────────────────────────────────────────────── */
 
 .reveal {
   opacity: 0;
-  transform: translateY(24px);
+  transform: translateY(32px);
   transition:
-    opacity 0.6s ease,
-    transform 0.6s ease;
+    opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .reveal.is-visible {
@@ -446,12 +522,12 @@ a {
 }
 
 .reveal-stagger > * {
-  transition-delay: calc(var(--reveal-index, 0) * 70ms);
+  transition-delay: calc(var(--reveal-index, 0) * 80ms);
 }
 
 @media (max-width: 640px) {
   .section {
-    padding: 56px 0;
+    padding: 72px 0;
   }
 }
 
@@ -459,35 +535,42 @@ a {
 
 .legal {
   max-width: 760px;
+  margin: 0 auto;
 }
 
 .legal--narrow {
   max-width: 560px;
+  margin: 0 auto;
 }
 
 .legal h1 {
-  font-size: clamp(28px, 4vw, 38px);
+  font-size: clamp(32px, 5vw, 44px);
+  background: linear-gradient(135deg, #ffffff 40%, #a7f3d0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .legal h3 {
-  margin-top: 36px;
-  font-size: 19px;
+  margin-top: 40px;
+  font-size: 20px;
+  color: var(--brand-bright);
 }
 
 .legal-updated {
   color: var(--ink-faint);
   font-size: 14px;
   margin-top: -8px;
+  margin-bottom: 32px;
 }
 
 .contact-card {
-  margin: 24px 0;
+  margin: 32px 0;
 }
 
 .contact-row {
   display: flex;
   justify-content: space-between;
-  padding: 12px 0;
+  padding: 16px 0;
   border-bottom: 1px solid var(--border);
 }
 
@@ -497,46 +580,45 @@ a {
 
 .contact-label {
   font-weight: 600;
-  color: var(--ink);
+  color: #fff;
 }
 
 .contact-value {
   color: var(--ink-soft);
 }
 
-/* ── Small-phone refinements ──────────────────────────────────────────────
-   Everything above already scales via clamp()/flex-wrap; this tightens
-   spacing and touch targets on narrow phones (<400px) specifically. */
+/* ── Small-phone refinements ────────────────────────────────────────────── */
 
 @media (max-width: 400px) {
   .container {
-    padding: 0 16px;
+    padding: 0 18px;
   }
 
   .btn {
-    padding: 13px 22px;
+    padding: 14px 24px;
     font-size: 15px;
   }
 
   .navbar .container {
-    height: 64px;
+    height: 72px;
   }
 
   .navbar-links {
-    top: 64px;
+    top: 72px;
   }
 
   .card {
-    padding: 20px;
+    padding: 24px;
   }
 }
 
-/* Touch devices: no hover affordances to fake, drop the lift-on-hover so a
-   tap doesn't leave a card visually "stuck" in its hovered state. */
+/* Touch devices */
 @media (hover: none) {
   .card-hover:hover,
   .btn-primary:hover:not(:disabled),
   .btn-secondary:hover:not(:disabled) {
-    transform: none;
+    transform: none !important;
+    box-shadow: var(--shadow) !important;
+    border-color: var(--border) !important;
   }
 }

@@ -4,10 +4,12 @@
 {% block content %}
 <div class="login-wrap">
   <div class="login-card">
-    <h1>OpsGenie Dashboard</h1>
+    <h1>OpsGenie Admin</h1>
     <form method="post" action="/dashboard/login">
-      <label for="password">Password</label>
-      <input type="password" id="password" name="password" required autofocus>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required autofocus placeholder="Enter admin password">
+      </div>
       <button type="submit">Log in</button>
     </form>
   </div>

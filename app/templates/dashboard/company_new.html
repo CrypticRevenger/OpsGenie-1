@@ -1,44 +1,47 @@
 {% extends "dashboard/_layout.html" %}
-{% block title %}New company — OpsGenie Dashboard{% endblock %}
+{% block title %}New Company — OpsGenie Dashboard{% endblock %}
 {% block content %}
 <div class="card">
-  <h2>New company</h2>
+  <h2>Register New Company</h2>
   <form method="post" action="/dashboard/companies/new">
     <div class="form-grid">
       <div class="field">
         <label for="business_name">Business name</label>
-        <input type="text" id="business_name" name="business_name" required>
+        <input type="text" id="business_name" name="business_name" required placeholder="e.g. Laxmi Distributors">
       </div>
       <div class="field">
         <label for="owner_name">Owner name</label>
-        <input type="text" id="owner_name" name="owner_name" required>
+        <input type="text" id="owner_name" name="owner_name" required placeholder="e.g. Ramesh Chandra">
       </div>
       <div class="field">
         <label for="whatsapp_number">WhatsApp number (E.164, e.g. +919876543210)</label>
-        <input type="text" id="whatsapp_number" name="whatsapp_number" required>
+        <input type="text" id="whatsapp_number" name="whatsapp_number" required placeholder="+91XXXXXXXXXX">
       </div>
       <div class="field">
         <label for="email">Email</label>
-        <input type="email" id="email" name="email">
+        <input type="email" id="email" name="email" placeholder="e.g. owner@domain.com">
       </div>
       <div class="field">
         <label for="business_type">Business type</label>
-        <input type="text" id="business_type" name="business_type">
+        <input type="text" id="business_type" name="business_type" placeholder="e.g. Cement / FMCG / Pharma">
       </div>
       <div class="field">
         <label for="preferred_language">Preferred language</label>
-        <input type="text" id="preferred_language" name="preferred_language" value="en">
+        <select id="preferred_language" name="preferred_language">
+          <option value="en" selected>English (en)</option>
+          <option value="hi">Hindi (hi)</option>
+        </select>
       </div>
       <div class="field">
         <label for="timezone">Timezone (IANA)</label>
-        <input type="text" id="timezone" name="timezone" value="Asia/Kolkata">
+        <input type="text" id="timezone" name="timezone" value="Asia/Kolkata" required>
       </div>
       <div class="field">
-        <label for="opening_balance">Opening balance</label>
-        <input type="text" id="opening_balance" name="opening_balance" value="0">
+        <label for="opening_balance">Opening cash balance (₹)</label>
+        <input type="text" id="opening_balance" name="opening_balance" value="0" required>
       </div>
     </div>
-    <div class="row" style="margin-top: 14px;">
+    <div class="row" style="margin-top: 24px; gap: 14px;">
       <button type="submit">Create company</button>
       <a class="btn secondary" href="/dashboard/companies">Cancel</a>
     </div>

@@ -5,18 +5,20 @@
 {% block content %}
 <main>
 
-  <!-- Hero -->
+  <!-- Hero Section -->
   <section class="hero">
     <div class="container">
-      <div class="hero-copy">
+      <div class="hero-copy reveal">
+        <span class="eyebrow">WhatsApp Financial Assistant</span>
         <h1>Your Business.<br><span class="accent">Managed from WhatsApp.</span></h1>
-        <p>OpsGenie helps distributors track receivables, supplier payments, cash flow, and business performance — without learning new software.</p>
+        <p>OpsGenie helps distributors track receivables, supplier payments, cash flow, and business performance —
+          without learning new software or logging into dashboards.</p>
         <div class="hero-actions">
           <a class="btn btn-primary btn-pulse" href="{{ onboard_url }}">Start Free on WhatsApp</a>
-          <a class="btn btn-secondary" href="#how-it-works">See Demo</a>
+          <a class="btn btn-secondary" href="#how-it-works">See How it Works</a>
         </div>
       </div>
-      <div class="hero-mockup">
+      <div class="hero-mockup reveal" style="--reveal-index: 1;">
         <div class="wa-phone">
           <div class="wa-phone-header">
             <span class="wa-avatar">O</span>
@@ -25,18 +27,20 @@
           <div class="wa-phone-body">
             <div class="wa-bubble">Good Morning Rajesh ☀️
 
-<strong>Today's Summary</strong>
-<span class="wa-figure">₹1,85,000</span> expected today
-<span class="wa-figure">₹70,000</span> supplier payment due tomorrow
+              <strong>Today's Summary</strong>
+              <span class="wa-figure">₹1,85,000</span> expected today
+              <span class="wa-figure">₹70,000</span> supplier payment due tomorrow
 
-<strong>Cash after dues</strong>
-<span class="wa-figure">₹2,41,000</span></div>
+              <strong>Cash after dues</strong>
+              <span class="wa-figure">₹2,41,000</span>
+            </div>
             <div class="wa-bubble wa-risk"><strong>High Risk</strong>
-Sharma Traders
-12 days overdue
+              Sharma Traders
+              12 days overdue
 
-<strong>Suggested Action</strong>
-Call Sharma Traders before noon.</div>
+              <strong>Suggested Action</strong>
+              Call Sharma Traders before noon.
+            </div>
           </div>
         </div>
       </div>
@@ -48,11 +52,12 @@ Call Sharma Traders before noon.</div>
     <div class="container">
       <div class="section-heading reveal">
         <span class="eyebrow">Built For</span>
-        <h2>Who is this for?</h2>
+        <h2>Tailored for B2B Distributors</h2>
+        <p>OpsGenie is custom-built for distribution businesses who want to run operations efficiently.</p>
       </div>
-      <div class="built-for-list reveal">
+      <div class="built-for-list reveal-stagger reveal">
         {% for segment in built_for %}
-        <span class="built-for-badge">✔ {{ segment }}</span>
+        <span class="built-for-badge" style="--reveal-index: {{ loop.index0 }}">{{ segment }}</span>
         {% endfor %}
       </div>
     </div>
@@ -62,111 +67,140 @@ Call Sharma Traders before noon.</div>
   <section class="section">
     <div class="container">
       <div class="section-heading reveal">
+        <span class="eyebrow">Operational Pain</span>
         <h2>Running a distribution business shouldn't require five notebooks.</h2>
+        <p>Traditional accounting systems are built for taxes, not daily operational decision making.</p>
       </div>
-      <div class="grid-4 reveal">
-        <div class="card card-hover problem-card">
+      <div class="grid-4 reveal-stagger reveal">
+        <div class="card card-hover problem-card" style="--reveal-index: 0">
           <div class="icon">💸</div>
           <h3>Money gets stuck</h3>
-          <p>Retailers delay payments.</p>
+          <p>Retailers delay payments, and tracking outstanding dues takes constant follow-up.</p>
         </div>
-        <div class="card card-hover problem-card">
+        <div class="card card-hover problem-card" style="--reveal-index: 1">
           <div class="icon">⏰</div>
           <h3>Supplier dues are missed</h3>
-          <p>Late payments hurt supplier trust.</p>
+          <p>Late payments lead to lost cash discounts and damage critical supplier relationships.</p>
         </div>
-        <div class="card card-hover problem-card">
+        <div class="card card-hover problem-card" style="--reveal-index: 2">
           <div class="icon">🌫️</div>
           <h3>Cash flow is unclear</h3>
-          <p>Nobody knows what tomorrow looks like.</p>
+          <p>It's hard to make quick ordering decisions without knowing tomorrow's cash balance.</p>
         </div>
-        <div class="card card-hover problem-card">
+        <div class="card card-hover problem-card" style="--reveal-index: 3">
           <div class="icon">📱</div>
-          <h3>WhatsApp is already your office</h3>
-          <p>Why switch to complicated ERP software?</p>
+          <h3>WhatsApp is your office</h3>
+          <p>Your team already lives on WhatsApp. Why force them into a complicated ERP software?</p>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- Solution -->
+  <!-- Solution Flow -->
   <section class="section section--soft">
     <div class="container">
       <div class="section-heading reveal">
+        <span class="eyebrow">Our Workflow</span>
         <h2>OpsGenie works where your business already happens.</h2>
       </div>
-      <div class="solution-flow reveal">
-        <div class="flow-step">Invoices</div>
+      <div class="solution-flow reveal-stagger reveal">
+        <div class="flow-step" style="--reveal-index: 0">Upload Invoices</div>
         <div class="flow-arrow">↓</div>
-        <div class="flow-step">WhatsApp</div>
+        <div class="flow-step" style="--reveal-index: 1">Payment Allocation</div>
         <div class="flow-arrow">↓</div>
-        <div class="flow-step">OpsGenie</div>
+        <div class="flow-step" style="--reveal-index: 2">Narration Layer via Pluggable LLM</div>
         <div class="flow-arrow">↓</div>
-        <div class="flow-step">Morning Brief</div>
+        <div class="flow-step" style="--reveal-index: 3">Morning Briefing on WhatsApp</div>
         <div class="flow-arrow">↓</div>
-        <div class="flow-step">Better Decisions</div>
+        <div class="flow-step" style="--reveal-index: 4">Actionable Business Decisions</div>
       </div>
     </div>
   </section>
 
-  <!-- See OpsGenie in Action -->
-  <section class="section">
+  <!-- See OpsGenie in Action (Interactive Mockup) -->
+  <section id="demo" class="section">
     <div class="container">
       <div class="section-heading reveal">
-        <span class="eyebrow">The Product Is WhatsApp</span>
+        <span class="eyebrow">Interactive Demo</span>
         <h2>See OpsGenie in Action</h2>
-        <p>No dashboard to learn. Just messages, every morning.</p>
+        <p>No software or dashboard to learn. Simply query and receive summaries directly on WhatsApp.</p>
       </div>
-      <div class="mockups-grid reveal">
-        <div class="mockup-item">
-          <div class="wa-phone">
-            <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
-            <div class="wa-phone-body">
-              <div class="wa-bubble">Good Morning ☀️
 
-<strong>Receivable Today</strong>
-<span class="wa-figure">₹92,000</span>
+      <div class="reveal">
+        <!-- Interactive Tabs -->
+        <div class="demo-tabs-container">
+          <button class="demo-tab-btn is-active" data-demo="briefing">Morning Briefing</button>
+          <button class="demo-tab-btn" data-demo="outstanding">Outstanding Report</button>
+          <button class="demo-tab-btn" data-demo="cash">Cash Position</button>
+        </div>
 
-<strong>Supplier Due</strong>
-<span class="wa-figure">₹40,000</span>
+        <!-- Phone Shell -->
+        <div class="wa-phone" style="max-width: 400px;">
+          <div class="wa-phone-header">
+            <span class="wa-avatar">O</span>
+            OpsGenie
+          </div>
+          <div class="wa-phone-body" id="demoPhoneBody">
+            <!-- Dynamically populated by JS -->
+          </div>
+        </div>
 
-<strong>Expected Cash</strong>
-<span class="wa-figure">₹2,84,000</span></div>
+        <!-- SEO Crawler Fallback (Hidden) -->
+        <noscript>
+          <div class="mockups-grid" style="margin-top: 40px;">
+            <div class="mockup-item">
+              <div class="wa-phone">
+                <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
+                <div class="wa-phone-body">
+                  <div class="wa-bubble">Good Morning ☀️
+
+                    <strong>Receivable Today</strong>
+                    <span class="wa-figure">₹92,000</span>
+
+                    <strong>Supplier Due</strong>
+                    <span class="wa-figure">₹40,000</span>
+
+                    <strong>Expected Cash</strong>
+                    <span class="wa-figure">₹2,84,000</span>
+                  </div>
+                </div>
+              </div>
+              <h3>Morning Briefing</h3>
+            </div>
+            <div class="mockup-item">
+              <div class="wa-phone">
+                <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
+                <div class="wa-phone-body">
+                  <div class="wa-bubble wa-out">2</div>
+                  <div class="wa-bubble"><strong>Outstanding Report</strong>
+
+                    Siddha Mahaveer Agencies
+                    <span class="wa-figure">₹3,19,828</span> · High risk
+
+                    Reliable Medical
+                    <span class="wa-figure">₹39,986</span> · High risk
+                  </div>
+                </div>
+              </div>
+              <h3>Outstanding Report</h3>
+            </div>
+            <div class="mockup-item">
+              <div class="wa-phone">
+                <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
+                <div class="wa-phone-body">
+                  <div class="wa-bubble wa-out">Cash position?</div>
+                  <div class="wa-bubble"><strong>Cash Position</strong>
+
+                    Available today: <span class="wa-figure">₹2,41,000</span>
+                    After Friday's dues: <span class="wa-figure">₹1,58,000</span>
+
+                    Suggested: delay ABC Foods payment by one day.</div>
+                </div>
+              </div>
+              <h3>Cash Position</h3>
             </div>
           </div>
-          <h3>Morning Briefing</h3>
-        </div>
-        <div class="mockup-item">
-          <div class="wa-phone">
-            <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
-            <div class="wa-phone-body">
-              <div class="wa-bubble wa-out">2</div>
-              <div class="wa-bubble"><strong>Outstanding Report</strong>
-
-Siddha Mahaveer Agencies
-<span class="wa-figure">₹3,19,828</span> · High risk
-
-Reliable Medical
-<span class="wa-figure">₹39,986</span> · High risk</div>
-            </div>
-          </div>
-          <h3>Outstanding Report</h3>
-        </div>
-        <div class="mockup-item">
-          <div class="wa-phone">
-            <div class="wa-phone-header"><span class="wa-avatar">O</span>OpsGenie</div>
-            <div class="wa-phone-body">
-              <div class="wa-bubble wa-out">Cash position?</div>
-              <div class="wa-bubble"><strong>Cash Position</strong>
-
-Available today: <span class="wa-figure">₹2,41,000</span>
-After Friday's dues: <span class="wa-figure">₹1,58,000</span>
-
-Suggested: delay ABC Foods payment by one day.</div>
-            </div>
-          </div>
-          <h3>Cash Position</h3>
-        </div>
+        </noscript>
       </div>
     </div>
   </section>
@@ -175,13 +209,19 @@ Suggested: delay ABC Foods payment by one day.</div>
   <section id="features" class="section section--soft">
     <div class="container">
       <div class="section-heading reveal">
-        <span class="eyebrow">Why OpsGenie</span>
-        <h2>Know every morning who will pay you, what you owe, and whether you'll run out of cash.</h2>
+        <span class="eyebrow">Outcomes</span>
+        <h2>Stop guessing your business numbers.</h2>
+        <p>Get total clarity on your daily financial standing before your work day starts.</p>
       </div>
-      <div class="outcomes-chain reveal">
+      <div class="outcomes-chain reveal-stagger reveal">
         {% for outcome in outcomes %}
-        <div class="outcome-row"><span class="icon">{{ outcome.icon }}</span>{{ outcome.text }}</div>
-        {% if not loop.last %}<div class="outcome-arrow">↓</div>{% endif %}
+        <div class="outcome-row" style="--reveal-index: {{ loop.index0 }}">
+          <span class="icon">{{ outcome.icon }}</span>
+          <span>{{ outcome.text }}</span>
+        </div>
+        {% if not loop.last %}
+        <div class="outcome-arrow">↓</div>
+        {% endif %}
         {% endfor %}
       </div>
     </div>
@@ -191,11 +231,13 @@ Suggested: delay ABC Foods payment by one day.</div>
   <section id="how-it-works" class="section">
     <div class="container">
       <div class="section-heading reveal">
+        <span class="eyebrow">Quick Start</span>
         <h2>How It Works</h2>
+        <p>Getting set up is fast and completely frictionless.</p>
       </div>
-      <div class="steps-row reveal">
+      <div class="steps-row reveal-stagger reveal">
         {% for step in how_it_works %}
-        <div class="step-item">
+        <div class="step-item" style="--reveal-index: {{ loop.index0 }}">
           <div class="step-num">{{ loop.index }}</div>
           <p>{{ step }}</p>
         </div>
@@ -204,20 +246,27 @@ Suggested: delay ABC Foods payment by one day.</div>
     </div>
   </section>
 
-  <!-- Why WhatsApp -->
+  <!-- Why WhatsApp Comparison -->
   <section class="section section--soft">
     <div class="container">
       <div class="section-heading reveal">
+        <span class="eyebrow">Fast Integration</span>
         <h2>Why WhatsApp?</h2>
-        <p>Most ERPs ask you to log in. OpsGenie doesn't.</p>
+        <p>Most ERPs ask you to log in. OpsGenie works in the chat client you already use daily.</p>
       </div>
       <table class="comparison-table reveal">
         <thead>
-          <tr><th>Traditional ERP</th><th>OpsGenie</th></tr>
+          <tr>
+            <th>Traditional ERP</th>
+            <th>OpsGenie</th>
+          </tr>
         </thead>
         <tbody>
           {% for row in comparison %}
-          <tr><td>{{ row.traditional }}</td><td>{{ row.opsgenie }}</td></tr>
+          <tr>
+            <td>{{ row.traditional }}</td>
+            <td>{{ row.opsgenie }}</td>
+          </tr>
           {% endfor %}
         </tbody>
       </table>
@@ -238,7 +287,8 @@ Suggested: delay ABC Foods payment by one day.</div>
   <section id="pricing" class="section section--soft">
     <div class="container">
       <div class="section-heading reveal">
-        <h2>Simple Pricing</h2>
+        <span class="eyebrow">Pricing</span>
+        <h2>Simple, Transparent Pricing</h2>
       </div>
       <div class="card pricing-card reveal">
         <div class="plan-name">Starter</div>
@@ -257,13 +307,16 @@ Suggested: delay ABC Foods payment by one day.</div>
   <section id="faq" class="section">
     <div class="container">
       <div class="section-heading reveal">
+        <span class="eyebrow">FAQ</span>
         <h2>Frequently Asked Questions</h2>
       </div>
-      <div class="faq-list reveal">
+      <div class="faq-list reveal-stagger reveal">
         {% for item in faq %}
-        <div class="faq-item">
+        <div class="faq-item" style="--reveal-index: {{ loop.index0 }}">
           <button class="faq-question">{{ item.question }}</button>
-          <div class="faq-answer"><p>{{ item.answer }}</p></div>
+          <div class="faq-answer">
+            <p>{{ item.answer }}</p>
+          </div>
         </div>
         {% endfor %}
       </div>

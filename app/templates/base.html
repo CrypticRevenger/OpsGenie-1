@@ -8,17 +8,25 @@
 <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/main.css">
 {% block extra_css %}{% endblock %}
 </head>
 <body>
-{% block navbar %}
-{% include "_navbar.html" %}
-{% endblock %}
-{% block content %}{% endblock %}
-{% include "_footer.html" %}
-<script src="/static/js/main.js"></script>
-{% block extra_js %}{% endblock %}
+  <!-- Ambient Background Glowing Orbs -->
+  <div class="orb orb-green" style="top: 5%; left: -200px; width: 600px; height: 600px;"></div>
+  <div class="orb orb-mint" style="top: 35%; right: -250px; width: 650px; height: 650px;"></div>
+  <div class="orb orb-green" style="bottom: 15%; left: -100px; width: 550px; height: 550px;"></div>
+
+  {% block navbar %}
+  {% include "_navbar.html" %}
+  {% endblock %}
+  
+  {% block content %}{% endblock %}
+  
+  {% include "_footer.html" %}
+  
+  <script src="/static/js/main.js"></script>
+  {% block extra_js %}{% endblock %}
 </body>
 </html>

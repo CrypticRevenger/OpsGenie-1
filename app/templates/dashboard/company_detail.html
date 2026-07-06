@@ -2,398 +2,535 @@
 {% block title %}{{ company.business_name }} — OpsGenie Dashboard{% endblock %}
 {% block content %}
 
+<!-- Company Header Card -->
 <div class="card">
-  <div class="row" style="justify-content: space-between;">
+  <div class="row" style="justify-content: space-between; align-items: flex-start; gap: 16px;">
     <div>
-      <h2>{{ company.business_name }}</h2>
-      <div class="muted">{{ company.owner_name }} · {{ company.whatsapp_number }} · {{ company.timezone }}</div>
+      <h2 style="border-bottom: none; padding-bottom: 0; margin-bottom: 6px;">{{ company.business_name }}</h2>
+      <div class="muted" style="font-size: 0.95rem;">
+        <span style="color:#fff; font-weight:600;">{{ company.owner_name }}</span> &middot;
+        {{ company.whatsapp_number }} &middot;
+        <span style="font-family:monospace; background:rgba(255,255,255,0.05); padding:2px 6px; border-radius:4px;">{{
+          company.timezone }}</span>
+      </div>
     </div>
     {% if company.subscription_active %}
-    <span class="badge active">Active</span>
+    <span class="badge active" style="font-size: 0.85rem; padding: 6px 14px;">Active</span>
     {% else %}
-    <span class="badge inactive">Inactive</span>
+    <span class="badge inactive" style="font-size: 0.85rem; padding: 6px 14px;">Inactive</span>
     {% endif %}
   </div>
-  <div class="row" style="margin-top: 14px;">
+  <div class="row" style="margin-top: 20px; gap: 12px;">
     {% if company.subscription_active %}
     <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/deactivate">
-      <button type="submit" class="secondary">Pause</button>
+      <button type="submit" class="secondary">Pause Subscription</button>
     </form>
     {% else %}
     <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/activate">
-      <button type="submit">Activate</button>
+      <button type="submit">Activate Subscription</button>
     </form>
     {% endif %}
     <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/delete"
-          data-confirm="Permanently delete {{ company.business_name }} and ALL of its data (dealers, suppliers, invoices, payments)? This cannot be undone.">
-      <button type="submit" class="danger">Delete company</button>
+      data-confirm="Permanently delete {{ company.business_name }} and ALL of its data (dealers, suppliers, invoices, payments)? This cannot be undone.">
+      <button type="submit" class="danger">Delete Company</button>
     </form>
   </div>
 </div>
 
+<!-- Cashflow Snapshot Card -->
 <div class="card">
-  <h2>Cashflow snapshot</h2>
+  <h2 style="margin-bottom: 20px;">Cashflow Snapshot</h2>
   <div class="stat-row">
     <div class="stat">
-      <div class="value">₹{{ "%.2f"|format(cashflow.cash_available_today) }}</div>
-      <div class="label">Cash available today</div>
+      <div class="value" style="color: var(--brand-bright);">₹{{ "%.2f"|format(cashflow.cash_available_today) }}</div>
+      <div class="label">Cash Available Today</div>
     </div>
     <div class="stat">
-      <div class="value">₹{{ "%.2f"|format(cashflow.net_cash_position) }}</div>
-      <div class="label">Net 7-day position{% if cashflow.cash_deficit %} (deficit){% endif %}</div>
+      <div class="value" style="color: {% if cashflow.cash_deficit %}#f87171{% else %}#fff{% endif %};">
+        ₹{{ "%.2f"|format(cashflow.net_cash_position) }}
+      </div>
+      <div class="label">Net 7-Day Position{% if cashflow.cash_deficit %} (Deficit){% endif %}</div>
     </div>
     <div class="stat">
       <div class="value">₹{{ "%.2f"|format(cashflow.expected_collections_7d_total) }}</div>
-      <div class="label">Expected collections (7d)</div>
+      <div class="label">Expected Collections (7d)</div>
     </div>
     <div class="stat">
       <div class="value">₹{{ "%.2f"|format(cashflow.expected_payments_7d_total) }}</div>
-      <div class="label">Expected payments (7d)</div>
+      <div class="label">Expected Payments (7d)</div>
     </div>
   </div>
+
   {% if cashflow.recommendations %}
-  <h3>Recommended actions</h3>
-  <ul>
+  <h3
+    style="margin-top: 24px; margin-bottom: 12px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brand-bright);">
+    Recommended Actions</h3>
+  <ul style="padding-left: 20px; color: var(--ink-soft); margin-bottom: 0;">
     {% for r in cashflow.recommendations %}
-    <li>{{ r.entity_name }} — {{ r.reason }}{% if r.amount %} (₹{{ "%.2f"|format(r.amount) }}){% endif %}</li>
+    <li style="margin-bottom: 8px;">
+      <span style="color:#fff; font-weight:600;">{{ r.entity_name }}</span> &mdash;
+      {{ r.reason }}
+      {% if r.amount %}<strong style="color: var(--brand-bright); margin-left: 6px;">(₹{{ "%.2f"|format(r.amount)
+        }})</strong>{% endif %}
+    </li>
     {% endfor %}
   </ul>
   {% endif %}
+
   {% if cashflow.data_freshness_hours is not none and cashflow.data_freshness_hours > 24 %}
-  <p class="muted">Data is {{ "%.0f"|format(cashflow.data_freshness_hours) }}h old — consider a fresh import.</p>
+  <p class="muted" style="margin-top: 20px; font-style: italic;">
+    ⚠️ Data is {{ "%.0f"|format(cashflow.data_freshness_hours) }}h old &mdash; consider uploading a fresh file.
+  </p>
   {% endif %}
 </div>
 
+<!-- Morning Briefing Card -->
 <div class="card">
-  <h2>Morning briefing</h2>
+  <h2>Morning Briefing</h2>
   {% if briefing %}
-  <p>{{ briefing.generated_text }}</p>
-  <p class="muted">Generated {{ briefing.created_at.strftime("%Y-%m-%d %H:%M") }} · confidence {{ "%.0f"|format(briefing.confidence_score * 100) }}%</p>
+  <div
+    style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 20px; line-height: 1.7; font-size: 0.95rem; color: #fff; margin-bottom: 16px; white-space: pre-line;">
+    {{ briefing.generated_text }}
+  </div>
+  <p class="muted" style="margin-bottom: 16px;">
+    Generated on {{ briefing.created_at.strftime("%Y-%m-%d %H:%M") }} &middot; confidence score: <strong>{{
+      "%.0f"|format(briefing.confidence_score * 100) }}%</strong>
+  </p>
   {% else %}
-  <p class="muted">No briefing generated yet.</p>
+  <p class="muted" style="margin-bottom: 20px;">No briefing generated yet.</p>
   {% endif %}
   <form method="post" action="/dashboard/companies/{{ company.id }}/briefing/generate">
-    <button type="submit">Generate briefing</button>
+    <button type="submit">Generate Fresh Briefing</button>
   </form>
 </div>
 
+<!-- Follow-ups Card -->
 <div class="card">
-  <h2>Follow-ups</h2>
-  <p class="muted">Manually send today's due-invoice follow-up over WhatsApp.</p>
+  <h2>Due Follow-ups</h2>
+  <p class="muted" style="margin-bottom: 20px;">Manually trigger today's outstanding receivables follow-up alerts over
+    WhatsApp.</p>
   <form method="post" action="/dashboard/companies/{{ company.id }}/follow-ups/send-due-today">
-    <button type="submit">Send due-today follow-up</button>
+    <button type="submit">Send Due-Today Alerts</button>
   </form>
 </div>
 
+<!-- Import Data Card -->
 <div class="card">
-  <h2>Import data</h2>
+  <h2>Import Ledger File</h2>
   <form method="post" action="/dashboard/companies/{{ company.id }}/import" enctype="multipart/form-data">
     <div class="form-grid">
       <div class="field">
-        <label for="import_direction">Direction</label>
+        <label for="import_direction">Ledger Direction</label>
         <select id="import_direction" name="direction" required>
-          <option value="receivable">Receivable (dealer)</option>
-          <option value="payable">Payable (supplier)</option>
+          <option value="receivable">Receivables (Dealers)</option>
+          <option value="payable">Payables (Suppliers)</option>
         </select>
       </div>
       <div class="field">
-        <label for="import_file_kind">File contains</label>
+        <label for="import_file_kind">File Type</label>
         <select id="import_file_kind" name="file_kind">
-          <option value="invoices">Invoices</option>
-          <option value="payments">Payments</option>
+          <option value="invoices">Invoices / Billing</option>
+          <option value="payments">Payments Received / Made</option>
         </select>
       </div>
       <div class="field">
-        <label for="import_file">CSV/Excel file</label>
-        <input type="file" id="import_file" name="file" required>
+        <label for="import_file">Select CSV / Excel File</label>
+        <input type="file" id="import_file" name="file" required style="padding: 7px 10px;">
       </div>
     </div>
-    <div class="row" style="margin-top: 10px;">
-      <button type="submit">Upload</button>
+    <div class="row" style="margin-top: 20px;">
+      <button type="submit">Upload &amp; Reconcile</button>
     </div>
   </form>
 </div>
 
+<!-- Dealers Card -->
 <div class="card">
-  <h2>Dealers</h2>
+  <h2>Dealers (Receivables)</h2>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Name</th><th>Phone</th><th>Terms (days)</th><th>Credit limit</th><th>Notes</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for d in dealers %}
-      <tr>
-        <td>
-          {{ d.name }}
-          <details class="edit-row">
-            <summary>Edit</summary>
-            <form method="post" action="/dashboard/companies/{{ company.id }}/dealers/{{ d.id }}/edit">
-              <div class="form-grid">
-                <div class="field"><label>Name</label><input type="text" name="name" placeholder="{{ d.name }}"></div>
-                <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="{{ d.phone or '' }}"></div>
-                <div class="field"><label>Address</label><input type="text" name="address" placeholder="{{ d.address or '' }}"></div>
-                <div class="field"><label>GST number</label><input type="text" name="gst_number" placeholder="{{ d.gst_number or '' }}"></div>
-                <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days" placeholder="{{ d.payment_terms_days or '' }}"></div>
-                <div class="field"><label>Credit limit</label><input type="text" name="credit_limit" placeholder="{{ d.credit_limit or '' }}"></div>
-                <div class="field"><label>Notes</label><input type="text" name="notes" placeholder="{{ d.notes or '' }}"></div>
-              </div>
-              <button type="submit" style="margin-top: 8px;">Save</button>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>Terms (days)</th>
+          <th>Credit Limit</th>
+          <th>Notes</th>
+          <th style="width: 80px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for d in dealers %}
+        <tr>
+          <td>
+            <div style="font-weight: 700; color:#fff;">{{ d.name }}</div>
+            <details class="edit-row">
+              <summary>Quick Edit</summary>
+              <form method="post" action="/dashboard/companies/{{ company.id }}/dealers/{{ d.id }}/edit">
+                <div class="form-grid">
+                  <div class="field"><label>Name</label><input type="text" name="name" placeholder="{{ d.name }}"></div>
+                  <div class="field"><label>Phone</label><input type="text" name="phone"
+                      placeholder="{{ d.phone or '' }}"></div>
+                  <div class="field"><label>Address</label><input type="text" name="address"
+                      placeholder="{{ d.address or '' }}"></div>
+                  <div class="field"><label>GST number</label><input type="text" name="gst_number"
+                      placeholder="{{ d.gst_number or '' }}"></div>
+                  <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days"
+                      placeholder="{{ d.payment_terms_days or '' }}"></div>
+                  <div class="field"><label>Credit limit</label><input type="text" name="credit_limit"
+                      placeholder="{{ d.credit_limit or '' }}"></div>
+                  <div class="field"><label>Notes</label><input type="text" name="notes"
+                      placeholder="{{ d.notes or '' }}"></div>
+                </div>
+                <button type="submit" style="margin-top: 12px; padding: 6px 12px; font-size: 0.8rem;">Save
+                  Changes</button>
+              </form>
+            </details>
+          </td>
+          <td>{{ d.phone or "—" }}</td>
+          <td>{{ d.payment_terms_days or "—" }}</td>
+          <td>{{ d.credit_limit if d.credit_limit is not none else "—" }}</td>
+          <td><span style="font-size:0.85rem;">{{ d.notes or "—" }}</span></td>
+          <td>
+            <form class="inline-form" method="post"
+              action="/dashboard/companies/{{ company.id }}/dealers/{{ d.id }}/delete"
+              data-delete-preview-url="/dashboard/companies/{{ company.id }}/dealers/{{ d.id }}/delete-preview"
+              data-confirm-subject="dealer &quot;{{ d.name }}&quot;">
+              <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.8rem;">Delete</button>
             </form>
-          </details>
-        </td>
-        <td>{{ d.phone or "—" }}</td>
-        <td>{{ d.payment_terms_days or "—" }}</td>
-        <td>{{ d.credit_limit if d.credit_limit is not none else "—" }}</td>
-        <td>{{ d.notes or "—" }}</td>
-        <td>
-          <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/dealers/{{ d.id }}/delete"
-                data-delete-preview-url="/dashboard/companies/{{ company.id }}/dealers/{{ d.id }}/delete-preview"
-                data-confirm-subject="dealer &quot;{{ d.name }}&quot;">
-            <button type="submit" class="danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">No dealers yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="muted" style="text-align: center; padding: 20px;">No dealers added yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+
   <form class="create-form" method="post" action="/dashboard/companies/{{ company.id }}/dealers">
-    <h3>Add a dealer</h3>
+    <h3>Add New Dealer</h3>
     <div class="form-grid">
-      <div class="field"><label>Name</label><input type="text" name="name" required></div>
-      <div class="field"><label>Phone</label><input type="text" name="phone"></div>
-      <div class="field"><label>Address</label><input type="text" name="address"></div>
-      <div class="field"><label>GST number</label><input type="text" name="gst_number"></div>
-      <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days"></div>
-      <div class="field"><label>Credit limit</label><input type="text" name="credit_limit"></div>
-      <div class="field"><label>Notes</label><input type="text" name="notes"></div>
+      <div class="field"><label>Name</label><input type="text" name="name" required placeholder="e.g. Balaji Stores">
+      </div>
+      <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="e.g. +919000000000"></div>
+      <div class="field"><label>Address</label><input type="text" name="address" placeholder="Address"></div>
+      <div class="field"><label>GST number</label><input type="text" name="gst_number" placeholder="GSTN"></div>
+      <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days" placeholder="30"></div>
+      <div class="field"><label>Credit limit</label><input type="text" name="credit_limit" placeholder="50000"></div>
+      <div class="field"><label>Notes</label><input type="text" name="notes" placeholder="Notes"></div>
     </div>
-    <button type="submit" style="margin-top: 10px;">Add dealer</button>
+    <button type="submit" style="margin-top: 16px;">Add Dealer</button>
   </form>
 </div>
 
+<!-- Suppliers Card -->
 <div class="card">
-  <h2>Suppliers</h2>
+  <h2>Suppliers (Payables)</h2>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Name</th><th>Phone</th><th>Terms (days)</th><th>Credit limit</th><th>Notes</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for s in suppliers %}
-      <tr>
-        <td>
-          {{ s.name }}
-          <details class="edit-row">
-            <summary>Edit</summary>
-            <form method="post" action="/dashboard/companies/{{ company.id }}/suppliers/{{ s.id }}/edit">
-              <div class="form-grid">
-                <div class="field"><label>Name</label><input type="text" name="name" placeholder="{{ s.name }}"></div>
-                <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="{{ s.phone or '' }}"></div>
-                <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days" placeholder="{{ s.payment_terms_days or '' }}"></div>
-                <div class="field"><label>Credit limit</label><input type="text" name="credit_limit" placeholder="{{ s.credit_limit or '' }}"></div>
-                <div class="field"><label>Notes</label><input type="text" name="notes" placeholder="{{ s.notes or '' }}"></div>
-              </div>
-              <button type="submit" style="margin-top: 8px;">Save</button>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Phone</th>
+          <th>Terms (days)</th>
+          <th>Credit Limit</th>
+          <th>Notes</th>
+          <th style="width: 80px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in suppliers %}
+        <tr>
+          <td>
+            <div style="font-weight: 700; color:#fff;">{{ s.name }}</div>
+            <details class="edit-row">
+              <summary>Quick Edit</summary>
+              <form method="post" action="/dashboard/companies/{{ company.id }}/suppliers/{{ s.id }}/edit">
+                <div class="form-grid">
+                  <div class="field"><label>Name</label><input type="text" name="name" placeholder="{{ s.name }}"></div>
+                  <div class="field"><label>Phone</label><input type="text" name="phone"
+                      placeholder="{{ s.phone or '' }}"></div>
+                  <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days"
+                      placeholder="{{ s.payment_terms_days or '' }}"></div>
+                  <div class="field"><label>Credit limit</label><input type="text" name="credit_limit"
+                      placeholder="{{ s.credit_limit or '' }}"></div>
+                  <div class="field"><label>Notes</label><input type="text" name="notes"
+                      placeholder="{{ s.notes or '' }}"></div>
+                </div>
+                <button type="submit" style="margin-top: 12px; padding: 6px 12px; font-size: 0.8rem;">Save
+                  Changes</button>
+              </form>
+            </details>
+          </td>
+          <td>{{ s.phone or "—" }}</td>
+          <td>{{ s.payment_terms_days or "—" }}</td>
+          <td>{{ s.credit_limit if s.credit_limit is not none else "—" }}</td>
+          <td><span style="font-size:0.85rem;">{{ s.notes or "—" }}</span></td>
+          <td>
+            <form class="inline-form" method="post"
+              action="/dashboard/companies/{{ company.id }}/suppliers/{{ s.id }}/delete"
+              data-delete-preview-url="/dashboard/companies/{{ company.id }}/suppliers/{{ s.id }}/delete-preview"
+              data-confirm-subject="supplier &quot;{{ s.name }}&quot;">
+              <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.8rem;">Delete</button>
             </form>
-          </details>
-        </td>
-        <td>{{ s.phone or "—" }}</td>
-        <td>{{ s.payment_terms_days or "—" }}</td>
-        <td>{{ s.credit_limit if s.credit_limit is not none else "—" }}</td>
-        <td>{{ s.notes or "—" }}</td>
-        <td>
-          <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/suppliers/{{ s.id }}/delete"
-                data-delete-preview-url="/dashboard/companies/{{ company.id }}/suppliers/{{ s.id }}/delete-preview"
-                data-confirm-subject="supplier &quot;{{ s.name }}&quot;">
-            <button type="submit" class="danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">No suppliers yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="muted" style="text-align: center; padding: 20px;">No suppliers added yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+
   <form class="create-form" method="post" action="/dashboard/companies/{{ company.id }}/suppliers">
-    <h3>Add a supplier</h3>
+    <h3>Add New Supplier</h3>
     <div class="form-grid">
-      <div class="field"><label>Name</label><input type="text" name="name" required></div>
-      <div class="field"><label>Phone</label><input type="text" name="phone"></div>
-      <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days"></div>
-      <div class="field"><label>Credit limit</label><input type="text" name="credit_limit"></div>
-      <div class="field"><label>Notes</label><input type="text" name="notes"></div>
+      <div class="field"><label>Name</label><input type="text" name="name" required
+          placeholder="e.g. UltraTech Cement Ltd."></div>
+      <div class="field"><label>Phone</label><input type="text" name="phone" placeholder="e.g. +919111111111"></div>
+      <div class="field"><label>Terms (days)</label><input type="text" name="payment_terms_days" placeholder="15"></div>
+      <div class="field"><label>Credit limit</label><input type="text" name="credit_limit" placeholder="100000"></div>
+      <div class="field"><label>Notes</label><input type="text" name="notes" placeholder="Notes"></div>
     </div>
-    <button type="submit" style="margin-top: 10px;">Add supplier</button>
+    <button type="submit" style="margin-top: 16px;">Add Supplier</button>
   </form>
 </div>
 
+<!-- Products Card -->
 <div class="card">
-  <h2>Products</h2>
+  <h2>Inventory Products</h2>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Name</th><th>Unit</th><th>Selling price</th><th>Purchase price</th><th>Stock</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for p in products %}
-      <tr>
-        <td>
-          {{ p.name }}
-          <details class="edit-row">
-            <summary>Edit</summary>
-            <form method="post" action="/dashboard/companies/{{ company.id }}/products/{{ p.id }}/edit">
-              <div class="form-grid">
-                <div class="field"><label>Name</label><input type="text" name="name" placeholder="{{ p.name }}"></div>
-                <div class="field"><label>Unit</label><input type="text" name="unit" placeholder="{{ p.unit or '' }}"></div>
-                <div class="field"><label>Selling price</label><input type="text" name="selling_price" placeholder="{{ p.selling_price if p.selling_price is not none else '' }}"></div>
-                <div class="field"><label>Purchase price</label><input type="text" name="purchase_price" placeholder="{{ p.purchase_price if p.purchase_price is not none else '' }}"></div>
-                <div class="field"><label>Stock qty</label><input type="text" name="stock_quantity" placeholder="{{ p.stock_quantity }}"></div>
-              </div>
-              <button type="submit" style="margin-top: 8px;">Save</button>
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Unit</th>
+          <th>Selling Price</th>
+          <th>Purchase Price</th>
+          <th>Stock Qty</th>
+          <th style="width: 80px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in products %}
+        <tr>
+          <td>
+            <div style="font-weight: 700; color:#fff;">{{ p.name }}</div>
+            <details class="edit-row">
+              <summary>Quick Edit</summary>
+              <form method="post" action="/dashboard/companies/{{ company.id }}/products/{{ p.id }}/edit">
+                <div class="form-grid">
+                  <div class="field"><label>Name</label><input type="text" name="name" placeholder="{{ p.name }}"></div>
+                  <div class="field"><label>Unit</label><input type="text" name="unit" placeholder="{{ p.unit or '' }}">
+                  </div>
+                  <div class="field"><label>Selling price</label><input type="text" name="selling_price"
+                      placeholder="{{ p.selling_price if p.selling_price is not none else '' }}"></div>
+                  <div class="field"><label>Purchase price</label><input type="text" name="purchase_price"
+                      placeholder="{{ p.purchase_price if p.purchase_price is not none else '' }}"></div>
+                  <div class="field"><label>Stock qty</label><input type="text" name="stock_quantity"
+                      placeholder="{{ p.stock_quantity }}"></div>
+                </div>
+                <button type="submit" style="margin-top: 12px; padding: 6px 12px; font-size: 0.8rem;">Save
+                  Changes</button>
+              </form>
+            </details>
+          </td>
+          <td>{{ p.unit or "—" }}</td>
+          <td>{{ p.selling_price if p.selling_price is not none else "—" }}</td>
+          <td>{{ p.purchase_price if p.purchase_price is not none else "—" }}</td>
+          <td><strong style="color: var(--brand-bright);">{{ p.stock_quantity }}</strong></td>
+          <td>
+            <form class="inline-form" method="post"
+              action="/dashboard/companies/{{ company.id }}/products/{{ p.id }}/delete"
+              data-confirm="Delete product &quot;{{ p.name }}&quot;? Historical invoice line items will keep their amounts but lose the product link.">
+              <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.8rem;">Delete</button>
             </form>
-          </details>
-        </td>
-        <td>{{ p.unit or "—" }}</td>
-        <td>{{ p.selling_price if p.selling_price is not none else "—" }}</td>
-        <td>{{ p.purchase_price if p.purchase_price is not none else "—" }}</td>
-        <td>{{ p.stock_quantity }}</td>
-        <td>
-          <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/products/{{ p.id }}/delete"
-                data-confirm="Delete product &quot;{{ p.name }}&quot;? Historical invoice line items will keep their amounts but lose the product link.">
-            <button type="submit" class="danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">No products yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="muted" style="text-align: center; padding: 20px;">No catalog products yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+
   <form class="create-form" method="post" action="/dashboard/companies/{{ company.id }}/products">
-    <h3>Add a product</h3>
+    <h3>Add New Product</h3>
     <div class="form-grid">
-      <div class="field"><label>Name</label><input type="text" name="name" required></div>
-      <div class="field"><label>Unit</label><input type="text" name="unit"></div>
-      <div class="field"><label>Selling price</label><input type="text" name="selling_price"></div>
-      <div class="field"><label>Purchase price</label><input type="text" name="purchase_price"></div>
+      <div class="field"><label>Name</label><input type="text" name="name" required
+          placeholder="e.g. Portland Cement Grade 43"></div>
+      <div class="field"><label>Unit</label><input type="text" name="unit" placeholder="e.g. Bags / Kgs"></div>
+      <div class="field"><label>Selling price</label><input type="text" name="selling_price" placeholder="e.g. 450">
+      </div>
+      <div class="field"><label>Purchase price</label><input type="text" name="purchase_price" placeholder="e.g. 380">
+      </div>
       <div class="field"><label>Stock qty</label><input type="text" name="stock_quantity" value="0"></div>
     </div>
-    <button type="submit" style="margin-top: 10px;">Add product</button>
+    <button type="submit" style="margin-top: 16px;">Add Product</button>
   </form>
 </div>
 
+<!-- FAQs Card -->
 <div class="card">
-  <h2>FAQs</h2>
+  <h2>WhatsApp Assistant FAQs</h2>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Question</th><th>Answer</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for f in faqs %}
-      <tr>
-        <td>
-          {{ f.question }}
-          <details class="edit-row">
-            <summary>Edit</summary>
-            <form method="post" action="/dashboard/companies/{{ company.id }}/faqs/{{ f.id }}/edit">
-              <div class="field"><label>Question</label><input type="text" name="question" placeholder="{{ f.question }}"></div>
-              <div class="field"><label>Answer</label><textarea name="answer" placeholder="{{ f.answer }}"></textarea></div>
-              <button type="submit" style="margin-top: 8px;">Save</button>
+    <table>
+      <thead>
+        <tr>
+          <th>Question</th>
+          <th>Answer</th>
+          <th style="width: 80px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in faqs %}
+        <tr>
+          <td>
+            <div style="font-weight: 700; color:#fff;">{{ f.question }}</div>
+            <details class="edit-row">
+              <summary>Quick Edit</summary>
+              <form method="post" action="/dashboard/companies/{{ company.id }}/faqs/{{ f.id }}/edit">
+                <div class="field" style="margin-top: 8px;"><label>Question</label><input type="text" name="question"
+                    placeholder="{{ f.question }}"></div>
+                <div class="field"><label>Answer</label><textarea name="answer" placeholder="{{ f.answer }}"></textarea>
+                </div>
+                <button type="submit" style="margin-top: 12px; padding: 6px 12px; font-size: 0.8rem;">Save
+                  Changes</button>
+              </form>
+            </details>
+          </td>
+          <td><span style="font-size:0.88rem;">{{ f.answer }}</span></td>
+          <td>
+            <form class="inline-form" method="post"
+              action="/dashboard/companies/{{ company.id }}/faqs/{{ f.id }}/delete"
+              data-confirm="Delete this FAQ entry?">
+              <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.8rem;">Delete</button>
             </form>
-          </details>
-        </td>
-        <td>{{ f.answer }}</td>
-        <td>
-          <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/faqs/{{ f.id }}/delete"
-                data-confirm="Delete this FAQ entry?">
-            <button type="submit" class="danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="3" class="muted">No FAQs yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3" class="muted" style="text-align: center; padding: 20px;">No assistant FAQs added yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+
   <form class="create-form" method="post" action="/dashboard/companies/{{ company.id }}/faqs">
-    <h3>Add a FAQ</h3>
-    <div class="field"><label>Question</label><input type="text" name="question" required></div>
-    <div class="field"><label>Answer</label><textarea name="answer" required></textarea></div>
-    <button type="submit" style="margin-top: 10px;">Add FAQ</button>
+    <h3>Add New FAQ</h3>
+    <div class="field"><label>Question / Intent</label><input type="text" name="question" required
+        placeholder="e.g. What is the bank detail for payments?"></div>
+    <div class="field"><label>Answer Message</label><textarea name="answer" required
+        placeholder="e.g. Transfer to HDFC Bank A/c 123456789 (IFSC HDFC0000123)."></textarea></div>
+    <button type="submit" style="margin-top: 16px;">Add FAQ</button>
   </form>
 </div>
 
+<!-- Invoices Card -->
 <div class="card">
-  <h2>Invoices</h2>
+  <h2>Invoices History</h2>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Number</th><th>Direction</th><th>Party</th><th>Due</th><th>Total</th><th>Outstanding</th><th>Status</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for inv in invoices %}
-      <tr>
-        <td>{{ inv.invoice_number }}</td>
-        <td>{{ inv.direction.value if inv.direction is not string else inv.direction }}</td>
-        <td>
-          {% if inv.dealer_id %}{{ dealer_names.get(inv.dealer_id, inv.dealer_id) }}
-          {% elif inv.supplier_id %}{{ supplier_names.get(inv.supplier_id, inv.supplier_id) }}
-          {% else %}—{% endif %}
-        </td>
-        <td>{{ inv.due_date }}</td>
-        <td>{{ inv.total_amount }}</td>
-        <td>{{ inv.amount_outstanding }}</td>
-        <td>{{ inv.status.value if inv.status is not string else inv.status }}</td>
-        <td>
-          <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/invoices/{{ inv.id }}/delete"
-                data-confirm="Delete invoice {{ inv.invoice_number }} and its payments? This does not re-run FIFO reconciliation.">
-            <button type="submit" class="danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="8" class="muted">No invoices yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <table>
+      <thead>
+        <tr>
+          <th>Invoice Number</th>
+          <th>Direction</th>
+          <th>Dealer / Supplier</th>
+          <th>Due Date</th>
+          <th>Total Amount</th>
+          <th>Outstanding</th>
+          <th>Status</th>
+          <th style="width: 80px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td><strong style="color: #fff;">{{ inv.invoice_number }}</strong></td>
+          <td style="text-transform: capitalize;">{{ inv.direction.value if inv.direction is not string else
+            inv.direction }}</td>
+          <td>
+            {% if inv.dealer_id %}<span style="color:var(--brand-bright);">{{ dealer_names.get(inv.dealer_id,
+              inv.dealer_id) }}</span>
+            {% elif inv.supplier_id %}<span style="color:#f87171;">{{ supplier_names.get(inv.supplier_id,
+              inv.supplier_id) }}</span>
+            {% else %}—{% endif %}
+          </td>
+          <td>{{ inv.due_date }}</td>
+          <td>₹{{ "%.2f"|format(inv.total_amount) }}</td>
+          <td>₹{{ "%.2f"|format(inv.amount_outstanding) }}</td>
+          <td>
+            {% if inv.status.value == "paid" or inv.status == "paid" %}
+            <span class="badge active" style="font-size: 0.7rem; padding: 2px 8px;">Paid</span>
+            {% else %}
+            <span class="badge inactive"
+              style="font-size: 0.7rem; padding: 2px 8px; color: #f87171; border-color: rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.05);">Unpaid</span>
+            {% endif %}
+          </td>
+          <td>
+            <form class="inline-form" method="post"
+              action="/dashboard/companies/{{ company.id }}/invoices/{{ inv.id }}/delete"
+              data-confirm="Delete invoice {{ inv.invoice_number }} and its payments? This does not re-run FIFO reconciliation.">
+              <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.8rem;">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" class="muted" style="text-align: center; padding: 20px;">No invoices generated.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 
+<!-- Payments Card -->
 <div class="card">
-  <h2>Payments</h2>
+  <h2>Payments Ledger</h2>
   <div class="table-wrap">
-  <table>
-    <thead>
-      <tr><th>Invoice</th><th>Amount</th><th>Date</th><th>Method</th><th>Source</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for pay in payments %}
-      <tr>
-        <td>{{ invoice_numbers.get(pay.invoice_id, pay.invoice_id) }}</td>
-        <td>{{ pay.amount }}</td>
-        <td>{{ pay.payment_date }}</td>
-        <td>{{ pay.method or "—" }}</td>
-        <td>{{ pay.source.value if pay.source is not string else pay.source }}</td>
-        <td>
-          <form class="inline-form" method="post" action="/dashboard/companies/{{ company.id }}/payments/{{ pay.id }}/delete"
-                data-confirm="Delete this payment of {{ pay.amount }}? This does not re-run FIFO reconciliation.">
-            <button type="submit" class="danger">Delete</button>
-          </form>
-        </td>
-      </tr>
-      {% else %}
-      <tr><td colspan="6" class="muted">No payments yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+    <table>
+      <thead>
+        <tr>
+          <th>Target Invoice</th>
+          <th>Paid Amount</th>
+          <th>Transaction Date</th>
+          <th>Method</th>
+          <th>Source</th>
+          <th style="width: 80px;"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pay in payments %}
+        <tr>
+          <td><strong style="color: #fff;">{{ invoice_numbers.get(pay.invoice_id, pay.invoice_id) }}</strong></td>
+          <td style="color: var(--brand-bright); font-weight: 700;">₹{{ "%.2f"|format(pay.amount) }}</td>
+          <td>{{ pay.payment_date }}</td>
+          <td style="text-transform: uppercase;">{{ pay.method or "—" }}</td>
+          <td style="text-transform: capitalize;">{{ pay.source.value if pay.source is not string else pay.source }}
+          </td>
+          <td>
+            <form class="inline-form" method="post"
+              action="/dashboard/companies/{{ company.id }}/payments/{{ pay.id }}/delete"
+              data-confirm="Delete this payment of {{ pay.amount }}? This does not re-run FIFO reconciliation.">
+              <button type="submit" class="danger" style="padding: 6px 12px; font-size: 0.8rem;">Delete</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" class="muted" style="text-align: center; padding: 20px;">No payment events recorded.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
 </div>
 
