@@ -1,12 +1,12 @@
-/* Landing-page section layout — hero, WhatsApp mockups, comparison table,
-   pricing card, FAQ accordion. Shared primitives (buttons, cards, navbar,
-   footer) live in main.css. */
+/* Landing-page section layout — hero, WhatsApp mockups, bento grids, comparison table,
+   pricing, and FAQ. Dynamic layout properties, custom phone shell, and styling. */
 
 /* ── Hero ───────────────────────────────────────────────────────────────── */
 
 .hero {
-  padding: 72px 0 96px;
-  background: linear-gradient(180deg, var(--brand-light) 0%, #fff 65%);
+  padding: 80px 0 120px;
+  background: radial-gradient(circle at 80% 20%, rgba(16, 185, 129, 0.08) 0%, rgba(7, 13, 11, 0) 50%),
+              linear-gradient(180deg, var(--bg-soft) 0%, var(--bg) 100%);
   position: relative;
   overflow: hidden;
 }
@@ -16,172 +16,240 @@
   position: absolute;
   inset: 0;
   background-image: var(--wallpaper);
-  opacity: 0.6;
+  opacity: 0.8;
   pointer-events: none;
 }
 
 .hero .container {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 56px;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 64px;
   align-items: center;
   position: relative;
+  z-index: 2;
 }
 
 .hero-copy h1 {
-  font-size: clamp(34px, 5vw, 54px);
+  font-size: clamp(38px, 5.5vw, 58px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  background: linear-gradient(135deg, #ffffff 40%, #6ee7b7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1.15;
 }
 
 .hero-copy .accent {
-  color: var(--brand);
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .hero-copy p {
-  font-size: 18px;
-  max-width: 480px;
+  font-size: 19px;
+  max-width: 520px;
+  margin-top: 20px;
+  color: var(--ink-soft);
+  line-height: 1.6;
 }
 
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  margin-top: 28px;
+  gap: 16px;
+  margin-top: 40px;
 }
 
 @media (max-width: 900px) {
   .hero .container {
     grid-template-columns: 1fr;
+    gap: 48px;
+    text-align: center;
+  }
+  
+  .hero-copy p {
+    margin: 20px auto 0;
+  }
+
+  .hero-actions {
+    justify-content: center;
   }
 }
 
 .hero-mockup {
-  animation: hero-float 5s ease-in-out infinite;
+  position: relative;
+  animation: hero-float 6s ease-in-out infinite;
+}
+
+.hero-mockup::after {
+  content: "";
+  position: absolute;
+  bottom: -30px;
+  left: 10%;
+  right: 10%;
+  height: 20px;
+  background: radial-gradient(ellipse, rgba(16, 185, 129, 0.2) 0%, rgba(0, 0, 0, 0) 70%);
+  filter: blur(10px);
+  z-index: 1;
+  pointer-events: none;
 }
 
 @keyframes hero-float {
-  0%,
-  100% {
+  0%, 100% {
     transform: translateY(0);
   }
-
   50% {
-    transform: translateY(-12px);
+    transform: translateY(-16px);
   }
 }
 
-/* ── WhatsApp chat mockup (reused by Hero + "See it in action") ──────────── */
+/* ── WhatsApp Phone Mockup (Modern glassmorphic chassis) ────────────────── */
 
 .wa-phone {
-  background: #e5ddd5;
-  background-image: var(--wallpaper);
-  border-radius: 24px;
-  border: 10px solid #1f2a33;
-  box-shadow: var(--shadow-lg);
+  background: #0b141a; /* WhatsApp Web Dark background */
+  border-radius: 36px;
+  border: 12px solid #222e35;
+  box-shadow: var(--shadow-lg), 0 0 30px rgba(52, 211, 153, 0.15);
   overflow: hidden;
   max-width: 380px;
   margin: 0 auto;
-  transition:
-    transform 0.3s ease,
-    box-shadow 0.3s ease;
+  position: relative;
+  z-index: 2;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .wa-phone-header {
-  background: var(--brand-dark);
-  color: #fff;
-  padding: 14px 18px;
+  background: #202c33;
+  color: #e9edef;
+  padding: 16px 20px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .wa-phone-header .wa-avatar {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
-  background: #fff;
-  color: var(--brand-dark);
+  background: var(--brand-dark);
+  color: var(--brand-bright);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow: 0 0 8px rgba(52, 211, 153, 0.2);
 }
 
 .wa-phone-body {
-  padding: 18px 14px;
-  min-height: 320px;
+  padding: 20px 16px;
+  min-height: 340px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='80' height='80'%3E%3Cpath d='M0 0h80v80H0z' fill='none'/%3E%3Cpath d='M20 10l5 5-5 5-5-5zm40 20l5 5-5 5-5-5zM10 50l5 5-5 5-5-5zm50 20l5 5-5 5-5-5z' fill='%23222e35' fill-opacity='0.15'/%3E%3C/svg%3E");
+  background-color: #0b141a;
 }
 
 .wa-bubble {
-  background: #fff;
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 14px;
-  line-height: 1.5;
-  max-width: 90%;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+  background: #202c33; /* Dark mode message bubble */
+  border-radius: 12px;
+  border-top-left-radius: 0;
+  padding: 14px 16px;
+  font-size: 14.5px;
+  line-height: 1.55;
+  max-width: 88%;
+  color: #e9edef;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
   white-space: pre-line;
+  position: relative;
+  transform-origin: left top;
+  animation: wa-bubble-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .wa-bubble strong {
-  color: var(--brand-dark);
+  color: var(--brand-bright);
 }
 
 .wa-bubble .wa-figure {
   font-weight: 700;
-  color: var(--brand-dark);
+  color: var(--brand-bright);
+  font-size: 16px;
 }
 
 .wa-bubble.wa-risk {
-  background: #fdecea;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.wa-bubble.wa-risk strong {
+  color: #f87171;
 }
 
 .wa-bubble.wa-out {
   align-self: flex-end;
-  background: #dcf8c6;
+  border-radius: 12px;
+  border-top-right-radius: 0;
+  border-top-left-radius: 12px;
+  background: #005c4b; /* WhatsApp Dark Outgoing bubble */
+  color: #e9edef;
+  transform-origin: right top;
 }
 
-/* ── Sections ──────────────────────────────────────────────────────────── */
+@keyframes wa-bubble-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ── Who is this for badges ─────────────────────────────────────────────── */
 
 .built-for-list {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 14px;
+  gap: 16px;
 }
 
 .built-for-badge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  border-radius: 999px;
-  background: var(--brand-light);
-  color: var(--brand-dark);
+  gap: 10px;
+  padding: 12px 22px;
+  border-radius: 99px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+  color: var(--brand-bright);
   font-weight: 600;
-  font-size: 15px;
-  transition:
-    transform 0.2s ease,
-    background-color 0.2s ease;
+  font-size: 16px;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .built-for-badge:hover {
   background: var(--brand-bright);
-  color: #fff;
-  transform: translateY(-3px);
+  color: #030712;
+  transform: translateY(-4px);
+  box-shadow: 0 8px 24px rgba(52, 211, 153, 0.25);
+  border-color: var(--brand-bright);
 }
+
+/* ── Bento Card Grid for Problems ───────────────────────────────────────── */
 
 .grid-4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: 24px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 960px) {
   .grid-4 {
     grid-template-columns: repeat(2, 1fr);
   }
@@ -198,69 +266,132 @@
 }
 
 .problem-card .icon {
-  font-size: 30px;
-  margin-bottom: 12px;
+  font-size: 36px;
+  margin-bottom: 18px;
+  display: inline-block;
+  filter: drop-shadow(0 4px 12px rgba(52, 211, 153, 0.15));
+  transition: transform 0.3s ease;
+}
+
+.problem-card:hover .icon {
+  transform: scale(1.15) rotate(5deg);
 }
 
 .problem-card h3 {
-  font-size: 18px;
+  font-size: 19px;
+  margin-bottom: 12px;
 }
 
 .problem-card p {
   font-size: 15px;
   margin: 0;
+  line-height: 1.5;
 }
+
+/* ── Solution flow diagram ──────────────────────────────────────────────── */
 
 .solution-flow {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  max-width: 420px;
+  gap: 8px;
+  max-width: 480px;
   margin: 0 auto;
 }
 
 .solution-flow .flow-step {
-  background: #fff;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 14px 24px;
-  font-weight: 600;
+  padding: 16px 28px;
+  font-weight: 700;
+  font-size: 16px;
   width: 100%;
   text-align: center;
+  box-shadow: var(--shadow);
+  transition: all 0.3s ease;
+}
+
+.solution-flow .flow-step:hover {
+  border-color: var(--brand-bright);
+  box-shadow: 0 0 15px rgba(52, 211, 153, 0.15);
+  transform: scale(1.02);
 }
 
 .solution-flow .flow-arrow {
-  color: var(--ink-faint);
-  font-size: 20px;
+  color: var(--brand-bright);
+  font-size: 24px;
+  animation: arrow-bounce 2s infinite;
+}
+
+@keyframes arrow-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(4px); }
+}
+
+/* ── Interactive Demo Section ───────────────────────────────────────────── */
+
+.demo-tabs-container {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+}
+
+.demo-tab-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  color: var(--ink-soft);
+  padding: 12px 24px;
+  border-radius: 99px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.demo-tab-btn:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.demo-tab-btn.is-active {
+  background: var(--brand-light);
+  border-color: var(--brand-bright);
+  color: var(--brand-bright);
+  box-shadow: 0 0 16px rgba(52, 211, 153, 0.15);
 }
 
 .mockups-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 28px;
+  gap: 32px;
 }
 
 .mockup-item {
   text-align: center;
+  position: relative;
 }
 
 .mockup-item .wa-phone {
-  max-width: 280px;
+  max-width: 290px;
 }
 
 .mockup-item:hover .wa-phone {
   transform: translateY(-8px);
-  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.16);
+  box-shadow: var(--shadow-lg), 0 0 35px rgba(52, 211, 153, 0.2);
+  border-color: rgba(52, 211, 153, 0.35);
 }
 
 .mockup-item .wa-phone-body {
-  min-height: 260px;
+  min-height: 280px;
 }
 
 .mockup-item h3 {
-  font-size: 17px;
-  margin-top: 20px;
+  font-size: 18px;
+  margin-top: 24px;
+  color: #ffffff;
 }
 
 @media (max-width: 900px) {
@@ -271,8 +402,10 @@
   }
 }
 
+/* ── Outcomes chain ─────────────────────────────────────────────────────── */
+
 .outcomes-chain {
-  max-width: 520px;
+  max-width: 560px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -282,79 +415,110 @@
 .outcome-row {
   display: flex;
   align-items: center;
-  gap: 16px;
-  background: #fff;
+  gap: 20px;
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 18px 24px;
+  padding: 20px 28px;
   width: 100%;
-  font-size: 17px;
-  font-weight: 600;
-  transition:
-    transform 0.2s ease,
-    border-color 0.2s ease,
-    box-shadow 0.2s ease;
+  font-size: 18px;
+  font-weight: 700;
+  box-shadow: var(--shadow);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .outcome-row:hover {
-  transform: translateX(6px);
+  transform: translateX(8px);
   border-color: var(--brand-bright);
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-lg), 0 0 15px rgba(52, 211, 153, 0.1);
 }
 
 .outcome-row .icon {
-  font-size: 24px;
+  font-size: 28px;
 }
 
 .outcome-arrow {
-  color: var(--brand);
-  font-size: 22px;
-  margin: 6px 0;
+  color: var(--brand-bright);
+  font-size: 24px;
+  margin: 8px 0;
+  animation: arrow-bounce 2s infinite;
 }
+
+/* ── How It Works ───────────────────────────────────────────────────────── */
 
 .steps-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: 24px;
 }
 
 .step-item {
   text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 24px;
+  box-shadow: var(--shadow);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.step-item:hover {
+  transform: translateY(-4px);
+  border-color: var(--brand-bright);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
 }
 
 .step-num {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  background: var(--brand);
-  color: #fff;
-  display: flex;
+  background: var(--brand-dark);
+  color: var(--brand-bright);
+  border: 1.5px solid var(--brand-bright);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-weight: 700;
-  margin: 0 auto 14px;
-  transition:
-    transform 0.2s ease,
-    background-color 0.2s ease;
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.15);
 }
 
 .step-item:hover .step-num {
   background: var(--brand-bright);
+  color: #030712;
   transform: scale(1.1);
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.4);
 }
 
-@media (max-width: 760px) {
+.step-item p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+@media (max-width: 900px) {
   .steps-row {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
+@media (max-width: 560px) {
+  .steps-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Comparison Table ───────────────────────────────────────────────────── */
+
 .comparison-table {
   width: 100%;
-  max-width: 560px;
+  max-width: 600px;
   margin: 0 auto;
   border-collapse: collapse;
-  background: #fff;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow);
@@ -362,24 +526,28 @@
 
 .comparison-table th,
 .comparison-table td {
-  padding: 14px 20px;
+  padding: 18px 24px;
   text-align: left;
-  font-size: 15px;
+  font-size: 15.5px;
 }
 
 .comparison-table th {
-  background: var(--bg-soft);
+  background: rgba(255, 255, 255, 0.03);
   font-weight: 700;
+  color: #fff;
+  border-bottom: 1px solid var(--border);
 }
 
 .comparison-table td:first-child,
 .comparison-table th:first-child {
-  color: var(--ink-faint);
+  color: var(--ink-soft);
+  width: 50%;
 }
 
 .comparison-table td:last-child {
-  color: var(--brand-dark);
-  font-weight: 600;
+  color: var(--brand-bright);
+  font-weight: 700;
+  width: 50%;
 }
 
 .comparison-table tr:not(:last-child) td {
@@ -387,88 +555,130 @@
 }
 
 .comparison-table tbody tr {
-  transition: background-color 0.15s ease;
+  transition: background-color 0.2s ease;
 }
 
 .comparison-table tbody tr:hover {
-  background: var(--brand-light);
+  background: rgba(255, 255, 255, 0.02);
 }
 
+/* ── Trust Card ─────────────────────────────────────────────────────────── */
+
 .trust-card {
-  max-width: 520px;
+  max-width: 560px;
   margin: 0 auto;
   text-align: center;
   background: var(--brand-light);
-  border: none;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  padding: 32px;
+}
+
+.trust-card p {
+  font-size: 16px;
+  margin-bottom: 12px;
 }
 
 .trust-card p:last-child {
   font-weight: 700;
-  color: var(--brand-dark);
+  color: var(--brand-bright);
   margin: 0;
+  font-size: 18px;
 }
+
+/* ── Pricing Card ───────────────────────────────────────────────────────── */
 
 .pricing-card {
-  max-width: 380px;
+  max-width: 400px;
   margin: 0 auto;
   text-align: center;
-  box-shadow: var(--shadow);
   border: 2px solid var(--brand);
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.08) 0%, rgba(15, 26, 23, 0.65) 100%);
+  position: relative;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
 }
 
-.pricing-card:hover {
-  transform: translateY(-6px);
-  box-shadow: var(--shadow-lg);
+.pricing-card::after {
+  content: "RECOMMENDED";
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  background: var(--brand-bright);
+  color: #030712;
+  padding: 4px 10px;
+  border-radius: 99px;
+  box-shadow: 0 4px 12px rgba(52, 211, 153, 0.2);
 }
 
 .pricing-card .plan-name {
-  font-weight: 700;
-  color: var(--brand-dark);
-  font-size: 15px;
+  font-weight: 800;
+  color: var(--brand-bright);
+  font-size: 14px;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.1em;
+  margin-bottom: 12px;
 }
 
 .pricing-card .plan-price {
-  font-size: 42px;
+  font-size: 48px;
   font-weight: 800;
-  margin: 8px 0 4px;
+  color: #ffffff;
+  margin: 12px 0;
 }
 
 .pricing-card .plan-price span {
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 500;
   color: var(--ink-soft);
 }
 
 .pricing-list {
   list-style: none;
-  margin: 24px 0;
+  margin: 32px 0;
   padding: 0;
   text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .pricing-list li {
-  padding: 8px 0;
-  font-size: 15px;
+  font-size: 15.5px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-soft);
 }
 
 .pricing-list li::before {
-  content: "✓ ";
-  color: var(--brand);
-  font-weight: 700;
+  content: "✓";
+  color: var(--brand-bright);
+  font-weight: 800;
+  font-size: 16px;
 }
 
+/* ── FAQ Accordion ──────────────────────────────────────────────────────── */
+
 .faq-list {
-  max-width: 640px;
+  max-width: 720px;
   margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .faq-item {
-  border-bottom: 1px solid var(--border);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  padding: 0 24px;
+  transition: border-color 0.3s ease;
+}
+
+.faq-item:hover {
+  border-color: rgba(255, 255, 255, 0.15);
 }
 
 .faq-question {
@@ -476,66 +686,78 @@
   text-align: left;
   background: none;
   border: none;
-  padding: 20px 0;
+  padding: 24px 0;
   font-size: 17px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  color: var(--ink);
-}
-
-.faq-question {
-  transition: color 0.15s ease;
+  color: #ffffff;
+  transition: color 0.25s ease;
 }
 
 .faq-question:hover {
-  color: var(--brand);
+  color: var(--brand-bright);
 }
 
 .faq-question::after {
   content: "+";
-  font-size: 22px;
-  color: var(--brand);
-  transition: transform 0.25s ease;
+  font-size: 24px;
+  color: var(--brand-bright);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   display: inline-block;
+  line-height: 1;
+}
+
+.faq-item.is-open {
+  border-color: var(--brand);
 }
 
 .faq-item.is-open .faq-question::after {
-  content: "+";
   transform: rotate(45deg);
-  color: var(--brand-bright);
 }
 
 .faq-answer {
   max-height: 0;
   overflow: hidden;
-  transition: max-height 0.3s ease;
+  transition: max-height 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .faq-item.is-open .faq-answer {
-  max-height: 200px;
+  max-height: 250px;
 }
 
 .faq-answer p {
-  padding-bottom: 20px;
+  padding-bottom: 24px;
   margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
 }
+
+/* ── Final CTA ──────────────────────────────────────────────────────────── */
 
 .final-cta {
   text-align: center;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.06) 0%, rgba(7, 13, 11, 0) 70%),
+              var(--bg-soft);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .final-cta h2 {
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: clamp(32px, 5vw, 48px);
+  background: linear-gradient(135deg, #ffffff 40%, #a7f3d0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 32px;
 }
 
 /* ── Small-phone refinements ──────────────────────────────────────────── */
 
 @media (max-width: 480px) {
   .hero {
-    padding: 48px 0 64px;
+    padding: 60px 0 80px;
   }
 
   .hero-actions {
@@ -548,23 +770,23 @@
   }
 
   .wa-phone {
-    border-width: 8px;
-    border-radius: 18px;
+    border-width: 10px;
+    border-radius: 28px;
   }
 
   .wa-phone-body {
-    min-height: 260px;
+    min-height: 280px;
   }
 
   .outcome-row {
-    font-size: 15px;
-    padding: 14px 18px;
+    font-size: 15.5px;
+    padding: 16px 20px;
   }
 
   .comparison-table th,
   .comparison-table td {
-    padding: 10px 14px;
-    font-size: 14px;
+    padding: 12px 16px;
+    font-size: 14.5px;
   }
 }
 
@@ -577,6 +799,6 @@
   .outcome-row:hover,
   .mockup-item:hover .wa-phone,
   .pricing-card:hover {
-    transform: none;
+    transform: none !important;
   }
 }
