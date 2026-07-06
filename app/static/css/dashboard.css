@@ -446,3 +446,115 @@ details.edit-row .form-grid {
   padding: 12px;
   font-weight: 700;
 }
+
+/* ==========================================
+   Responsive Design & Mobile Optimization
+   ========================================== */
+
+@media (max-width: 768px) {
+  .topbar {
+    padding: 16px 20px;
+  }
+
+  .wrap {
+    padding: 20px 16px;
+  }
+
+  .card {
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+
+  .card h2 {
+    font-size: 1.15rem;
+    margin-bottom: 12px;
+  }
+
+  .stat-row {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .stat {
+    padding: 12px 14px;
+  }
+
+  .stat .value {
+    font-size: 1.2rem;
+  }
+
+  th, td {
+    padding: 10px 12px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .topbar {
+    flex-direction: column !important;
+    gap: 12px !important;
+    text-align: center;
+    padding: 16px !important;
+  }
+
+  .topbar .brand {
+    font-size: 1.1rem;
+  }
+
+  .topbar form {
+    width: 100%;
+  }
+
+  .topbar button {
+    width: 100%;
+    text-align: center;
+  }
+
+  /* Stack main rows and container actions on mobile */
+  .card > .row,
+  .card .row,
+  .wrap > .row,
+  .row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  /* Don't align badge to stretch when stacking */
+  .badge {
+    align-self: flex-start;
+  }
+
+  /* Make forms and action buttons occupy full container width */
+  .inline-form,
+  .inline-form button,
+  .btn,
+  button {
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    text-align: center;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  details.edit-row .form-grid {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  .login-card {
+    padding: 24px 20px;
+    margin: 12px;
+  }
+
+  .login-card h1 {
+    font-size: 1.3rem;
+    margin-bottom: 20px;
+  }
+}
+
