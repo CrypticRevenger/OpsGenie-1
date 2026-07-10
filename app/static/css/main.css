@@ -30,6 +30,7 @@
 
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 /* Custom Scrollbar */
@@ -80,6 +81,14 @@ body {
 }
 
 /* Background Glowing Orbs */
+.orb-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
 .orb {
   position: absolute;
   border-radius: 50%;
