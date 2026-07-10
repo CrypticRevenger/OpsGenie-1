@@ -69,6 +69,10 @@ from app.services.workflows.payment_flow import (
     handle_payment_workflow_message,
     start_payment_workflow,
 )
+from app.services.workflows.product_flow import (
+    handle_add_product_workflow_message,
+    start_add_product_workflow,
+)
 from app.services.writes.pending_operation import (
     get_pending_operation,
     handle_pending_operation_reply,
@@ -81,6 +85,7 @@ from app.services.writes.pending_operation import (
 _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[str]]] = {
     "record_payment": handle_payment_workflow_message,
     "create_order": handle_order_workflow_message,
+    "add_product": handle_add_product_workflow_message,
 }
 
 # Registry: exact-match keyword -> starter that sets active_workflow and
@@ -99,6 +104,12 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "create order": start_order_workflow,
     "place order": start_order_workflow,
     "record order": start_order_workflow,
+    "add product": start_add_product_workflow,
+    "add products": start_add_product_workflow,
+    "add a product": start_add_product_workflow,
+    "new product": start_add_product_workflow,
+    "add item": start_add_product_workflow,
+    "add items": start_add_product_workflow,
 }
 
 logger = logging.getLogger(__name__)

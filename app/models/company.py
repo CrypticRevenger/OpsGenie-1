@@ -68,6 +68,8 @@ class OnboardingState(enum.StrEnum):
 
     not_started = "not_started"
     awaiting_business_type = "awaiting_business_type"
+    product_awaiting_mode = "product_awaiting_mode"
+    product_awaiting_bulk = "product_awaiting_bulk"
     product_awaiting_name = "product_awaiting_name"
     product_awaiting_quantity = "product_awaiting_quantity"
     dealer_awaiting_name = "dealer_awaiting_name"

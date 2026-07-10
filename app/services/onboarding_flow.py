@@ -17,6 +17,7 @@ that only runs once onboarding is completed.
 
 from __future__ import annotations
 
+import re
 import uuid
 from decimal import Decimal
 
@@ -86,6 +87,90 @@ def _format_quantity(quantity: Decimal) -> str:
     return text or "0"
 
 
+# ── Bulk product entry ───────────────────────────────────────────────────────
+# A distributor pasting a whole price list (e.g. "Rice - 400, Dal - 450") in
+# one message used to be swallowed whole as a single product *name* by the
+# one-at-a-time flow below — this gives bulk pasting its own parser so each
+# item is matched and saved as its own Product row.
+
+_BULK_MODE_WORDS = {"bulk", "all at once", "at once", "together", "list", "in bulk"}
+_ONE_BY_ONE_MODE_WORDS = {"one by one", "one at a time", "individually", "single", "one"}
+
+_BULLET_PREFIX_RE = re.compile(r"^[-*•]+\s*")
+# A per-item "name <sep> price" suffix, e.g. "Rice - 400", "Dal: 450",
+# "Jeans @500", "Rice - Rs 400 each". Requires the tail after the last
+# separator to be a bare number so a hyphenated name with no price (e.g.
+# "T-Shirt") never matches.
+_ITEM_PRICE_RE = re.compile(
+    r"^(?P<name>.+?)\s*[-:@]\s*(?:rs\.?|inr|₹)?\s*(?P<price>\d[\d,]*(?:\.\d+)?)"
+    r"\s*(?:each|/-|/each)?$",
+    re.IGNORECASE,
+)
+# A shared price applying to every item in the message, e.g. a trailing
+# "500 each" line/phrase rather than a per-item price.
+_SHARED_EACH_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*each\b", re.IGNORECASE)
+
+
+def _classify_product_mode(text: str) -> str | None:
+    normalized = text.strip().lower()
+    if normalized in _BULK_MODE_WORDS:
+        return "bulk"
+    if normalized in _ONE_BY_ONE_MODE_WORDS:
+        return "one_by_one"
+    return None
+
+
+def _split_bulk_items(text: str) -> list[str]:
+    """Newlines always separate items; within a line, commas do too — matches
+    both a pasted one-per-line list and the "Rice - 400, Dal - 450" shape.
+    """
+    parts: list[str] = []
+    for line in text.splitlines():
+        parts.extend(line.split(","))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _parse_bulk_products(text: str) -> list[tuple[str, Decimal | None]]:
+    """Parse a free-form bulk product message into (name, price) pairs. Price
+    is None when the item carries no price (e.g. a plain name-only list) —
+    the caller still saves the product, just without selling_price set.
+    """
+    shared_match = _SHARED_EACH_RE.search(text)
+    shared_price: Decimal | None = None
+    if shared_match:
+        try:
+            shared_price = parse_amount(shared_match.group(1))
+        except ValueError:
+            shared_price = None
+
+    items: list[tuple[str, Decimal | None]] = []
+    for raw_item in _split_bulk_items(text):
+        item = _BULLET_PREFIX_RE.sub("", raw_item).strip()
+        if not item:
+            continue
+        match = _ITEM_PRICE_RE.match(item)
+        if match:
+            name = match.group("name").strip()
+            try:
+                price = parse_amount(match.group("price"))
+            except ValueError:
+                price = shared_price
+        else:
+            # No per-item price — this item may just be the message's shared
+            # "<amount> each" declaration on its own line, not a product.
+            name = _SHARED_EACH_RE.sub("", item).strip(" -:@").strip()
+            if not name:
+                continue
+            price = shared_price
+        if name:
+            items.append((name, price))
+    return items
+
+
+def _describe_product(name: str, price: Decimal | None) -> str:
+    return f"{name} ({format_inr(price)})" if price is not None else name
+
+
 async def handle_onboarding_message(db: AsyncSession, company: Company, text: str) -> str:
     """Advance the guided setup by one message and return the reply. Only
     mutates state/rows — the caller commits.
@@ -102,13 +187,55 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 1. Business type ─────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_business_type:
         company.business_type = stripped
-        company.onboarding_state = OnboardingState.product_awaiting_name
+        company.onboarding_state = OnboardingState.product_awaiting_mode
         return (
             f"{_progress(1)}\n\n"
-            "Now add your products — send them one at a time (e.g. Rice), or reply 'done' to skip."
+            "Now let's add your products. Reply 'one by one' to add them individually, "
+            "or 'bulk' to send them all at once with prices "
+            "(e.g. Rice - 400, Dal - 450). Reply 'done' to skip."
         )
 
-    # ── 2. Products (name -> stock quantity, repeatable) ─────────────────────
+    # ── 2. Products (name -> stock quantity, repeatable, or bulk paste) ──────
+    if state == OnboardingState.product_awaiting_mode:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_state = OnboardingState.dealer_awaiting_name
+            return (
+                f"{_progress(2)}\n\n"
+                "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
+            )
+        mode = _classify_product_mode(stripped)
+        if mode == "bulk":
+            company.onboarding_state = OnboardingState.product_awaiting_bulk
+            return (
+                "Send all your products now — one per line or comma-separated, with an "
+                "optional price (e.g. Rice - 400, Dal - 450). Reply 'done' when finished."
+            )
+        if mode == "one_by_one":
+            company.onboarding_state = OnboardingState.product_awaiting_name
+            return "Send your first product's name (e.g. Rice), or 'done' to skip."
+        return "Please reply 'one by one' or 'bulk' — or 'done' to skip adding products."
+
+    if state == OnboardingState.product_awaiting_bulk:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_state = OnboardingState.dealer_awaiting_name
+            return (
+                f"{_progress(2)}\n\n"
+                "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
+            )
+        parsed = _parse_bulk_products(stripped)
+        if not parsed:
+            return (
+                "I couldn't find any products in that message. List them one per line or "
+                "comma-separated, with an optional price (e.g. Rice - 400, Dal - 450)."
+            )
+        for name, price in parsed:
+            db.add(Product(company_id=company.id, name=name, selling_price=price))
+        names = ", ".join(_describe_product(name, price) for name, price in parsed)
+        return (
+            f"Added {len(parsed)} product(s): {names}. "
+            "Send more, or reply 'done' when finished."
+        )
+
     if state == OnboardingState.product_awaiting_name:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.dealer_awaiting_name
