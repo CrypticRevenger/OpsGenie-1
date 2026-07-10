@@ -20,8 +20,10 @@ from app.models.product import Product
 from app.services.workflows.product_flow import (
     handle_add_product_workflow_message,
     handle_delete_product_workflow_message,
+    handle_update_price_workflow_message,
     start_add_product_workflow,
     start_delete_product_workflow,
+    start_update_price_workflow,
 )
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -236,3 +238,141 @@ async def test_delete_cancel_mid_flow_keeps_product(db: AsyncSession) -> None:
     assert company.active_workflow is None
     assert "cancelled" in reply.lower()
     assert await _count(db, company.id) == 1
+
+
+# ── Update product price ─────────────────────────────────────────────────────
+
+
+async def _send_update_price(db: AsyncSession, company: Company, text: str) -> str:
+    reply = await handle_update_price_workflow_message(db, company, text)
+    await db.flush()
+    return reply
+
+
+@pytest.mark.asyncio
+async def test_update_price_single_match_updates_immediately(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            stock_quantity=Decimal("100"),
+            selling_price=Decimal("400.00"),
+        )
+    )
+    await db.commit()
+
+    reply = start_update_price_workflow(company)
+    assert "which product" in reply.lower()
+
+    reply = await _send_update_price(db, company, "Rice")
+    assert company.workflow_scratch["step"] == "awaiting_price"
+    assert "₹400" in reply and "new price" in reply.lower()
+
+    reply = await _send_update_price(db, company, "450")
+    assert company.active_workflow is None
+    assert company.workflow_scratch is None
+    assert "updated" in reply.lower()
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.selling_price == Decimal("450.00")
+
+
+@pytest.mark.asyncio
+async def test_update_price_no_existing_price_shows_not_set(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100")))
+    await db.commit()
+
+    start_update_price_workflow(company)
+    reply = await _send_update_price(db, company, "Rice")
+    assert "not set" in reply.lower()
+
+    await _send_update_price(db, company, "450")
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.selling_price == Decimal("450.00")
+
+
+@pytest.mark.asyncio
+async def test_update_price_bad_amount_reasks_without_advancing(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100")))
+    await db.commit()
+
+    start_update_price_workflow(company)
+    await _send_update_price(db, company, "Rice")
+    reply = await _send_update_price(db, company, "a lot")
+    assert company.workflow_scratch["step"] == "awaiting_price"  # stayed
+    assert "amount" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_update_price_not_found_reasks_without_advancing(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    start_update_price_workflow(company)
+    reply = await _send_update_price(db, company, "Nonexistent")
+    assert company.workflow_scratch["step"] == "awaiting_name"
+    assert "couldn't find" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_update_price_multiple_matches_disambiguates_by_number(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            stock_quantity=Decimal("100"),
+            selling_price=Decimal("400.00"),
+        )
+    )
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            stock_quantity=Decimal("50"),
+            selling_price=Decimal("500.00"),
+        )
+    )
+    await db.commit()
+
+    start_update_price_workflow(company)
+    reply = await _send_update_price(db, company, "rice")  # case-insensitive match
+    assert company.workflow_scratch["step"] == "awaiting_disambiguation"
+    assert "found 2 products" in reply.lower()
+
+    await _send_update_price(db, company, "2")
+    assert company.workflow_scratch["step"] == "awaiting_price"
+    await _send_update_price(db, company, "600")
+
+    updated = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.stock_quantity == 50)
+    )
+    untouched = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.stock_quantity == 100)
+    )
+    assert updated.selling_price == Decimal("600.00")
+    assert untouched.selling_price == Decimal("400.00")
+
+
+@pytest.mark.asyncio
+async def test_update_price_cancel_mid_flow_leaves_price_unchanged(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            stock_quantity=Decimal("100"),
+            selling_price=Decimal("400.00"),
+        )
+    )
+    await db.commit()
+
+    start_update_price_workflow(company)
+    await _send_update_price(db, company, "Rice")
+    reply = await _send_update_price(db, company, "cancel")
+    assert company.active_workflow is None
+    assert "cancelled" in reply.lower()
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.selling_price == Decimal("400.00")
