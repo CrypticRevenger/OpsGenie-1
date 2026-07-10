@@ -558,3 +558,76 @@ details.edit-row .form-grid {
   }
 }
 
+/* Data tables → stacked cards below 700px, so users read rows top-to-bottom
+   instead of scrolling sideways to find the last column (usually Delete). */
+@media (max-width: 700px) {
+  .table-wrap {
+    border: none;
+    background: none;
+    overflow-x: visible;
+  }
+
+  .table-wrap table,
+  .table-wrap thead,
+  .table-wrap tbody,
+  .table-wrap tr,
+  .table-wrap th,
+  .table-wrap td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-wrap thead {
+    position: absolute;
+    left: -9999px;
+  }
+
+  .table-wrap tbody tr {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 12px;
+    padding: 4px 14px;
+  }
+
+  .table-wrap td {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 10px 0 10px 42%;
+    position: relative;
+    text-align: left;
+    min-height: 20px;
+  }
+
+  .table-wrap td:last-child {
+    border-bottom: none;
+  }
+
+  .table-wrap td[data-label]::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    top: 10px;
+    width: 38%;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-faint);
+  }
+
+  .table-wrap td.cell-actions {
+    padding-left: 0;
+  }
+
+  .table-wrap td.cell-actions .inline-form,
+  .table-wrap td.cell-actions .btn,
+  .table-wrap td.cell-actions button {
+    width: 100% !important;
+  }
+
+  .table-wrap td[colspan] {
+    padding-left: 0;
+    text-align: center;
+  }
+}
+

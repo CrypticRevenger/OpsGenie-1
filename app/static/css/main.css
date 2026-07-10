@@ -622,3 +622,77 @@ a {
     border-color: var(--border) !important;
   }
 }
+
+/* ── Wake overlay (backend cold-start cover) ────────────────────────────── */
+/* Shown instead of navigating straight to the Render backend, in case it's
+   spun down after inactivity — replaces Render's own splash with ours. */
+
+.wake-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--bg);
+  background-image: var(--wallpaper);
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+
+.wake-overlay.is-visible {
+  opacity: 1;
+}
+
+.wake-overlay .orb {
+  opacity: 0.5;
+}
+
+.wake-card {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 380px;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg), 0 0 40px rgba(52, 211, 153, 0.08);
+  padding: 44px 32px;
+  backdrop-filter: blur(16px);
+}
+
+.wake-spinner {
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 24px;
+  border-radius: 50%;
+  border: 3px solid rgba(52, 211, 153, 0.15);
+  border-top-color: var(--brand-bright);
+  animation: wake-spin 0.9s linear infinite;
+}
+
+@keyframes wake-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.wake-card h2 {
+  font-size: 20px;
+  margin-bottom: 10px;
+}
+
+.wake-message {
+  color: var(--ink-soft);
+  font-size: 15px;
+  margin: 0;
+  min-height: 44px;
+}
+
+@media (max-width: 400px) {
+  .wake-card {
+    padding: 32px 22px;
+  }
+}
