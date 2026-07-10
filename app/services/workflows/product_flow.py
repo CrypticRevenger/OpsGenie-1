@@ -290,3 +290,112 @@ async def handle_delete_product_workflow_message(
     company.active_workflow = None
     company.workflow_scratch = None
     return "Something went wrong with that. Please start again by saying 'delete product'."
+
+
+# ── Update product price ─────────────────────────────────────────────────────
+
+_UPDATE_PRICE_NAME_PROMPT = (
+    "Which product's price do you want to update? Send its name, or 'cancel'."
+)
+
+
+def start_update_price_workflow(company: Company) -> str:
+    """Sets active_workflow + the first step's scratch and returns the
+    opening question verbatim — same contract as start_add_product_workflow.
+    """
+    company.active_workflow = "update_price"
+    company.workflow_scratch = {"step": "awaiting_name"}
+    return _UPDATE_PRICE_NAME_PROMPT
+
+
+def _price_prompt(product: Product) -> str:
+    current = format_inr(product.selling_price) if product.selling_price is not None else "not set"
+    return f"{product.name}'s current price is {current}. What should the new price be? (e.g. 450)"
+
+
+async def handle_update_price_workflow_message(
+    db: AsyncSession, company: Company, text: str
+) -> str:
+    """Advance the guided update-price flow by one message. Only mutates
+    state/rows — the caller (the webhook) commits.
+    """
+    stripped = text.strip()
+
+    if _is(stripped, "cancel", "stop"):
+        company.active_workflow = None
+        company.workflow_scratch = None
+        return "OK, cancelled."
+
+    scratch = dict(company.workflow_scratch or {})
+    step = scratch.get("step")
+
+    if step == "awaiting_name":
+        if not stripped:
+            return _UPDATE_PRICE_NAME_PROMPT
+        matches = await _find_products_by_name(db, company.id, stripped)
+        if not matches:
+            return (
+                f"I couldn't find a product named '{stripped}'. Check the spelling and "
+                "try again, or reply 'cancel'."
+            )
+        if len(matches) > 1:
+            scratch["candidates"] = [str(p.id) for p in matches]
+            scratch["step"] = "awaiting_disambiguation"
+            company.workflow_scratch = scratch
+            listing = "\n".join(
+                f"{i}. {_describe_candidate(p)}" for i, p in enumerate(matches, start=1)
+            )
+            return (
+                f"Found {len(matches)} products named '{stripped}':\n{listing}\n"
+                "Reply with the number to update, or 'cancel'."
+            )
+        product = matches[0]
+        scratch["product_id"] = str(product.id)
+        scratch["step"] = "awaiting_price"
+        company.workflow_scratch = scratch
+        return _price_prompt(product)
+
+    if step == "awaiting_disambiguation":
+        candidates = scratch.get("candidates", [])
+        try:
+            index = int(stripped)
+        except ValueError:
+            index = -1
+        if not (1 <= index <= len(candidates)):
+            return f"Please reply with a number from 1 to {len(candidates)}, or 'cancel'."
+        product = await db.get(Product, uuid.UUID(candidates[index - 1]))
+        if product is None:
+            # Deleted/moved between listing and choosing (shouldn't happen) —
+            # never leave the company stuck on a stale candidate list.
+            company.active_workflow = None
+            company.workflow_scratch = None
+            return (
+                "That product is no longer available. Please start again by saying "
+                "'update price'."
+            )
+        scratch["product_id"] = str(product.id)
+        scratch["step"] = "awaiting_price"
+        company.workflow_scratch = scratch
+        return _price_prompt(product)
+
+    if step == "awaiting_price":
+        try:
+            price = parse_amount(stripped)
+        except ValueError:
+            return "Please send an amount, e.g. 450."
+        if price < 0:
+            return "Please send an amount of zero or more."
+        product = await db.get(Product, uuid.UUID(scratch["product_id"]))
+        company.active_workflow = None
+        company.workflow_scratch = None
+        if product is None:
+            return "That product is no longer available."
+        old = format_inr(product.selling_price) if product.selling_price is not None else "not set"
+        product.selling_price = price
+        return f"Updated {product.name}'s price to {format_inr(price)} (was {old})."
+
+    # Unreachable in practice (every step above is exhaustive for this flow),
+    # but never leave a company stuck in an unknown workflow step.
+    company.active_workflow = None
+    company.workflow_scratch = None
+    return "Something went wrong with that. Please start again by saying 'update price'."
