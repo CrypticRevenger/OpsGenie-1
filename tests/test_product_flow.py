@@ -74,6 +74,8 @@ async def test_one_by_one_add_then_done_clears_workflow(db: AsyncSession) -> Non
     await _send(db, company, "one by one")
     await _send(db, company, "Rice")
     reply = await _send(db, company, "100")
+    assert "unit" in reply.lower()
+    reply = await _send(db, company, "kg")
     assert "Added product: Rice" in reply
     assert await _count(db, company.id) == 1
 
@@ -85,6 +87,7 @@ async def test_one_by_one_add_then_done_clears_workflow(db: AsyncSession) -> Non
     product = await db.scalar(select(Product).where(Product.company_id == company.id))
     assert product.name == "Rice"
     assert product.stock_quantity == Decimal("100")
+    assert product.unit == "kg"
 
 
 @pytest.mark.asyncio
@@ -94,6 +97,8 @@ async def test_bulk_add_saves_each_item_and_prices(db: AsyncSession) -> None:
 
     await _send(db, company, "bulk")
     reply = await _send(db, company, "rice - 400, dal - 450")
+    assert "unit" in reply.lower()
+    reply = await _send(db, company, "kg")
     assert "Added 2 product" in reply
     assert await _count(db, company.id) == 2
 
@@ -101,10 +106,16 @@ async def test_bulk_add_saves_each_item_and_prices(db: AsyncSession) -> None:
     assert company.active_workflow is None
     assert "done" in reply.lower()
 
-    rice = await db.scalar(select(Product).where(Product.name == "rice"))
-    dal = await db.scalar(select(Product).where(Product.name == "dal"))
+    rice = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.name == "rice")
+    )
+    dal = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.name == "dal")
+    )
     assert rice.selling_price == Decimal("400.00")
+    assert rice.unit == "kg"
     assert dal.selling_price == Decimal("450.00")
+    assert dal.unit == "kg"
 
 
 @pytest.mark.asyncio

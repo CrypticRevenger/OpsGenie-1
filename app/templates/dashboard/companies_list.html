@@ -14,6 +14,7 @@
           <th>Owner</th>
           <th>WhatsApp Number</th>
           <th>Status</th>
+          <th>Products</th>
           <th>Date Joined</th>
         </tr>
       </thead>
@@ -30,10 +31,11 @@
             <span class="badge inactive">Inactive</span>
             {% endif %}
           </td>
+          <td><a href="/dashboard/companies/{{ company.id }}#products" style="color: var(--brand-bright);">{{ product_counts.get(company.id, 0) }}</a></td>
           <td>{{ company.created_at.strftime("%Y-%m-%d") }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="muted" style="text-align: center; padding: 24px;">No companies onboarded yet.</td></tr>
+        <tr><td colspan="6" class="muted" style="text-align: center; padding: 24px;">No companies onboarded yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>

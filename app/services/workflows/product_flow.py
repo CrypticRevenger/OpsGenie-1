@@ -30,6 +30,8 @@ from app.models.product import Product
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import (
+    _BULK_UNIT_PROMPT,
+    _UNIT_PROMPT,
     _classify_product_mode,
     _describe_product,
     _format_quantity,
@@ -98,11 +100,25 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
                 "I couldn't find any products in that message. List them one per line or "
                 "comma-separated, with an optional price (e.g. Rice - 400, Dal - 450)."
             )
-        for name, price in parsed:
-            db.add(Product(company_id=company.id, name=name, selling_price=price))
-        names = ", ".join(_describe_product(name, price) for name, price in parsed)
+        scratch["pending_bulk"] = [
+            [name, str(price) if price is not None else None] for name, price in parsed
+        ]
+        scratch["step"] = "awaiting_bulk_unit"
+        company.workflow_scratch = scratch
+        return _BULK_UNIT_PROMPT
+
+    if step == "awaiting_bulk_unit":
+        unit = None if _is(stripped, "skip") else stripped
+        pending = [
+            (item[0], Decimal(item[1]) if item[1] is not None else None)
+            for item in scratch.get("pending_bulk", [])
+        ]
+        for name, price in pending:
+            db.add(Product(company_id=company.id, name=name, selling_price=price, unit=unit))
+        names = ", ".join(_describe_product(name, price, unit) for name, price in pending)
+        company.workflow_scratch = {"step": "awaiting_bulk"}
         return (
-            f"Added {len(parsed)} product(s): {names}. Send more, or reply 'done' when finished."
+            f"Added {len(pending)} product(s): {names}. Send more, or reply 'done' when finished."
         )
 
     if step == "awaiting_name":
@@ -122,11 +138,20 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
                 quantity = parse_amount(stripped)
             except ValueError:
                 return "Please send a number, e.g. 100 (or 'skip')."
+        scratch["quantity"] = str(quantity)
+        scratch["step"] = "awaiting_unit"
+        company.workflow_scratch = scratch
+        return _UNIT_PROMPT
+
+    if step == "awaiting_unit":
+        unit = None if _is(stripped, "skip") else stripped
         name = scratch.get("name", "Product")
-        db.add(Product(company_id=company.id, name=name, stock_quantity=quantity))
+        quantity = Decimal(scratch.get("quantity", "0"))
+        db.add(Product(company_id=company.id, name=name, stock_quantity=quantity, unit=unit))
         company.workflow_scratch = {"step": "awaiting_name"}
+        unit_suffix = f" {unit}" if unit else ""
         return (
-            f"Added product: {name} ({_format_quantity(quantity)} in stock). "
+            f"Added product: {name} ({_format_quantity(quantity)}{unit_suffix} in stock). "
             "Send another, or 'done'."
         )
 
@@ -143,7 +168,9 @@ _DELETE_NAME_PROMPT = "Which product do you want to delete? Send its name, or 'c
 
 
 def _describe_candidate(product: Product) -> str:
-    bits = [f"{_format_quantity(product.stock_quantity)} in stock"]
+    unit_suffix = f" {product.unit}" if product.unit else ""
+    stock = f"{_format_quantity(product.stock_quantity)}{unit_suffix}"
+    bits = [f"{stock} in stock"]
     if product.selling_price is not None:
         bits.append(format_inr(product.selling_price))
     return f"{product.name} ({', '.join(bits)})"
