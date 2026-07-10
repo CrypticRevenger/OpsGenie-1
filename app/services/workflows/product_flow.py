@@ -292,31 +292,68 @@ async def handle_delete_product_workflow_message(
     return "Something went wrong with that. Please start again by saying 'delete product'."
 
 
-# ── Update product price ─────────────────────────────────────────────────────
+# ── Update product (price or stock) ──────────────────────────────────────────
+#
+# One workflow, one "field" (price|stock) picked either up front (generic
+# "update product" trigger) or implied by the specific trigger the user said
+# ("update price" / "update stock") — same shape as onboarding routing a bare
+# "1" differently depending on which question is currently active.
 
-_UPDATE_PRICE_NAME_PROMPT = (
-    "Which product's price do you want to update? Send its name, or 'cancel'."
-)
+_FIELD_PROMPT = "What do you want to update — price or stock? Reply 'price' or 'stock'."
+
+
+def _name_prompt(field: str) -> str:
+    return f"Which product's {field} do you want to update? Send its name, or 'cancel'."
+
+
+def _classify_update_field(text: str) -> str | None:
+    normalized = text.strip().lower()
+    if normalized in ("price", "selling price", "prices"):
+        return "price"
+    if normalized in ("stock", "stock quantity", "quantity", "qty"):
+        return "stock"
+    return None
+
+
+def start_update_product_workflow(company: Company) -> str:
+    """Generic entry point ("update product") — asks which field first."""
+    company.active_workflow = "update_product"
+    company.workflow_scratch = {"step": "awaiting_field"}
+    return _FIELD_PROMPT
 
 
 def start_update_price_workflow(company: Company) -> str:
-    """Sets active_workflow + the first step's scratch and returns the
-    opening question verbatim — same contract as start_add_product_workflow.
-    """
-    company.active_workflow = "update_price"
-    company.workflow_scratch = {"step": "awaiting_name"}
-    return _UPDATE_PRICE_NAME_PROMPT
+    """Direct entry point ("update price") — field is already known."""
+    company.active_workflow = "update_product"
+    company.workflow_scratch = {"step": "awaiting_name", "field": "price"}
+    return _name_prompt("price")
 
 
-def _price_prompt(product: Product) -> str:
-    current = format_inr(product.selling_price) if product.selling_price is not None else "not set"
-    return f"{product.name}'s current price is {current}. What should the new price be? (e.g. 450)"
+def start_update_stock_workflow(company: Company) -> str:
+    """Direct entry point ("update stock") — field is already known."""
+    company.active_workflow = "update_product"
+    company.workflow_scratch = {"step": "awaiting_name", "field": "stock"}
+    return _name_prompt("stock")
 
 
-async def handle_update_price_workflow_message(
+def _current_value_prompt(product: Product, field: str) -> str:
+    if field == "price":
+        current = (
+            format_inr(product.selling_price) if product.selling_price is not None else "not set"
+        )
+        return (
+            f"{product.name}'s current price is {current}. "
+            "What should the new price be? (e.g. 450)"
+        )
+    unit_suffix = f" {product.unit}" if product.unit else ""
+    current = f"{_format_quantity(product.stock_quantity)}{unit_suffix}"
+    return f"{product.name}'s current stock is {current}. What should the new stock be? (e.g. 100)"
+
+
+async def handle_update_product_workflow_message(
     db: AsyncSession, company: Company, text: str
 ) -> str:
-    """Advance the guided update-price flow by one message. Only mutates
+    """Advance the guided update-product flow by one message. Only mutates
     state/rows — the caller (the webhook) commits.
     """
     stripped = text.strip()
@@ -328,10 +365,20 @@ async def handle_update_price_workflow_message(
 
     scratch = dict(company.workflow_scratch or {})
     step = scratch.get("step")
+    field = scratch.get("field", "price")
+
+    if step == "awaiting_field":
+        chosen = _classify_update_field(stripped)
+        if chosen is None:
+            return _FIELD_PROMPT
+        scratch["field"] = chosen
+        scratch["step"] = "awaiting_name"
+        company.workflow_scratch = scratch
+        return _name_prompt(chosen)
 
     if step == "awaiting_name":
         if not stripped:
-            return _UPDATE_PRICE_NAME_PROMPT
+            return _name_prompt(field)
         matches = await _find_products_by_name(db, company.id, stripped)
         if not matches:
             return (
@@ -351,9 +398,9 @@ async def handle_update_price_workflow_message(
             )
         product = matches[0]
         scratch["product_id"] = str(product.id)
-        scratch["step"] = "awaiting_price"
+        scratch["step"] = "awaiting_value"
         company.workflow_scratch = scratch
-        return _price_prompt(product)
+        return _current_value_prompt(product, field)
 
     if step == "awaiting_disambiguation":
         candidates = scratch.get("candidates", [])
@@ -371,31 +418,38 @@ async def handle_update_price_workflow_message(
             company.workflow_scratch = None
             return (
                 "That product is no longer available. Please start again by saying "
-                "'update price'."
+                "'update product'."
             )
         scratch["product_id"] = str(product.id)
-        scratch["step"] = "awaiting_price"
+        scratch["step"] = "awaiting_value"
         company.workflow_scratch = scratch
-        return _price_prompt(product)
+        return _current_value_prompt(product, field)
 
-    if step == "awaiting_price":
+    if step == "awaiting_value":
         try:
-            price = parse_amount(stripped)
+            value = parse_amount(stripped)
         except ValueError:
-            return "Please send an amount, e.g. 450."
-        if price < 0:
-            return "Please send an amount of zero or more."
+            return "Please send a number, e.g. 450."
+        if value < 0:
+            return "Please send a number of zero or more."
         product = await db.get(Product, uuid.UUID(scratch["product_id"]))
         company.active_workflow = None
         company.workflow_scratch = None
         if product is None:
             return "That product is no longer available."
-        old = format_inr(product.selling_price) if product.selling_price is not None else "not set"
-        product.selling_price = price
-        return f"Updated {product.name}'s price to {format_inr(price)} (was {old})."
+        if field == "price":
+            had_price = product.selling_price is not None
+            old = format_inr(product.selling_price) if had_price else "not set"
+            product.selling_price = value
+            return f"Updated {product.name}'s price to {format_inr(value)} (was {old})."
+        unit_suffix = f" {product.unit}" if product.unit else ""
+        old = f"{_format_quantity(product.stock_quantity)}{unit_suffix}"
+        product.stock_quantity = value
+        new = f"{_format_quantity(value)}{unit_suffix}"
+        return f"Updated {product.name}'s stock to {new} (was {old})."
 
     # Unreachable in practice (every step above is exhaustive for this flow),
     # but never leave a company stuck in an unknown workflow step.
     company.active_workflow = None
     company.workflow_scratch = None
-    return "Something went wrong with that. Please start again by saying 'update price'."
+    return "Something went wrong with that. Please start again by saying 'update product'."
