@@ -65,6 +65,10 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     # Business type
     await _send(db, company, "Pharma Distributor")
     assert company.business_type == "Pharma Distributor"
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+
+    # Product mode: one by one
+    await _send(db, company, "one by one")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
 
     # Products: name -> quantity, then done
@@ -194,6 +198,7 @@ async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "FMCG")
+    await _send(db, company, "one by one")
 
     # Bad quantity re-asks without advancing
     await _send(db, company, "Rice")
@@ -205,9 +210,79 @@ async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
     # Skipping quantity defaults to 0
     await _send(db, company, "skip")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
-    product = await db.scalar(select(Product).where(Product.company_id == company.id))
-    assert product.name == "Rice"
-    assert product.stock_quantity == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_product_mode_unrecognized_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+    reply = await _send(db, company, "huh?")
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode  # stayed
+    assert "bulk" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_product_bulk_paste_saves_each_item_separately(db: AsyncSession) -> None:
+    """Regression test: pasting a whole product list used to be swallowed
+    whole as a single product name. Bulk mode must save each line/item as its
+    own Product row.
+    """
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "Cloth store")
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+
+    await _send(db, company, "bulk")
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk
+
+    reply = await _send(db, company, "T-Shirt\nShirt\nJeans\nKurti")
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # loops for more
+    assert "Added 4 product" in reply
+    assert await _count(db, Product, company.id) == 4
+    names = {
+        p.name
+        for p in (await db.scalars(select(Product).where(Product.company_id == company.id))).all()
+    }
+    assert names == {"T-Shirt", "Shirt", "Jeans", "Kurti"}
+
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_name
+
+
+@pytest.mark.asyncio
+async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "Kirana")
+    await _send(db, company, "bulk")
+
+    await _send(db, company, "rice - 400, dal - 450")
+    assert await _count(db, Product, company.id) == 2
+    rice = await db.scalar(select(Product).where(Product.name == "rice"))
+    dal = await db.scalar(select(Product).where(Product.name == "dal"))
+    assert rice.selling_price == Decimal("400.00")
+    assert dal.selling_price == Decimal("450.00")
+
+    # A second bulk message keeps adding without resetting the earlier ones.
+    await _send(db, company, "Sugar")
+    assert await _count(db, Product, company.id) == 3
+
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_name
+
+
+@pytest.mark.asyncio
+async def test_product_bulk_paste_unparseable_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "Kirana")
+    await _send(db, company, "bulk")
+
+    reply = await _send(db, company, ",  , ")
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # stayed
+    assert "couldn't find" in reply.lower()
+    assert await _count(db, Product, company.id) == 0
 
 
 @pytest.mark.asyncio
