@@ -1,0 +1,14 @@
+name: Keep Render backend warm
+
+on:
+  schedule:
+    # Every 10 minutes — comfortably inside Render's 15-minute idle timeout.
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health
+        run: curl -fsS --max-time 90 https://opsgenie.onrender.com/health

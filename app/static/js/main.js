@@ -159,4 +159,83 @@
   if (phoneBody && tabButtons.length) {
     runDemoSequence("briefing");
   }
+
+  // Wake-and-redirect: links marked data-wake-redirect point at the Render
+  // backend, which spins down after 15 minutes idle and would otherwise show
+  // Render's own cold-start splash on the next visit. We cover that with our
+  // own branded loader and only hand off once the backend answers (or after
+  // a max wait, so a real outage doesn't strand the user here forever).
+  const WAKE_POLL_MS = 2500;
+  const WAKE_MAX_WAIT_MS = 45000;
+  const WAKE_MESSAGES = [
+    "Waking up your WhatsApp assistant…",
+    "Just a moment — this only happens after a quiet spell.",
+    "Almost there, spinning up the servers…",
+    "Thanks for your patience, hang tight…",
+  ];
+
+  function pingAwake(url) {
+    // no-cors: we can't read the response, but the promise resolving at all
+    // (even with an opaque result) means something answered — enough to know
+    // it's safe to navigate. Rejects on real network failure.
+    return fetch(url, { mode: "no-cors", cache: "no-store" }).then(
+      () => true,
+      () => false
+    );
+  }
+
+  function showWakeOverlay() {
+    const overlay = document.createElement("div");
+    overlay.className = "wake-overlay";
+    overlay.innerHTML =
+      '<div class="orb orb-green" style="top: 10%; left: -150px; width: 400px; height: 400px;"></div>' +
+      '<div class="orb orb-mint" style="bottom: 5%; right: -150px; width: 400px; height: 400px;"></div>' +
+      '<div class="wake-card">' +
+      '<div class="wake-spinner"></div>' +
+      "<h2>Getting things ready</h2>" +
+      '<p class="wake-message">' + WAKE_MESSAGES[0] + "</p>" +
+      "</div>";
+    document.body.appendChild(overlay);
+    requestAnimationFrame(() => overlay.classList.add("is-visible"));
+    return overlay;
+  }
+
+  async function wakeAndGo(targetUrl, healthUrl) {
+    const overlay = showWakeOverlay();
+    const messageEl = overlay.querySelector(".wake-message");
+    let messageIndex = 0;
+    const messageTimer = setInterval(() => {
+      messageIndex = (messageIndex + 1) % WAKE_MESSAGES.length;
+      messageEl.textContent = WAKE_MESSAGES[messageIndex];
+    }, 4000);
+
+    const deadline = Date.now() + WAKE_MAX_WAIT_MS;
+    let awake = await pingAwake(healthUrl);
+    while (!awake && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, WAKE_POLL_MS));
+      awake = await pingAwake(healthUrl);
+    }
+    clearInterval(messageTimer);
+    window.location.href = targetUrl;
+  }
+
+  document.querySelectorAll("[data-wake-redirect]").forEach((link) => {
+    // Only intercept when the link actually leaves this origin (i.e. the
+    // static Vercel site pointing at the Render backend). A same-origin
+    // relative link means the page already loaded from a warm backend, so
+    // there's nothing to wake.
+    let isCrossOrigin = false;
+    try {
+      isCrossOrigin = new URL(link.href, window.location.href).origin !== window.location.origin;
+    } catch (err) {
+      isCrossOrigin = false;
+    }
+    if (!isCrossOrigin) return;
+
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      const target = new URL(link.href, window.location.href);
+      wakeAndGo(target.href, `${target.origin}/health`);
+    });
+  });
 })();
