@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Form, Request, status
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.admin.briefing import get_latest_briefing as api_get_latest_briefing
@@ -44,6 +45,7 @@ from app.api.admin.products import list_products as api_list_products
 from app.api.admin.suppliers import list_suppliers as api_list_suppliers
 from app.core.templates import templates
 from app.db.session import get_db
+from app.models.product import Product
 from app.schemas.company import CompanyCreate
 
 router = APIRouter()
@@ -57,8 +59,24 @@ _HUB_LIST_LIMIT = 200
 @router.get("", response_class=HTMLResponse, summary="Company list")
 async def companies_list(request: Request, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
     page = await api_list_companies(page=1, limit=200, db=db)
+
+    # A per-company product count so the list gives a hint of catalogue size
+    # without opening every company's detail hub (which is where the full
+    # "Inventory Products" table already lives) — one grouped query, not N+1.
+    company_ids = [c.id for c in page.items]
+    product_counts: dict[uuid.UUID, int] = {}
+    if company_ids:
+        result = await db.execute(
+            select(Product.company_id, func.count())
+            .where(Product.company_id.in_(company_ids))
+            .group_by(Product.company_id)
+        )
+        product_counts = dict(result.all())
+
     return templates.TemplateResponse(
-        request, "dashboard/companies_list.html", {"companies": page.items, "error": None}
+        request,
+        "dashboard/companies_list.html",
+        {"companies": page.items, "product_counts": product_counts, "error": None},
     )
 
 
