@@ -19,7 +19,9 @@ from app.models.company import Company, OnboardingState
 from app.models.product import Product
 from app.services.workflows.product_flow import (
     handle_add_product_workflow_message,
+    handle_delete_product_workflow_message,
     start_add_product_workflow,
+    start_delete_product_workflow,
 )
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -135,3 +137,91 @@ async def test_done_at_mode_step_skips_without_saving(db: AsyncSession) -> None:
     assert company.active_workflow is None
     assert await _count(db, company.id) == 0
     assert "no products" in reply.lower()
+
+
+# ── Delete product ───────────────────────────────────────────────────────────
+
+
+async def _send_delete(db: AsyncSession, company: Company, text: str) -> str:
+    reply = await handle_delete_product_workflow_message(db, company, text)
+    await db.flush()
+    return reply
+
+
+@pytest.mark.asyncio
+async def test_delete_single_match_confirms_then_deletes(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100")))
+    await db.commit()
+
+    reply = start_delete_product_workflow(company)
+    assert "which product" in reply.lower()
+
+    reply = await _send_delete(db, company, "Rice")
+    assert company.workflow_scratch["step"] == "awaiting_confirm"
+    assert "delete" in reply.lower() and "rice" in reply.lower()
+
+    reply = await _send_delete(db, company, "yes")
+    assert company.active_workflow is None
+    assert company.workflow_scratch is None
+    assert "deleted" in reply.lower()
+    assert await _count(db, company.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_delete_confirm_no_keeps_product(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100")))
+    await db.commit()
+
+    start_delete_product_workflow(company)
+    await _send_delete(db, company, "Rice")
+    reply = await _send_delete(db, company, "no")
+    assert company.active_workflow is None
+    assert "not deleted" in reply.lower()
+    assert await _count(db, company.id) == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_not_found_reasks_without_advancing(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    start_delete_product_workflow(company)
+    reply = await _send_delete(db, company, "Nonexistent")
+    assert company.workflow_scratch["step"] == "awaiting_name"
+    assert "couldn't find" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_delete_multiple_matches_disambiguates_by_number(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100")))
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("50")))
+    await db.commit()
+
+    start_delete_product_workflow(company)
+    reply = await _send_delete(db, company, "rice")  # case-insensitive match
+    assert company.workflow_scratch["step"] == "awaiting_disambiguation"
+    assert "found 2 products" in reply.lower()
+
+    reply = await _send_delete(db, company, "2")
+    assert company.workflow_scratch["step"] == "awaiting_confirm"
+
+    reply = await _send_delete(db, company, "yes")
+    assert "deleted" in reply.lower()
+    assert await _count(db, company.id) == 1
+    remaining = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert remaining.stock_quantity == Decimal("100")  # the other duplicate survives
+
+
+@pytest.mark.asyncio
+async def test_delete_cancel_mid_flow_keeps_product(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100")))
+    await db.commit()
+
+    start_delete_product_workflow(company)
+    await _send_delete(db, company, "Rice")
+    reply = await _send_delete(db, company, "cancel")
+    assert company.active_workflow is None
+    assert "cancelled" in reply.lower()
+    assert await _count(db, company.id) == 1
