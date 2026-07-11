@@ -113,6 +113,21 @@ class Settings(BaseSettings):
     # via Company.evening_brief_hour, same shape as briefing_hour.
     evening_brief_hour: int = Field(default=20, alias="EVENING_BRIEF_HOUR")
 
+    # Per-company Excel data export (see app/services/company_export.py). The
+    # WhatsApp-facing download link is a short-lived HMAC-signed URL, not a
+    # stored token — export_link_secret signs it and fails closed (unset means
+    # every signed link 403s), same convention as admin_api_key/
+    # whatsapp_app_secret. The admin API and dashboard entry points don't use
+    # this at all — they're already behind their own auth.
+    export_link_secret: str | None = Field(default=None, alias="EXPORT_LINK_SECRET")
+    export_link_ttl_minutes: int = Field(default=30, alias="EXPORT_LINK_TTL_MINUTES")
+    # The real, dialable public URL of this backend (e.g.
+    # https://opsgenie.onrender.com) — needed to build a real clickable link
+    # in the WhatsApp export reply. None means the export action still works
+    # via the admin API/dashboard, but the WhatsApp reply says so instead of
+    # sending a broken relative path.
+    public_base_url: str | None = Field(default=None, alias="PUBLIC_BASE_URL")
+
     # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
     # pluggable LLMProvider + automatic failover chain. llm_provider is the
     # primary; llm_fallbacks (comma-separated, e.g. "gemini,groq,anthropic")

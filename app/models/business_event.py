@@ -54,6 +54,10 @@ class BusinessEventType(enum.StrEnum):
     # Daily Business Summary — evening WhatsApp send (see
     # app/services/evening_brief.py). Written regardless of send success.
     evening_brief_sent = "evening_brief_sent"
+    # Per-company Excel data export (see app/services/company_export.py) was
+    # actually downloaded — via the admin API, the dashboard, or a signed
+    # WhatsApp link. payload.source distinguishes which entry point.
+    export_downloaded = "export_downloaded"
 
 
 class BusinessEvent(UUIDMixin, Base):

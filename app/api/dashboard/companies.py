@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal, InvalidOperation
 
-from fastapi import APIRouter, Depends, Form, Request, status
+from fastapi import APIRouter, Depends, Form, Request, Response, status
 from fastapi.exceptions import HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import ValidationError
@@ -48,9 +48,11 @@ from app.api.admin.suppliers import list_suppliers as api_list_suppliers
 from app.core.config import get_settings
 from app.core.templates import templates
 from app.db.session import get_db
+from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
 from app.models.product import Product
 from app.schemas.company import CompanyCreate
+from app.services.company_export import build_company_workbook
 from app.services.snapshot import business_now
 
 router = APIRouter()
@@ -236,6 +238,30 @@ async def company_detail(
             "month_summary": month_summary,
             "error": error,
         },
+    )
+
+
+@router.get("/{company_id}/export", summary="Download this company's Excel data export")
+async def company_export(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Response:
+    company = await api_get_company(company_id, db)
+    workbook_bytes = await build_company_workbook(db, company)
+    db.add(
+        BusinessEvent(
+            company_id=company.id,
+            event_type=BusinessEventType.export_downloaded,
+            entity_type="company",
+            entity_id=company.id,
+            payload={"source": "dashboard"},
+            created_by="dashboard_export",
+        )
+    )
+    await db.commit()
+
+    filename = f"{company.business_name.replace(' ', '_')}_export.xlsx"
+    return Response(
+        content=workbook_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
