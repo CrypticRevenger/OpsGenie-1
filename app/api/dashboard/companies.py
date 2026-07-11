@@ -43,8 +43,10 @@ from app.api.admin.invoices import list_invoices as api_list_invoices
 from app.api.admin.payments import list_payments as api_list_payments
 from app.api.admin.products import list_products as api_list_products
 from app.api.admin.suppliers import list_suppliers as api_list_suppliers
+from app.core.config import get_settings
 from app.core.templates import templates
 from app.db.session import get_db
+from app.models.company import Company
 from app.models.product import Product
 from app.schemas.company import CompanyCreate
 
@@ -54,6 +56,23 @@ router = APIRouter()
 # fits on one page — this hub deliberately doesn't paginate sub-resources,
 # unlike the JSON admin API's list endpoints.
 _HUB_LIST_LIMIT = 200
+
+
+def _format_briefing_hour(company: Company) -> str:
+    """Render the hour the scheduler actually dispatches this company's
+    morning briefing at (app/core/scheduler.py compares local hour ==
+    briefing_hour), 12h-clock, business-local. Falls back to the global
+    BRIEFING_HOUR default and says so when the company hasn't overridden it
+    (set during onboarding — see app/services/onboarding_flow.py).
+    """
+    hour = company.briefing_hour
+    is_default = hour is None
+    if is_default:
+        hour = get_settings().briefing_hour
+    period = "AM" if hour < 12 else "PM"
+    display_hour = hour % 12 or 12
+    suffix = " (default)" if is_default else ""
+    return f"{display_hour}:00 {period} {company.timezone}{suffix}"
 
 
 @router.get("", response_class=HTMLResponse, summary="Company list")
@@ -73,10 +92,17 @@ async def companies_list(request: Request, db: AsyncSession = Depends(get_db)) -
         )
         product_counts = dict(result.all())
 
+    briefing_hours = {c.id: _format_briefing_hour(c) for c in page.items}
+
     return templates.TemplateResponse(
         request,
         "dashboard/companies_list.html",
-        {"companies": page.items, "product_counts": product_counts, "error": None},
+        {
+            "companies": page.items,
+            "product_counts": product_counts,
+            "briefing_hours": briefing_hours,
+            "error": None,
+        },
     )
 
 
@@ -195,6 +221,7 @@ async def company_detail(
             "supplier_names": supplier_names,
             "invoice_numbers": invoice_numbers,
             "briefing": briefing,
+            "briefing_hour_display": _format_briefing_hour(company),
             "cashflow": cashflow,
             "error": error,
         },
