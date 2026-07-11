@@ -37,6 +37,8 @@ from app.api.admin.companies import (
 from app.api.admin.companies import (
     list_companies as api_list_companies,
 )
+from app.api.admin.daily_snapshot import get_month_summary as api_get_month_summary
+from app.api.admin.daily_snapshot import get_today_snapshot as api_get_today_snapshot
 from app.api.admin.dealers import list_dealers as api_list_dealers
 from app.api.admin.faq import list_faqs as api_list_faqs
 from app.api.admin.invoices import list_invoices as api_list_invoices
@@ -49,6 +51,7 @@ from app.db.session import get_db
 from app.models.company import Company
 from app.models.product import Product
 from app.schemas.company import CompanyCreate
+from app.services.snapshot import business_now
 
 router = APIRouter()
 
@@ -199,6 +202,12 @@ async def company_detail(
 
     cashflow = await api_get_cashflow(company_id, db)
 
+    today_local = business_now(company.timezone).date()
+    daily_snapshot = await api_get_today_snapshot(company_id, db)
+    month_summary = await api_get_month_summary(
+        company_id, year=today_local.year, month=today_local.month, db=db
+    )
+
     # Payments only carry invoice_id, and invoices only carry dealer_id/
     # supplier_id — build name lookups once here so the template can show
     # "Ram Traders" instead of a bare UUID without a per-row query.
@@ -223,6 +232,8 @@ async def company_detail(
             "briefing": briefing,
             "briefing_hour_display": _format_briefing_hour(company),
             "cashflow": cashflow,
+            "daily_snapshot": daily_snapshot,
+            "month_summary": month_summary,
             "error": error,
         },
     )

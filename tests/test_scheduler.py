@@ -51,7 +51,14 @@ def spies(monkeypatch):
     """Record calls to every side-effecting service the scheduler drives, so
     tests assert on *what fired* without doing real work or real sends.
     """
-    calls = {"generate": [], "send": [], "followup": [], "notify": [], "briefing_failed": []}
+    calls = {
+        "generate": [],
+        "send": [],
+        "followup": [],
+        "notify": [],
+        "briefing_failed": [],
+        "evening_brief": [],
+    }
 
     async def _gen(db, company_id):
         calls["generate"].append(company_id)
@@ -86,11 +93,16 @@ def spies(monkeypatch):
         calls["briefing_failed"].append(company.id)
         return True
 
+    async def _evening_brief(db, company):
+        calls["evening_brief"].append(company.id)
+        return True
+
     monkeypatch.setattr(scheduler, "generate_briefing", _gen)
     monkeypatch.setattr(scheduler, "send_text_message", _send)
     monkeypatch.setattr(scheduler, "send_due_today_follow_up", _followup)
     monkeypatch.setattr(scheduler, "run_notification_checks", _notify)
     monkeypatch.setattr(scheduler, "notify_briefing_failed", _briefing_failed)
+    monkeypatch.setattr(scheduler, "send_evening_brief", _evening_brief)
     return calls
 
 
@@ -210,6 +222,36 @@ async def test_followup_not_fired_at_other_hours(db: AsyncSession, spies) -> Non
     company = await _make_company(db)
     await _dispatch_for_company(company.id, _at(8))
     assert spies["followup"] == []
+
+
+# ── Evening brief dispatch ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_evening_brief_fires_at_evening_brief_hour(db: AsyncSession, spies) -> None:
+    company = await _make_company(db)
+    await _dispatch_for_company(company.id, _at(20))  # EVENING_BRIEF_HOUR default
+    assert spies["evening_brief"] == [company.id]
+
+
+@pytest.mark.asyncio
+async def test_evening_brief_not_fired_at_other_hours(db: AsyncSession, spies) -> None:
+    company = await _make_company(db)
+    await _dispatch_for_company(company.id, _at(8))
+    assert spies["evening_brief"] == []
+
+
+@pytest.mark.asyncio
+async def test_per_company_evening_brief_hour_overrides_global(db: AsyncSession, spies) -> None:
+    company = await _make_company(db)
+    company.evening_brief_hour = 18
+    await db.commit()
+
+    await _dispatch_for_company(company.id, _at(18))
+    assert spies["evening_brief"] == [company.id]
+
+    await _dispatch_for_company(company.id, _at(20))  # global default — not this company's hour
+    assert spies["evening_brief"] == [company.id]  # still just the one call
 
 
 # ── Company selection + isolation ────────────────────────────────────────────

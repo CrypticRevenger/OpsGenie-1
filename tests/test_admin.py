@@ -134,6 +134,88 @@ async def test_get_company_not_found(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_update_company_gst_rate(client: AsyncClient) -> None:
+    create_resp = await client.post(
+        "/admin/companies",
+        json={
+            "business_name": "GST Test Co",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    assert create_resp.status_code == 201
+    company_id = create_resp.json()["id"]
+    assert create_resp.json()["gst_rate"] == "0.00"
+
+    patch_resp = await client.patch(f"/admin/companies/{company_id}", json={"gst_rate": "5.00"})
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["gst_rate"] == "5.00"
+
+    get_resp = await client.get(f"/admin/companies/{company_id}")
+    assert get_resp.json()["gst_rate"] == "5.00"
+
+
+@pytest.mark.asyncio
+async def test_update_company_gst_rate_out_of_range_returns_422(client: AsyncClient) -> None:
+    create_resp = await client.post(
+        "/admin/companies",
+        json={
+            "business_name": "GST Range Test Co",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    company_id = create_resp.json()["id"]
+
+    resp = await client.patch(f"/admin/companies/{company_id}", json={"gst_rate": "150"})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_company_not_found(client: AsyncClient) -> None:
+    resp = await client.patch(f"/admin/companies/{uuid.uuid4()}", json={"gst_rate": "5.00"})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_update_company_evening_brief_hour(client: AsyncClient) -> None:
+    create_resp = await client.post(
+        "/admin/companies",
+        json={
+            "business_name": "Evening Hour Test Co",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    company_id = create_resp.json()["id"]
+    assert create_resp.json()["evening_brief_hour"] is None
+
+    patch_resp = await client.patch(
+        f"/admin/companies/{company_id}", json={"evening_brief_hour": 19}
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["evening_brief_hour"] == 19
+
+
+@pytest.mark.asyncio
+async def test_update_company_evening_brief_hour_out_of_range_returns_422(
+    client: AsyncClient,
+) -> None:
+    create_resp = await client.post(
+        "/admin/companies",
+        json={
+            "business_name": "Evening Hour Range Test Co",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    company_id = create_resp.json()["id"]
+
+    resp = await client.patch(f"/admin/companies/{company_id}", json={"evening_brief_hour": 25})
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_delete_company(client: AsyncClient) -> None:
     create_resp = await client.post(
         "/admin/companies",

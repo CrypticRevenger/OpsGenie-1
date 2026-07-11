@@ -179,6 +179,10 @@ _BULK_UNIT_PROMPT = (
     "What unit are these measured in? (e.g. kg, pcs, box, litre — applies to all of "
     "these, or 'skip' if it varies)"
 )
+_BULK_PURCHASE_PRICE_PROMPT = (
+    "Want to add purchase prices (what you pay your supplier) too? Reply in the same "
+    "format (Rice - 300, Dal - 320), or 'skip' if you don't want to track them."
+)
 
 
 async def handle_onboarding_message(db: AsyncSession, company: Company, text: str) -> str:
@@ -248,12 +252,33 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.product_awaiting_bulk_unit:
         unit = None if _is(stripped, "skip") else stripped
+        company.onboarding_scratch = {"pending_bulk": scratch.get("pending_bulk", []), "unit": unit}
+        company.onboarding_state = OnboardingState.product_awaiting_bulk_purchase_price
+        return _BULK_PURCHASE_PRICE_PROMPT
+
+    if state == OnboardingState.product_awaiting_bulk_purchase_price:
+        unit = scratch.get("unit")
         pending = [
             (item[0], Decimal(item[1]) if item[1] is not None else None)
             for item in scratch.get("pending_bulk", [])
         ]
+        purchase_prices: dict[str, Decimal] = {}
+        if not _is(stripped, "skip", "no", "none", "done"):
+            purchase_prices = {
+                name.lower(): price
+                for name, price in _parse_bulk_products(stripped)
+                if price is not None
+            }
         for name, price in pending:
-            db.add(Product(company_id=company.id, name=name, selling_price=price, unit=unit))
+            db.add(
+                Product(
+                    company_id=company.id,
+                    name=name,
+                    selling_price=price,
+                    unit=unit,
+                    purchase_price=purchase_prices.get(name.lower()),
+                )
+            )
         names = ", ".join(_describe_product(name, price, unit) for name, price in pending)
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.product_awaiting_bulk
@@ -287,9 +312,31 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.product_awaiting_unit:
         unit = None if _is(stripped, "skip") else stripped
+        scratch["unit"] = unit
+        company.onboarding_scratch = scratch
+        company.onboarding_state = OnboardingState.product_awaiting_purchase_price
+        name = scratch.get("name", "this product")
+        return f"What's the purchase price (cost price) for {name}? (e.g. 30, or 'skip')"
+
+    if state == OnboardingState.product_awaiting_purchase_price:
+        purchase_price = None
+        if not _is(stripped, "skip", "done"):
+            try:
+                purchase_price = parse_amount(stripped)
+            except ValueError:
+                return "Please send a number, e.g. 30 (or 'skip')."
         name = scratch.get("name", "Product")
         quantity = Decimal(scratch.get("quantity", "0"))
-        db.add(Product(company_id=company.id, name=name, stock_quantity=quantity, unit=unit))
+        unit = scratch.get("unit")
+        db.add(
+            Product(
+                company_id=company.id,
+                name=name,
+                stock_quantity=quantity,
+                unit=unit,
+                purchase_price=purchase_price,
+            )
+        )
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.product_awaiting_name
         unit_suffix = f" {unit}" if unit else ""

@@ -77,6 +77,8 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     await _send(db, company, "150")
     assert company.onboarding_state == OnboardingState.product_awaiting_unit
     await _send(db, company, "strips")
+    assert company.onboarding_state == OnboardingState.product_awaiting_purchase_price
+    await _send(db, company, "8")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
     await _send(db, company, "done")
     assert company.onboarding_state == OnboardingState.dealer_awaiting_name
@@ -85,6 +87,7 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     assert product.name == "Paracetamol"
     assert product.stock_quantity == Decimal("150")
     assert product.unit == "strips"
+    assert product.purchase_price == Decimal("8.00")
 
     # Dealer: name -> phone -> credit
     await _send(db, company, "Ram Traders")
@@ -210,15 +213,18 @@ async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
     assert company.onboarding_state == OnboardingState.product_awaiting_quantity  # stayed
     assert "number" in reply.lower()
 
-    # Skipping quantity defaults to 0, then unit
+    # Skipping quantity defaults to 0, then unit, then purchase price
     await _send(db, company, "skip")
     assert company.onboarding_state == OnboardingState.product_awaiting_unit
+    await _send(db, company, "skip")
+    assert company.onboarding_state == OnboardingState.product_awaiting_purchase_price
     await _send(db, company, "skip")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
     product = await db.scalar(select(Product).where(Product.company_id == company.id))
     assert product.name == "Rice"
     assert product.stock_quantity == Decimal("0")
     assert product.unit is None
+    assert product.purchase_price is None
 
 
 @pytest.mark.asyncio
@@ -250,6 +256,10 @@ async def test_product_bulk_paste_saves_each_item_separately(db: AsyncSession) -
     assert "unit" in reply.lower()
 
     reply = await _send(db, company, "pcs")
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk_purchase_price
+    assert "purchase price" in reply.lower()
+
+    reply = await _send(db, company, "skip")
     assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # loops for more
     assert "Added 4 product" in reply
     assert await _count(db, Product, company.id) == 4
@@ -273,6 +283,8 @@ async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
     await _send(db, company, "rice - 400, dal - 450")
     assert company.onboarding_state == OnboardingState.product_awaiting_bulk_unit
     await _send(db, company, "kg")
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk_purchase_price
+    await _send(db, company, "rice - 300, dal - 320")
     assert await _count(db, Product, company.id) == 2
     rice = await db.scalar(
         select(Product).where(Product.company_id == company.id, Product.name == "rice")
@@ -282,12 +294,15 @@ async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
     )
     assert rice.selling_price == Decimal("400.00")
     assert rice.unit == "kg"
+    assert rice.purchase_price == Decimal("300.00")
     assert dal.selling_price == Decimal("450.00")
     assert dal.unit == "kg"
+    assert dal.purchase_price == Decimal("320.00")
 
     # A second bulk message keeps adding without resetting the earlier ones.
     await _send(db, company, "Sugar")
     await _send(db, company, "skip")  # no unit this time
+    await _send(db, company, "skip")  # no purchase price either
     assert await _count(db, Product, company.id) == 3
 
     await _send(db, company, "done")

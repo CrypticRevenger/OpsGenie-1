@@ -18,6 +18,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     UniqueConstraint,
     Uuid,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from app.models.business_event import BusinessEvent
     from app.models.cash_snapshot import CashSnapshot
     from app.models.conversation_turn import ConversationTurn
+    from app.models.daily_business_snapshot import DailyBusinessSnapshot
     from app.models.dealer import Dealer
     from app.models.faq import FAQ
     from app.models.import_log import ImportLog
@@ -71,9 +73,14 @@ class OnboardingState(enum.StrEnum):
     product_awaiting_mode = "product_awaiting_mode"
     product_awaiting_bulk = "product_awaiting_bulk"
     product_awaiting_bulk_unit = "product_awaiting_bulk_unit"
+    # Asked right after unit, before the batch is actually created — see
+    # app/services/onboarding_flow.py. Purchase price feeds the Daily
+    # Business Summary's sales_margin calculation (app/services/daily_snapshot.py).
+    product_awaiting_bulk_purchase_price = "product_awaiting_bulk_purchase_price"
     product_awaiting_name = "product_awaiting_name"
     product_awaiting_quantity = "product_awaiting_quantity"
     product_awaiting_unit = "product_awaiting_unit"
+    product_awaiting_purchase_price = "product_awaiting_purchase_price"
     dealer_awaiting_name = "dealer_awaiting_name"
     dealer_awaiting_phone = "dealer_awaiting_phone"
     dealer_awaiting_credit = "dealer_awaiting_credit"
@@ -117,6 +124,13 @@ class Company(UUIDMixin, TimestampMixin, Base):
     # Manually toggled for pilot users — no billing system in V0.0 or V0.1.
     subscription_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     opening_balance: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
+    # V0.2 — GST percentage applied to WhatsApp-guided invoices (see
+    # app/services/writes/orders.py::create_order). Opt-in: 0 until the
+    # founder sets it via PATCH /admin/companies/{id}, so no distributor gets
+    # surprise tax added to their invoices without configuring it first.
+    gst_rate: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, default=Decimal("0"), server_default=text("0")
+    )
 
     # Phase 9 — InvoiceDueDateFollowUpService conversation state (see
     # app/services/followup.py). Only one follow-up conversation is active
@@ -151,6 +165,10 @@ class Company(UUIDMixin, TimestampMixin, Base):
     # Per-company morning-briefing hour (0-23, business-local); overrides the
     # global BRIEFING_HOUR when set. Collected in onboarding.
     briefing_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Per-company evening-business-summary hour (0-23, business-local);
+    # overrides the global EVENING_BRIEF_HOUR when set. Mirrors briefing_hour
+    # exactly — see app/services/evening_brief.py.
+    evening_brief_hour: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Phase 2A — guided write workflows (see app/services/workflows/). Plain
     # string, not an enum, deliberately: unlike onboarding_state (a fixed,
@@ -229,4 +247,7 @@ class Company(UUIDMixin, TimestampMixin, Base):
     )
     faqs: Mapped[list[FAQ]] = relationship(
         "FAQ", back_populates="company", cascade="all, delete-orphan"
+    )
+    daily_business_snapshots: Mapped[list[DailyBusinessSnapshot]] = relationship(
+        "DailyBusinessSnapshot", back_populates="company", cascade="all, delete-orphan"
     )

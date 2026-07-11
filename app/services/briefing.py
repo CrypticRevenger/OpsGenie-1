@@ -35,12 +35,9 @@ from app.services.llm import (
     NoApiKeyConfiguredError,
     generate_with_fallback,
 )
+from app.services.priority_actions import get_priority_actions
 from app.services.query_menu import MENU_PROMPT
-from app.services.recommendations import (
-    _STALE_DATA_THRESHOLD_HOURS,
-    ActionItem,
-    build_recommendations,
-)
+from app.services.recommendations import _STALE_DATA_THRESHOLD_HOURS, ActionItem
 from app.services.snapshot import Snapshot, build_snapshot
 
 logger = logging.getLogger(__name__)
@@ -185,7 +182,7 @@ def _flatten(value: object) -> list[object]:
 
 
 async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningBriefing:
-    """build_snapshot -> build_recommendations -> assemble payload ->
+    """build_snapshot -> get_priority_actions -> assemble payload ->
     generate_with_fallback -> append confidence indicator -> check
     traceability -> persist (with provider/model metadata) -> return.
     """
@@ -194,7 +191,7 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
         raise ValueError(f"Company {company_id} not found")
 
     snapshot = await build_snapshot(db, company_id)
-    recommendations = build_recommendations(snapshot)
+    recommendations = await get_priority_actions(db, company_id, snapshot=snapshot)
     payload = assemble_briefing_payload(snapshot, recommendations)
 
     result = await generate_with_fallback(

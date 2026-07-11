@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.admin.briefing import router as briefing_router
 from app.api.admin.cashflow import router as cashflow_router
 from app.api.admin.companies import router as companies_router
+from app.api.admin.daily_snapshot import router as daily_snapshot_router
 from app.api.admin.dealers import router as dealers_router
 from app.api.admin.faq import router as faq_router
 from app.api.admin.followup import router as followup_router
@@ -27,3 +28,4 @@ router.include_router(payments_router)
 router.include_router(cashflow_router)
 router.include_router(briefing_router)
 router.include_router(followup_router)
+router.include_router(daily_snapshot_router)

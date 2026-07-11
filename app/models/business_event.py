@@ -47,6 +47,13 @@ class BusinessEventType(enum.StrEnum):
     # Phase 10 — NotificationEngine internal ops alert to the founder's number
     # (payload.reason distinguishes "stale_data" vs "briefing_failed").
     founder_alert_sent = "founder_alert_sent"
+    # V0.2 — invoice PDF sent to a dealer's WhatsApp (see
+    # app/services/invoice_delivery.py). Written regardless of send success;
+    # NotificationLog.delivery_status carries "sent" vs "failed_to_send".
+    invoice_document_sent = "invoice_document_sent"
+    # Daily Business Summary — evening WhatsApp send (see
+    # app/services/evening_brief.py). Written regardless of send success.
+    evening_brief_sent = "evening_brief_sent"
 
 
 class BusinessEvent(UUIDMixin, Base):

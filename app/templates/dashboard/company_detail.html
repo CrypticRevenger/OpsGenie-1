@@ -86,6 +86,61 @@
   {% endif %}
 </div>
 
+<!-- Today's Business Summary Card -->
+<div class="card">
+  <h2 style="margin-bottom: 20px;">Today's Business Summary</h2>
+  <div class="stat-row">
+    <div class="stat">
+      <div class="value">₹{{ "%.2f"|format(daily_snapshot.sales_amount) }}</div>
+      <div class="label">Sales Today</div>
+    </div>
+    <div class="stat">
+      <div class="value">₹{{ "%.2f"|format(daily_snapshot.sales_margin) }}</div>
+      <div class="label">Sales Margin</div>
+    </div>
+    <div class="stat">
+      <div class="value">₹{{ "%.2f"|format(daily_snapshot.collections_amount) }}</div>
+      <div class="label">Collections</div>
+    </div>
+    <div class="stat">
+      <div class="value">₹{{ "%.2f"|format(daily_snapshot.supplier_payments_amount) }}</div>
+      <div class="label">Supplier Payments</div>
+    </div>
+    <div class="stat">
+      <div class="value" style="color: {% if daily_snapshot.net_cash_movement < 0 %}#f87171{% else %}#fff{% endif %};">
+        {{ "+" if daily_snapshot.net_cash_movement >= 0 else "" }}₹{{ "%.2f"|format(daily_snapshot.net_cash_movement) }}
+      </div>
+      <div class="label">Net Cash Movement</div>
+    </div>
+    <div class="stat">
+      <div class="value">₹{{ "%.2f"|format(daily_snapshot.outstanding_receivables) }}</div>
+      <div class="label">Outstanding Receivables</div>
+    </div>
+  </div>
+
+  <p class="muted" style="margin-top: 16px;">
+    Invoices Created: <strong style="color:#fff;">{{ daily_snapshot.invoices_created }}</strong> &middot;
+    Orders via WhatsApp: <strong style="color:#fff;">{{ daily_snapshot.orders_created }}</strong> &middot;
+    Payments Recorded: <strong style="color:#fff;">{{ daily_snapshot.payments_recorded }}</strong>
+  </p>
+
+  {% if daily_snapshot.items_missing_cost_data > 0 %}
+  <p class="muted" style="margin-top: 8px; font-style: italic;">
+    ⚠️ {{ daily_snapshot.items_missing_cost_data }} item(s) (₹{{ "%.2f"|format(daily_snapshot.revenue_excluded_no_cost_data) }})
+    excluded from Sales Margin &mdash; no cost price on file.
+  </p>
+  {% endif %}
+
+  <h3
+    style="margin-top: 24px; margin-bottom: 12px; font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--brand-bright);">
+    This Month So Far</h3>
+  <p class="muted" style="margin-bottom: 0;">
+    Sales <strong style="color:#fff;">₹{{ "%.2f"|format(month_summary.totals.sales_amount) }}</strong> &middot;
+    Margin <strong style="color:#fff;">₹{{ "%.2f"|format(month_summary.totals.sales_margin) }}</strong> &middot;
+    Net Cash Movement <strong style="color:#fff;">₹{{ "%.2f"|format(month_summary.totals.net_cash_movement) }}</strong>
+  </p>
+</div>
+
 <!-- Morning Briefing Card -->
 <div class="card">
   <h2>Morning Briefing</h2>
