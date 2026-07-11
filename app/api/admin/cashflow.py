@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
 from app.models.company import Company
 from app.schemas.cashflow import CashflowResponse
-from app.services.recommendations import build_recommendations
+from app.services.priority_actions import get_priority_actions
 from app.services.snapshot import build_snapshot
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ async def get_cashflow(
     await _get_company_or_404(company_id, db)
 
     snapshot = await build_snapshot(db, company_id)
-    recommendations = build_recommendations(snapshot)
+    recommendations = await get_priority_actions(db, company_id, snapshot=snapshot)
 
     return CashflowResponse(
         company_id=snapshot.company_id,

@@ -14,6 +14,7 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.cash_snapshot import CashSnapshot
 from app.models.company import Company
 from app.models.conversation_turn import ConversationTurn
+from app.models.daily_business_snapshot import DailyBusinessSnapshot
 from app.models.dealer import Dealer
 from app.models.import_log import ImportLog
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
@@ -34,6 +35,7 @@ __all__ = [
     "CashSnapshot",
     "Company",
     "ConversationTurn",
+    "DailyBusinessSnapshot",
     "Dealer",
     "ImportLog",
     "Invoice",

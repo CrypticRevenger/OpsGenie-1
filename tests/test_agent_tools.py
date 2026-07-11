@@ -166,6 +166,29 @@ async def test_business_summary_shape(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_priority_actions_shape(db: AsyncSession) -> None:
+    company = await _seed(db)
+    out = await _call(db, company, "get_priority_actions")
+    assert "priority_actions" in out
+    assert isinstance(out["priority_actions"], list)
+
+
+@pytest.mark.asyncio
+async def test_get_priority_actions_reuses_recommendation_engine(db: AsyncSession) -> None:
+    """A forced cash deficit must surface identically here as it does through
+    app/services/priority_actions.py's other consumers — same engine, no
+    separate logic in the agent tool.
+    """
+    company = await _seed(db)
+    company.opening_balance = Decimal("-100000.00")
+    await db.commit()
+
+    out = await _call(db, company, "get_priority_actions")
+    types = [a["type"] for a in out["priority_actions"]]
+    assert "cash_deficit_warning" in types
+
+
+@pytest.mark.asyncio
 async def test_unknown_tool_returns_error(db: AsyncSession) -> None:
     company = await _seed(db)
     out = await _call(db, company, "does_not_exist")

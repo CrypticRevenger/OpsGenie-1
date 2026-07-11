@@ -69,7 +69,34 @@ class CompanyResponse(BaseModel):
     timezone: str
     subscription_active: bool
     opening_balance: Decimal
+    gst_rate: Decimal
+    evening_brief_hour: int | None
     created_at: datetime
+
+
+class CompanyUpdate(BaseModel):
+    """Partial-update payload for PATCH /admin/companies/{id}. Only fields the
+    founder can adjust after creation — gst_rate (V0.2's WhatsApp-guided
+    invoice GST, see app/services/writes/orders.py) and evening_brief_hour
+    (see app/services/evening_brief.py).
+    """
+
+    gst_rate: Decimal | None = None
+    evening_brief_hour: int | None = None
+
+    @field_validator("gst_rate")
+    @classmethod
+    def must_be_a_valid_percentage(cls, v: Decimal | None) -> Decimal | None:
+        if v is not None and not (Decimal("0") <= v <= Decimal("100")):
+            raise ValueError("gst_rate must be between 0 and 100")
+        return v
+
+    @field_validator("evening_brief_hour")
+    @classmethod
+    def must_be_a_valid_hour(cls, v: int | None) -> int | None:
+        if v is not None and not (0 <= v <= 23):
+            raise ValueError("evening_brief_hour must be between 0 and 23")
+        return v
 
 
 class SubscriptionResponse(BaseModel):

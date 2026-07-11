@@ -39,6 +39,7 @@ from app.db.session import async_session_factory
 from app.models.company import Company
 from app.models.morning_briefing import MorningBriefing
 from app.services.briefing import generate_briefing
+from app.services.evening_brief import send_evening_brief
 from app.services.followup import send_due_today_follow_up
 from app.services.notifications import notify_briefing_failed, run_notification_checks
 from app.services.snapshot import business_now
@@ -140,6 +141,15 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> None:
 
         if hour == settings.followup_hour:
             await send_due_today_follow_up(db, company.id)
+            await db.commit()
+
+        evening_brief_hour = (
+            company.evening_brief_hour
+            if company.evening_brief_hour is not None
+            else settings.evening_brief_hour
+        )
+        if hour == evening_brief_hour:
+            await send_evening_brief(db, company)
             await db.commit()
 
         # NotificationEngine only during business hours — the morning briefing

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
 from app.models.company import Company
-from app.schemas.company import CompanyCreate, CompanyResponse, SubscriptionResponse
+from app.schemas.company import CompanyCreate, CompanyResponse, CompanyUpdate, SubscriptionResponse
 from app.schemas.pagination import Page
 from app.services.activation import activate_company
 
@@ -95,6 +95,31 @@ async def get_company(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Company {company_id} not found.",
         )
+    return company
+
+
+@router.patch(
+    "/{company_id}",
+    response_model=CompanyResponse,
+    summary="Update a company's mutable settings (gst_rate, evening_brief_hour)",
+)
+async def update_company(
+    company_id: uuid.UUID,
+    payload: CompanyUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> Company:
+    company = await db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Company {company_id} not found.",
+        )
+    if payload.gst_rate is not None:
+        company.gst_rate = payload.gst_rate
+    if payload.evening_brief_hour is not None:
+        company.evening_brief_hour = payload.evening_brief_hour
+    await db.commit()
+    await db.refresh(company)
     return company
 
 

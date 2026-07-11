@@ -30,6 +30,7 @@ from app.models.product import Product
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import (
+    _BULK_PURCHASE_PRICE_PROMPT,
     _BULK_UNIT_PROMPT,
     _UNIT_PROMPT,
     _classify_product_mode,
@@ -109,12 +110,36 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
 
     if step == "awaiting_bulk_unit":
         unit = None if _is(stripped, "skip") else stripped
+        company.workflow_scratch = {
+            "step": "awaiting_bulk_purchase_price",
+            "pending_bulk": scratch.get("pending_bulk", []),
+            "unit": unit,
+        }
+        return _BULK_PURCHASE_PRICE_PROMPT
+
+    if step == "awaiting_bulk_purchase_price":
+        unit = scratch.get("unit")
         pending = [
             (item[0], Decimal(item[1]) if item[1] is not None else None)
             for item in scratch.get("pending_bulk", [])
         ]
+        purchase_prices: dict[str, Decimal] = {}
+        if not _is(stripped, "skip", "no", "none", "done"):
+            purchase_prices = {
+                name.lower(): price
+                for name, price in _parse_bulk_products(stripped)
+                if price is not None
+            }
         for name, price in pending:
-            db.add(Product(company_id=company.id, name=name, selling_price=price, unit=unit))
+            db.add(
+                Product(
+                    company_id=company.id,
+                    name=name,
+                    selling_price=price,
+                    unit=unit,
+                    purchase_price=purchase_prices.get(name.lower()),
+                )
+            )
         names = ", ".join(_describe_product(name, price, unit) for name, price in pending)
         company.workflow_scratch = {"step": "awaiting_bulk"}
         return (
@@ -145,9 +170,31 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
 
     if step == "awaiting_unit":
         unit = None if _is(stripped, "skip") else stripped
+        scratch["unit"] = unit
+        scratch["step"] = "awaiting_purchase_price"
+        company.workflow_scratch = scratch
+        name = scratch.get("name", "this product")
+        return f"What's the purchase price (cost price) for {name}? (e.g. 30, or 'skip')"
+
+    if step == "awaiting_purchase_price":
+        purchase_price = None
+        if not _is(stripped, "skip", "done"):
+            try:
+                purchase_price = parse_amount(stripped)
+            except ValueError:
+                return "Please send a number, e.g. 30 (or 'skip')."
         name = scratch.get("name", "Product")
         quantity = Decimal(scratch.get("quantity", "0"))
-        db.add(Product(company_id=company.id, name=name, stock_quantity=quantity, unit=unit))
+        unit = scratch.get("unit")
+        db.add(
+            Product(
+                company_id=company.id,
+                name=name,
+                stock_quantity=quantity,
+                unit=unit,
+                purchase_price=purchase_price,
+            )
+        )
         company.workflow_scratch = {"step": "awaiting_name"}
         unit_suffix = f" {unit}" if unit else ""
         return (
@@ -292,24 +339,32 @@ async def handle_delete_product_workflow_message(
     return "Something went wrong with that. Please start again by saying 'delete product'."
 
 
-# ── Update product (price or stock) ──────────────────────────────────────────
+# ── Update product (selling price, purchase price, or stock) ────────────────
 #
-# One workflow, one "field" (price|stock) picked either up front (generic
-# "update product" trigger) or implied by the specific trigger the user said
-# ("update price" / "update stock") — same shape as onboarding routing a bare
-# "1" differently depending on which question is currently active.
+# One workflow, one "field" (price|purchase_price|stock) picked either up
+# front (generic "update product" trigger) or implied by the specific
+# trigger the user said ("update price" / "update purchase price" /
+# "update stock") — same shape as onboarding routing a bare "1" differently
+# depending on which question is currently active.
 
-_FIELD_PROMPT = "What do you want to update — price or stock? Reply 'price' or 'stock'."
+_FIELD_PROMPT = (
+    "What do you want to update — price, purchase price, or stock? "
+    "Reply 'price', 'purchase price', or 'stock'."
+)
+_FIELD_LABELS = {"price": "price", "purchase_price": "purchase price", "stock": "stock"}
 
 
 def _name_prompt(field: str) -> str:
-    return f"Which product's {field} do you want to update? Send its name, or 'cancel'."
+    label = _FIELD_LABELS.get(field, field)
+    return f"Which product's {label} do you want to update? Send its name, or 'cancel'."
 
 
 def _classify_update_field(text: str) -> str | None:
     normalized = text.strip().lower()
     if normalized in ("price", "selling price", "prices"):
         return "price"
+    if normalized in ("purchase price", "purchase", "cost price", "cost", "buying price"):
+        return "purchase_price"
     if normalized in ("stock", "stock quantity", "quantity", "qty"):
         return "stock"
     return None
@@ -329,6 +384,13 @@ def start_update_price_workflow(company: Company) -> str:
     return _name_prompt("price")
 
 
+def start_update_purchase_price_workflow(company: Company) -> str:
+    """Direct entry point ("update purchase price") — field is already known."""
+    company.active_workflow = "update_product"
+    company.workflow_scratch = {"step": "awaiting_name", "field": "purchase_price"}
+    return _name_prompt("purchase_price")
+
+
 def start_update_stock_workflow(company: Company) -> str:
     """Direct entry point ("update stock") — field is already known."""
     company.active_workflow = "update_product"
@@ -344,6 +406,14 @@ def _current_value_prompt(product: Product, field: str) -> str:
         return (
             f"{product.name}'s current price is {current}. "
             "What should the new price be? (e.g. 450)"
+        )
+    if field == "purchase_price":
+        current = (
+            format_inr(product.purchase_price) if product.purchase_price is not None else "not set"
+        )
+        return (
+            f"{product.name}'s current purchase price is {current}. "
+            "What should the new purchase price be? (e.g. 300)"
         )
     unit_suffix = f" {product.unit}" if product.unit else ""
     current = f"{_format_quantity(product.stock_quantity)}{unit_suffix}"
@@ -442,6 +512,11 @@ async def handle_update_product_workflow_message(
             old = format_inr(product.selling_price) if had_price else "not set"
             product.selling_price = value
             return f"Updated {product.name}'s price to {format_inr(value)} (was {old})."
+        if field == "purchase_price":
+            had_price = product.purchase_price is not None
+            old = format_inr(product.purchase_price) if had_price else "not set"
+            product.purchase_price = value
+            return f"Updated {product.name}'s purchase price to {format_inr(value)} (was {old})."
         unit_suffix = f" {product.unit}" if product.unit else ""
         old = f"{_format_quantity(product.stock_quantity)}{unit_suffix}"
         product.stock_quantity = value

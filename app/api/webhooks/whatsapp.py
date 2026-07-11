@@ -77,6 +77,7 @@ from app.services.workflows.product_flow import (
     start_delete_product_workflow,
     start_update_price_workflow,
     start_update_product_workflow,
+    start_update_purchase_price_workflow,
     start_update_stock_workflow,
 )
 from app.services.writes.pending_operation import (
@@ -112,6 +113,12 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "create order": start_order_workflow,
     "place order": start_order_workflow,
     "record order": start_order_workflow,
+    # V0.2 — SPEC.md's Conversation 4 calls this "invoice creation"; it's the
+    # exact same flow/handler as "create order" above (both produce a real
+    # Invoice row), just an alias for the phrasing distributors may use.
+    "create invoice": start_order_workflow,
+    "new invoice": start_order_workflow,
+    "raise invoice": start_order_workflow,
     "add product": start_add_product_workflow,
     "add products": start_add_product_workflow,
     "add a product": start_add_product_workflow,
@@ -133,6 +140,12 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "change product price": start_update_price_workflow,
     "edit price": start_update_price_workflow,
     "edit product price": start_update_price_workflow,
+    "update purchase price": start_update_purchase_price_workflow,
+    "update cost price": start_update_purchase_price_workflow,
+    "change purchase price": start_update_purchase_price_workflow,
+    "change cost price": start_update_purchase_price_workflow,
+    "edit purchase price": start_update_purchase_price_workflow,
+    "edit cost price": start_update_purchase_price_workflow,
     "update stock": start_update_stock_workflow,
     "update product stock": start_update_stock_workflow,
     "change stock": start_update_stock_workflow,

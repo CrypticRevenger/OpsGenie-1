@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -28,6 +28,9 @@ from app.services.importer.parties import find_or_create_party
 from app.services.snapshot import business_now
 
 _CENTS = Decimal("0.01")
+# SPEC.md's V0.2 "Invoice Creation" example ("Due: 14 days from today") — used
+# whenever the dealer has no payment_terms_days on file.
+_DEFAULT_DUE_DAYS = 14
 
 
 @dataclass(frozen=True)
@@ -41,9 +44,16 @@ class OrderLine:
 
 @dataclass(frozen=True)
 class CreateOrderResult:
+    invoice_id: uuid.UUID
     invoice_number: str
+    invoice_date: date
+    due_date: date
+    dealer_id: uuid.UUID
     dealer_name: str
+    dealer_phone: str | None
     lines: list[OrderLine]
+    subtotal: Decimal
+    gst_amount: Decimal
     total_amount: Decimal
     negative_stock_warnings: list[str]
 
@@ -132,10 +142,10 @@ async def create_order(
         )
 
     subtotal = sum((line.line_total for line in lines), Decimal("0.00"))
+    gst_amount = (subtotal * company.gst_rate / Decimal("100")).quantize(_CENTS)
+    total_amount = subtotal + gst_amount
     today = business_now(company.timezone).date()
-    due_date = (
-        today + timedelta(days=dealer.payment_terms_days) if dealer.payment_terms_days else today
-    )
+    due_date = today + timedelta(days=dealer.payment_terms_days or _DEFAULT_DUE_DAYS)
     invoice_number = f"WA-{uuid.uuid4().hex[:10]}"
 
     invoice = Invoice(
@@ -146,8 +156,8 @@ async def create_order(
         invoice_date=today,
         due_date=due_date,
         subtotal=subtotal,
-        gst_amount=Decimal("0.00"),
-        total_amount=subtotal,
+        gst_amount=gst_amount,
+        total_amount=total_amount,
         status=InvoiceStatus.Pending,
         source=InvoiceSource.whatsapp,
     )
@@ -167,9 +177,16 @@ async def create_order(
         )
 
     return CreateOrderResult(
+        invoice_id=invoice.id,
         invoice_number=invoice_number,
+        invoice_date=today,
+        due_date=due_date,
+        dealer_id=dealer.id,
         dealer_name=dealer.name,
+        dealer_phone=dealer.phone,
         lines=lines,
-        total_amount=subtotal,
+        subtotal=subtotal,
+        gst_amount=gst_amount,
+        total_amount=total_amount,
         negative_stock_warnings=negative_stock_warnings,
     )

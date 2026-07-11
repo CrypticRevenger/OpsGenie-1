@@ -79,6 +79,21 @@ class Settings(BaseSettings):
         default=None, alias="WHATSAPP_BUSINESS_DISPLAY_NUMBER"
     )
 
+    # V0.2 — invoice PDF delivery to a dealer's WhatsApp (see
+    # app/services/invoice_delivery.py). A dealer has essentially never
+    # messaged the distributor's number first, so this must be a Meta-
+    # approved template with a document header component (same reasoning as
+    # welcome_template_* above) — a separate template from the welcome one.
+    # None until the founder creates + gets it approved in Meta Business
+    # Manager; unset means the PDF send is skipped (logged), never blocking
+    # invoice creation itself.
+    invoice_document_template_name: str | None = Field(
+        default=None, alias="INVOICE_DOCUMENT_TEMPLATE_NAME"
+    )
+    invoice_document_template_language: str = Field(
+        default="en_US", alias="INVOICE_DOCUMENT_TEMPLATE_LANGUAGE"
+    )
+
     # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
     # every scheduler_poll_interval_minutes and, per company, acts when the
     # company's own business-local hour matches these targets. NotificationEngine
@@ -93,6 +108,10 @@ class Settings(BaseSettings):
     briefing_hour: int = Field(default=8, alias="BRIEFING_HOUR")
     briefing_retry_hour: int = Field(default=9, alias="BRIEFING_RETRY_HOUR")
     followup_hour: int = Field(default=10, alias="FOLLOWUP_HOUR")
+    # Evening Business Summary (see app/services/evening_brief.py) — a second,
+    # separate scheduled send from the morning briefing. Per-company override
+    # via Company.evening_brief_hour, same shape as briefing_hour.
+    evening_brief_hour: int = Field(default=20, alias="EVENING_BRIEF_HOUR")
 
     # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
     # pluggable LLMProvider + automatic failover chain. llm_provider is the

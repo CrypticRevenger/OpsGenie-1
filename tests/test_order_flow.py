@@ -14,6 +14,7 @@ import hashlib
 import hmac
 import json
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -25,6 +26,7 @@ from app.models.invoice import Invoice
 from app.models.invoice_item import InvoiceItem
 from app.models.pending_operation import PendingOperation
 from app.models.product import Product
+from app.services.snapshot import business_now
 from app.services.whatsapp_client import WhatsAppSendResult
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -35,9 +37,14 @@ def _unique_phone() -> str:
     return f"+91{uuid.uuid4().int % 10_000_000_000:010d}"
 
 
-async def _make_company(db: AsyncSession, whatsapp_number: str) -> uuid.UUID:
+async def _make_company(
+    db: AsyncSession, whatsapp_number: str, *, gst_rate: Decimal = Decimal("0")
+) -> uuid.UUID:
     company = Company(
-        business_name="Order Flow Test Co", owner_name="Owner", whatsapp_number=whatsapp_number
+        business_name="Order Flow Test Co",
+        owner_name="Owner",
+        whatsapp_number=whatsapp_number,
+        gst_rate=gst_rate,
     )
     db.add(company)
     await db.commit()
@@ -45,8 +52,10 @@ async def _make_company(db: AsyncSession, whatsapp_number: str) -> uuid.UUID:
     return company.id
 
 
-async def _make_dealer(db: AsyncSession, company_id: uuid.UUID, name: str) -> uuid.UUID:
-    dealer = Dealer(company_id=company_id, name=name)
+async def _make_dealer(
+    db: AsyncSession, company_id: uuid.UUID, name: str, *, payment_terms_days: int | None = None
+) -> uuid.UUID:
+    dealer = Dealer(company_id=company_id, name=name, payment_terms_days=payment_terms_days)
     db.add(dealer)
     await db.commit()
     await db.refresh(dealer)
@@ -432,3 +441,137 @@ async def test_no_discards_pending_operation(db: AsyncSession, monkeypatch) -> N
         select(PendingOperation).where(PendingOperation.company_id == company_id)
     )
     assert remaining_op is None
+
+
+@pytest.mark.asyncio
+async def test_gst_applied_from_company_rate(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone, gst_rate=Decimal("5.00"))
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("100.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # 10 x 100 = 1000 subtotal
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+        assert "1,050" in sent[-1]  # 1000 + 5% GST
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice.subtotal == Decimal("1000.00")
+    assert invoice.gst_amount == Decimal("50.00")
+    assert invoice.total_amount == Decimal("1050.00")
+
+
+@pytest.mark.asyncio
+async def test_due_date_defaults_to_14_days_without_dealer_terms(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders", payment_terms_days=None)
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    company = await db.get(Company, company_id)
+    today = business_now(company.timezone).date()
+    assert invoice.due_date == today + timedelta(days=14)
+
+
+@pytest.mark.asyncio
+async def test_due_date_uses_dealer_payment_terms_when_set(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders", payment_terms_days=30)
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    company = await db.get(Company, company_id)
+    today = business_now(company.timezone).date()
+    assert invoice.due_date == today + timedelta(days=30)
+
+
+@pytest.mark.asyncio
+async def test_create_invoice_alias_starts_same_flow(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "create invoice")
+        assert "who is this order for" in sent[-1].lower()
+
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.total_amount == Decimal("550.00")
+
+
+@pytest.mark.asyncio
+async def test_pdf_not_sent_when_dealer_has_no_phone(db: AsyncSession, monkeypatch) -> None:
+    """No dealer phone on file -> send_invoice_document skips gracefully and
+    the reply says so, but invoice creation still succeeds.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+        assert "pdf not sent" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None

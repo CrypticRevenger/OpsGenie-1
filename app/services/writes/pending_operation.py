@@ -30,6 +30,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
 from app.models.pending_operation import PendingOperation, PendingOperationType
+from app.services.invoice_delivery import send_invoice_document
+from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.money_format import format_inr
 from app.services.writes.orders import create_order
 from app.services.writes.payments import record_payment
@@ -145,9 +147,23 @@ async def execute_pending_operation(
             if result.negative_stock_warnings
             else ""
         )
+
+        # PDF generation/delivery is a bonus, never a blocker — the invoice
+        # itself is already written above regardless of what happens here.
+        pdf_bytes = generate_invoice_pdf(company, result)
+        pdf_sent = await send_invoice_document(db, company, result, pdf_bytes)
+        pdf_note = (
+            f"\nPDF sent to {result.dealer_name}."
+            if pdf_sent
+            else f"\n(PDF not sent to {result.dealer_name} — no phone on file or WhatsApp "
+            "delivery not yet configured.)"
+        )
+
         return (
             f"✅ Order {result.invoice_number} created for {result.dealer_name}.\n{lines}\n"
-            f"Total: {format_inr(result.total_amount)}{warning}"
+            f"Subtotal: {format_inr(result.subtotal)}\n"
+            f"GST: {format_inr(result.gst_amount)}\n"
+            f"Total: {format_inr(result.total_amount)}{warning}{pdf_note}"
         )
 
     # Unreachable while PendingOperationType has no other members, but never

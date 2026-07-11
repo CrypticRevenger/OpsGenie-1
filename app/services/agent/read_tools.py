@@ -28,6 +28,7 @@ from app.services.party_outstanding import (
     calculate_outstanding_for_company,
     calculate_party_outstanding,
 )
+from app.services.priority_actions import get_priority_actions
 from app.services.snapshot import build_snapshot
 
 
@@ -120,6 +121,27 @@ async def _list_top_debtors(db: AsyncSession, company: Company, limit: int = 5) 
 
 async def _list_top_creditors(db: AsyncSession, company: Company, limit: int = 5) -> dict:
     return {"suppliers_you_owe": await _top_parties(db, company, direction="payable", limit=limit)}
+
+
+async def _get_priority_actions(db: AsyncSession, company: Company) -> dict:
+    """Same RecommendationEngine output the morning briefing and evening
+    business summary already use (app/services/priority_actions.py) — one
+    engine, every consumer, no separate logic here.
+    """
+    actions = await get_priority_actions(db, company.id)
+    return {
+        "priority_actions": [
+            {
+                "priority": a.priority,
+                "type": a.action_type,
+                "entity_name": a.entity_name,
+                "amount": str(a.amount) if a.amount is not None else None,
+                "reason": a.reason,
+                "days_overdue": a.days_overdue,
+            }
+            for a in actions
+        ]
+    }
 
 
 async def _list_overdue_dealers(db: AsyncSession, company: Company) -> dict:
@@ -320,6 +342,14 @@ READ_TOOLS: list[AgentTool] = [
         "Dealers whose payments are overdue, with days overdue and risk level.",
         no_params(),
         _list_overdue_dealers,
+    ),
+    AgentTool(
+        "get_priority_actions",
+        "Ranked list of what to prioritize right now (cash deficit warnings, dealers to call, "
+        "critical supplier payments, stale data). Use for 'what should I prioritize today' / "
+        "'what should I do next'.",
+        no_params(),
+        _get_priority_actions,
     ),
     AgentTool(
         "get_upcoming_collections",
