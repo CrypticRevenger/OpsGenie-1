@@ -15,6 +15,7 @@
           <th>WhatsApp Number</th>
           <th>Status</th>
           <th>Products</th>
+          <th>Briefing Time</th>
           <th>Date Joined</th>
         </tr>
       </thead>
@@ -32,10 +33,11 @@
             {% endif %}
           </td>
           <td data-label="Products"><a href="/dashboard/companies/{{ company.id }}#products" style="color: var(--brand-bright);">{{ product_counts.get(company.id, 0) }}</a></td>
+          <td data-label="Briefing Time">{{ briefing_hours.get(company.id) }}</td>
           <td data-label="Date Joined">{{ company.created_at.strftime("%Y-%m-%d") }}</td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="muted" style="text-align: center; padding: 24px;">No companies onboarded yet.</td></tr>
+        <tr><td colspan="7" class="muted" style="text-align: center; padding: 24px;">No companies onboarded yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
