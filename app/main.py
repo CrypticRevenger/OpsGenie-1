@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.api.admin import router as admin_router
 from app.api.dashboard import router as dashboard_router
+from app.api.export import router as export_router
 from app.api.health import router as health_router
 from app.api.onboarding import router as onboarding_router
 from app.api.site import router as site_router
@@ -68,6 +69,10 @@ def create_app() -> FastAPI:
     # require_api_key: a browser can't attach a custom header on normal
     # navigation.
     app.include_router(dashboard_router)
+    # Public, signed-link company data export — a distributor has no
+    # dashboard login, so this is verified by a short-lived HMAC signature
+    # baked into the URL itself instead of X-API-Key or a session.
+    app.include_router(export_router)
 
     return app
 

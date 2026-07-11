@@ -51,6 +51,7 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
 from app.models.notification_log import NotificationLog
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
+from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
 from app.services.onboarding_flow import handle_onboarding_message
 from app.services.query_menu import menu_router
@@ -152,6 +153,34 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "edit stock": start_update_stock_workflow,
     "restock": start_update_stock_workflow,
     "update quantity": start_update_stock_workflow,
+}
+
+
+async def _export_link_reply(db: AsyncSession, company: Company) -> str:
+    """Stateless — a brand-new short-lived signed link every time this is
+    asked, never a reused one. See app/services/company_export.py.
+    """
+    settings = get_settings()
+    if not settings.export_link_secret or not settings.public_base_url:
+        return (
+            "The data export link isn't set up yet — ask your OpsGenie admin "
+            "to configure it."
+        )
+    link = generate_export_link(company, base_url=settings.public_base_url)
+    ttl = settings.export_link_ttl_minutes
+    return f"Your latest Excel export is ready.\nDownload (valid {ttl} min): {link}"
+
+
+# Registry: exact-match keyword -> an instant, stateless async reply builder —
+# unlike _WORKFLOW_START_TRIGGERS, these never set active_workflow (there's
+# nothing to advance through, the whole answer is produced in one shot).
+# Checked at the same priority tier, right alongside it.
+_INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] = {
+    "export data": _export_link_reply,
+    "get my excel": _export_link_reply,
+    "send my excel": _export_link_reply,
+    "my data sheet": _export_link_reply,
+    "download my data": _export_link_reply,
 }
 
 logger = logging.getLogger(__name__)
@@ -486,6 +515,12 @@ async def receive_whatsapp_webhook(
                             command = text.strip().lower()
                             notification_type = "write_workflow"
                             reply = starter(company)
+                        elif (
+                            instant := _INSTANT_COMMANDS.get(text.strip().lower())
+                        ) is not None:
+                            command = text.strip().lower()
+                            notification_type = "instant_command"
+                            reply = await instant(db, company)
                         else:
                             # Anything else -> the grounded LLM assistant, which
                             # answers free-form questions from real figures and
