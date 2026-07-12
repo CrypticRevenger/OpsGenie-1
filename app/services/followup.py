@@ -92,6 +92,12 @@ _WEEKDAYS = (
     "sunday",
 )
 _DAYS_PATTERN = re.compile(r"^(\d+)\s*days?$")
+# An expected payment date more than ~10 years out is almost certainly a typo
+# or pasted garbage (a phone number, a reference id), not a real answer — and,
+# like payment_flow._parse_past_date's own _MAX_DAYS_AGO guard, this also keeps
+# `today + timedelta(days=N)` from raising OverflowError on a huge N and 500ing
+# the webhook.
+_MAX_DAYS_AHEAD = 3650
 
 
 def _parse_relative_date(text: str, today: date) -> date | None:
@@ -111,7 +117,10 @@ def _parse_relative_date(text: str, today: date) -> date | None:
         return today + timedelta(days=delta)
     match = _DAYS_PATTERN.match(cleaned)
     if match:
-        return today + timedelta(days=int(match.group(1)))
+        days = int(match.group(1))
+        if days > _MAX_DAYS_AHEAD:
+            return None
+        return today + timedelta(days=days)
     return None
 
 

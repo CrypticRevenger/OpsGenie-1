@@ -62,30 +62,45 @@ def start_order_workflow(company: Company) -> str:
     return "Who is this order for? (dealer name)"
 
 
-def _preview_and_finalize(scratch: dict) -> tuple[str, dict]:
+def _preview_and_finalize(scratch: dict, gst_rate: Decimal) -> tuple[str, dict]:
     """Builds the confirmation preview text and the PendingOperation payload
     from the collected raw items — never a precomputed total on its own, but
     a preview naturally has to show one; execute-time re-derives everything
     fresh against current prices/stock rather than trusting this text.
+
+    The subtotal/GST/total breakdown must mirror what writes/orders.py's
+    create_order actually commits (subtotal → GST at the company's gst_rate →
+    total), so the user confirms the same number they'll be invoiced for. A
+    bare line-total sum with no GST would understate the real invoice total
+    for any GST-configured company.
     """
     dealer_name = scratch["dealer_name"]
     items = scratch["items"]
     lines = []
-    grand_total = Decimal("0.00")
+    subtotal = Decimal("0.00")
     for item in items:
         price = Decimal(item["price"]) if item.get("price") is not None else Decimal("0.00")
         quantity = Decimal(item["quantity"])
         line_total = (price * quantity).quantize(Decimal("0.01"))
-        grand_total += line_total
+        subtotal += line_total
         lines.append(
             f"- {quantity} x {item['product_name']} @ {format_inr(price)} "
             f"= {format_inr(line_total)}"
         )
 
+    gst_amount = (subtotal * gst_rate / Decimal("100")).quantize(Decimal("0.01"))
+    total = subtotal + gst_amount
+    total_lines = [f"Subtotal: {format_inr(subtotal)}"]
+    if gst_amount > 0:
+        total_lines.append(f"GST ({gst_rate}%): {format_inr(gst_amount)}")
+    total_lines.append(f"Total: {format_inr(total)}")
+
     preview = (
         f"Confirm order for {dealer_name}:\n"
         + "\n".join(lines)
-        + f"\nTotal: {format_inr(grand_total)}\nReply YES to create, NO to cancel."
+        + "\n"
+        + "\n".join(total_lines)
+        + "\nReply YES to create, NO to cancel."
     )
     payload = {"dealer_name": dealer_name, "items": items}
     return preview, payload
@@ -136,7 +151,7 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if _is(stripped, "done"):
             if not scratch.get("items"):
                 return "Add at least one product first, or 'cancel'."
-            preview, payload = _preview_and_finalize(scratch)
+            preview, payload = _preview_and_finalize(scratch, company.gst_rate)
             await create_pending_operation(db, company, PendingOperationType.create_order, payload)
             company.active_workflow = None
             company.workflow_scratch = None
