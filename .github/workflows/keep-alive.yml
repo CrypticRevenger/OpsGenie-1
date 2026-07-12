@@ -12,3 +12,14 @@ jobs:
     steps:
       - name: Ping /health
         run: curl -fsS --max-time 90 https://opsgenie.onrender.com/health
+      # Forces the 8am-briefing/notification dispatch to actually run on
+      # schedule. APScheduler's own interval job (app/core/scheduler.py)
+      # only ticks while the web process happens to already be awake — on
+      # Render's free tier that's not guaranteed at any given wall-clock
+      # minute, so without this, dispatch only "catches up" whenever some
+      # other traffic (e.g. a distributor's WhatsApp message) wakes the
+      # process. Same cadence as the /health ping above.
+      - name: Trigger scheduled dispatch tick
+        run: |
+          curl -fsS --max-time 120 -X POST https://opsgenie.onrender.com/admin/scheduler/tick \
+            -H "X-API-Key: ${{ secrets.ADMIN_API_KEY }}"
