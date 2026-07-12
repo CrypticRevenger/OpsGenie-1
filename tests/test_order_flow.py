@@ -460,6 +460,11 @@ async def test_gst_applied_from_company_rate(db: AsyncSession, monkeypatch) -> N
         await _send(client, bare_sender, "Rice")
         await _send(client, bare_sender, "10")  # 10 x 100 = 1000 subtotal
         await _send(client, bare_sender, "done")
+        # The pre-confirm preview must show the GST-inclusive total the user is
+        # actually agreeing to — not the bare subtotal.
+        preview = sent[-1]
+        assert "1,050" in preview  # 1000 + 5% GST
+        assert "GST" in preview
         await _send(client, bare_sender, "YES")
         assert "created" in sent[-1].lower()
         assert "1,050" in sent[-1]  # 1000 + 5% GST

@@ -248,7 +248,9 @@ async def _find_inbound_event(
     )
 
 
-async def _reply_already_sent(db: AsyncSession, company: Company, correlation_id: uuid.UUID) -> bool:
+async def _reply_already_sent(
+    db: AsyncSession, company: Company, correlation_id: uuid.UUID
+) -> bool:
     """Whether a whatsapp_reply_sent event already exists for this inbound
     message — the actual "fully handled, nothing left to do" signal.
     """

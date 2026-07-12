@@ -36,9 +36,8 @@ async def test_trigger_tick_returns_202_and_runs_dispatch(
 
 @pytest.mark.asyncio
 async def test_trigger_tick_requires_api_key() -> None:
-    from httpx import ASGITransport
-
     from app.main import app
+    from httpx import ASGITransport
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as anon_client:

@@ -26,6 +26,7 @@ from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, Invoice
 from app.models.notification_log import NotificationLog
 from app.models.payment import Payment
 from app.services.followup import (
+    _parse_relative_date,
     handle_follow_up_reply,
     send_due_today_follow_up,
 )
@@ -34,6 +35,18 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 TODAY = business_now(DEFAULT_BUSINESS_TIMEZONE).date()
+
+
+@pytest.mark.parametrize("huge", ["9999999 days", "999999999999 days"])
+def test_parse_relative_date_bounds_huge_day_counts(huge: str) -> None:
+    # An unbounded "N days" would raise OverflowError inside
+    # date + timedelta(days=N) and 500 the webhook. Beyond the ~10-year bound
+    # it must return None (treated as unparseable, re-asked), never raise.
+    assert _parse_relative_date(huge, TODAY) is None
+
+
+def test_parse_relative_date_still_parses_reasonable_days() -> None:
+    assert _parse_relative_date("5 days", TODAY) == TODAY + timedelta(days=5)
 
 
 def _unique_phone() -> str:

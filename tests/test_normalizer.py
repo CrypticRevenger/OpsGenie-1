@@ -88,6 +88,21 @@ class TestParseAmount:
         with pytest.raises(ValueError, match="Empty amount"):
             parse_amount("₹")
 
+    def test_huge_number_raises_valueerror_not_arithmeticerror(self):
+        # A number with too many significant digits overflows Decimal.quantize
+        # with InvalidOperation (an ArithmeticError, not a ValueError). Callers
+        # only guard `except ValueError`, so it must surface as ValueError —
+        # otherwise pasting a long numeric string 500s the WhatsApp webhook.
+        with pytest.raises(ValueError):
+            parse_amount("1" * 30)
+
+    @pytest.mark.parametrize("bad", ["nan", "-nan", "  NaN ", "inf", "Infinity"])
+    def test_non_finite_rejected(self, bad):
+        # Decimal("nan")/Decimal("inf") parse cleanly but must never enter money
+        # math — a NaN would poison every later sum or crash a `<= 0` comparison.
+        with pytest.raises(ValueError):
+            parse_amount(bad)
+
 
 # ── normalise_header ──────────────────────────────────────────────────────────
 

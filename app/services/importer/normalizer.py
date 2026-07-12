@@ -70,9 +70,17 @@ def parse_amount(raw: str) -> Decimal:
         raise ValueError(f"Empty amount: '{raw}'")
     try:
         value = Decimal(cleaned)
+        # A non-finite Decimal ("nan"/"inf") parses cleanly but has no place in
+        # money math — reject it here rather than letting NaN poison a later
+        # sum or crash a comparison. quantize() itself must also stay inside
+        # this guard: on a number with too many significant digits it raises
+        # InvalidOperation (an ArithmeticError, NOT a ValueError), which every
+        # caller's `except ValueError` would miss and let 500 the webhook.
+        if not value.is_finite():
+            raise ValueError(f"Amount '{raw}' is not a finite number")
+        return value.quantize(Decimal("0.01"))
     except InvalidOperation as exc:
         raise ValueError(f"Cannot parse amount '{raw}' as a number") from exc
-    return value.quantize(Decimal("0.01"))
 
 
 # ── Column name normalisation ─────────────────────────────────────────────────
