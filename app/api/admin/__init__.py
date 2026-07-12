@@ -14,6 +14,7 @@ from app.api.admin.imports import router as imports_router
 from app.api.admin.invoices import router as invoices_router
 from app.api.admin.payments import router as payments_router
 from app.api.admin.products import router as products_router
+from app.api.admin.scheduler import router as scheduler_router
 from app.api.admin.suppliers import router as suppliers_router
 
 router = APIRouter(prefix="/admin")
@@ -31,3 +32,4 @@ router.include_router(briefing_router)
 router.include_router(followup_router)
 router.include_router(daily_snapshot_router)
 router.include_router(export_router)
+router.include_router(scheduler_router)

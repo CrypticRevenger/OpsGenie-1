@@ -43,6 +43,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -221,20 +222,41 @@ async def _find_company_by_whatsapp_number(
     return await db.scalar(select(Company).where(Company.whatsapp_number == whatsapp_number))
 
 
-async def _already_processed(db: AsyncSession, company: Company, message_id: str | None) -> bool:
-    """Meta's webhook delivery is at-least-once and retries aggressively on
-    slow/non-2xx responses — without this check, a redelivered message would
-    be re-parsed and (for a menu command) re-sent as a duplicate WhatsApp
-    reply. Dedup against the whatsapp_message_received event already written
-    for this exact Meta message id.
+async def _find_inbound_event(
+    db: AsyncSession, company: Company, message_id: str | None
+) -> BusinessEvent | None:
+    """The whatsapp_message_received event already written for this exact
+    Meta message id, if any. Meta's webhook delivery is at-least-once and
+    retries aggressively on slow/non-2xx responses (notably while a cold
+    Render instance is still waking up), so redeliveries are common.
+
+    Finding a row here does NOT by itself mean the redelivery should be
+    skipped — see _reply_already_sent, which is what actually decides that.
+    A row can exist with no reply yet if a previous delivery claimed the
+    message (inserted this row) but the process died before finishing (e.g.
+    an uncaught error, or Render/Neon suspending mid-request) — that case
+    must resume, not be silently dropped.
     """
     if not message_id:
-        return False
-    existing = await db.scalar(
-        select(BusinessEvent.id).where(
+        return None
+    return await db.scalar(
+        select(BusinessEvent).where(
             BusinessEvent.company_id == company.id,
             BusinessEvent.event_type == BusinessEventType.whatsapp_message_received,
             BusinessEvent.payload["message_id"].astext == message_id,
+        )
+    )
+
+
+async def _reply_already_sent(db: AsyncSession, company: Company, correlation_id: uuid.UUID) -> bool:
+    """Whether a whatsapp_reply_sent event already exists for this inbound
+    message — the actual "fully handled, nothing left to do" signal.
+    """
+    existing = await db.scalar(
+        select(BusinessEvent.id).where(
+            BusinessEvent.company_id == company.id,
+            BusinessEvent.event_type == BusinessEventType.whatsapp_reply_sent,
+            BusinessEvent.payload["correlation_id"].astext == str(correlation_id),
         )
     )
     return existing is not None
@@ -418,17 +440,54 @@ async def receive_whatsapp_webhook(
                 if company is None:
                     logger.warning("WhatsApp message from unknown sender %s — skipping.", sender)
                     continue
-                if await _already_processed(db, company, message.get("id")):
+                existing_inbound = await _find_inbound_event(db, company, message.get("id"))
+                if existing_inbound is not None:
+                    if await _reply_already_sent(db, company, existing_inbound.id):
+                        logger.info(
+                            "WhatsApp message %s already replied to — skipping redelivery.",
+                            message.get("id"),
+                        )
+                        continue
+                    # Claimed by an earlier delivery but never got a reply out
+                    # (that attempt crashed mid-processing — e.g. an uncaught
+                    # error, or Render/Neon suspending mid-request). Resume
+                    # using the same inbound event rather than re-inserting,
+                    # so the reply this redelivery produces still correlates
+                    # back to the original message.
+                    inbound_event = existing_inbound
                     logger.info(
-                        "WhatsApp message %s already processed — skipping redelivery.",
+                        "WhatsApp message %s claimed but never replied to — resuming.",
                         message.get("id"),
                     )
-                    continue
-                inbound_event = await _record_message_event(db, company, message)
-                # inbound_event.id is a Python-side default applied at flush
-                # time — flush now so it's populated before use as a
-                # correlation_id below, regardless of which branch follows.
-                await db.flush()
+                else:
+                    inbound_event = await _record_message_event(db, company, message)
+                    try:
+                        # inbound_event.id is a Python-side default applied at
+                        # flush time — flush now so it's populated before use
+                        # as a correlation_id below. This flush is also the
+                        # atomic dedup claim: uq_business_events_wa_inbound_msg
+                        # rejects a second insert for the same (company_id,
+                        # message_id), so a concurrent redelivery that raced
+                        # past the lookup above gets caught here instead. The
+                        # loser simply skips — if the winner also fails to
+                        # reply, the next Meta redelivery will find this row
+                        # via the branch above and resume, same as any other
+                        # crash-recovery case.
+                        await db.flush()
+                    except IntegrityError:
+                        await db.rollback()
+                        logger.info(
+                            "WhatsApp message %s lost the dedup race — skipping redelivery.",
+                            message.get("id"),
+                        )
+                        continue
+                    # Commit the claim now, not just at the end of this whole
+                    # webhook call — a redelivery arriving seconds later (Meta
+                    # retries several times while a cold instance wakes up)
+                    # needs this row visible/committed immediately, or its own
+                    # INSERT would block on the uncommitted index entry
+                    # instead of failing fast against a committed one.
+                    await db.commit()
 
                 # The agent only responds for companies whose subscription is
                 # active. Onboarded-but-not-yet-activated numbers are logged

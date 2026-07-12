@@ -516,6 +516,76 @@ async def test_redelivered_message_is_not_reprocessed(db: AsyncSession, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_crashed_reply_is_resumed_not_dropped(db: AsyncSession, monkeypatch) -> None:
+    """The dedup claim (whatsapp_message_received row) is committed before
+    the reply is generated/sent, so a redelivery arriving seconds later
+    doesn't duplicate it. But if the *first* delivery then crashes before
+    finishing — an uncaught error, or the process dying mid-request during a
+    cold Render/Neon wake — the claim is committed with no reply yet. A
+    later redelivery of that same message id must resume and actually send
+    the reply, not skip it forever just because it was already claimed.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    call_count = 0
+
+    async def _flaky_send(to: str, body: str) -> WhatsAppSendResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("simulated crash mid-send")
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _flaky_send)
+
+    body = json.dumps(_messages_payload(sender=bare_sender, message_type="text", text="1")).encode()
+    headers = {"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)}
+
+    async with await _anon_client() as client:
+        with pytest.raises(RuntimeError):
+            await client.post("/webhooks/whatsapp", content=body, headers=headers)
+
+        # Claim committed, no reply yet — exactly one inbound event, zero logs.
+        inbound_events = (
+            await db.scalars(
+                select(BusinessEvent).where(
+                    BusinessEvent.company_id == company_id,
+                    BusinessEvent.event_type == BusinessEventType.whatsapp_message_received,
+                )
+            )
+        ).all()
+        assert len(inbound_events) == 1
+        assert (
+            await db.scalar(
+                select(NotificationLog).where(NotificationLog.company_id == company_id)
+            )
+        ) is None
+
+        second = await client.post("/webhooks/whatsapp", content=body, headers=headers)
+
+    assert second.status_code == 200
+    assert call_count == 2
+
+    inbound_events = (
+        await db.scalars(
+            select(BusinessEvent).where(
+                BusinessEvent.company_id == company_id,
+                BusinessEvent.event_type == BusinessEventType.whatsapp_message_received,
+            )
+        )
+    ).all()
+    assert len(inbound_events) == 1  # still exactly one — resumed, not re-inserted
+
+    logs = (
+        await db.scalars(select(NotificationLog).where(NotificationLog.company_id == company_id))
+    ).all()
+    assert len(logs) == 1
+    assert logs[0].delivery_status == "sent"
+
+
+@pytest.mark.asyncio
 async def test_status_webhook_updates_matching_notification_log_delivery_status(
     db: AsyncSession,
 ) -> None:
