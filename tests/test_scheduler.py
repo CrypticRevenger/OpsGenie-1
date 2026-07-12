@@ -285,6 +285,42 @@ async def test_run_tick_isolates_per_company_failure(db: AsyncSession, monkeypat
     assert good.id in dispatched
 
 
+@pytest.mark.asyncio
+async def test_tick_skips_when_advisory_lock_already_held(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A concurrent tick (in-process poller racing the external cron) must not
+    double-dispatch: while another connection holds the advisory lock, a fresh
+    run_scheduled_tick claims nothing and dispatches no company.
+    """
+    from app.core.scheduler import _TICK_ADVISORY_LOCK_KEY
+    from app.db.session import async_session_factory
+    from sqlalchemy import func, select
+
+    await _make_company(db)  # an active company that WOULD be dispatched
+    dispatched: list = []
+
+    async def _recording_dispatch(company_id, now):
+        dispatched.append(company_id)
+
+    monkeypatch.setattr(scheduler, "_dispatch_for_company", _recording_dispatch)
+
+    # Hold the lock on a separate connection for the duration of the tick.
+    holder = async_session_factory()
+    got = await holder.scalar(select(func.pg_try_advisory_lock(_TICK_ADVISORY_LOCK_KEY)))
+    assert got is True
+    try:
+        await run_scheduled_tick(now=_at(8))
+        assert dispatched == []  # lock was held → nothing dispatched
+    finally:
+        await holder.scalar(select(func.pg_advisory_unlock(_TICK_ADVISORY_LOCK_KEY)))
+        await holder.close()
+
+    # Once the lock is free, a tick dispatches normally again.
+    await run_scheduled_tick(now=_at(8))
+    assert dispatched != []
+
+
 # ── Per-company briefing hour ─────────────────────────────────────────────────
 
 

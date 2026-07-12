@@ -31,7 +31,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -52,6 +52,19 @@ from app.services.whatsapp_client import (
 logger = logging.getLogger(__name__)
 
 _scheduler: AsyncIOScheduler | None = None
+
+# Postgres session-level advisory-lock key identifying "a scheduled tick is in
+# progress." run_scheduled_tick can now be driven from more than one place at
+# once — the in-process APScheduler poll job (start_scheduler) AND the external
+# GitHub-cron POST /admin/scheduler/tick (see app/api/admin/scheduler.py), plus
+# a manual admin retry. Each briefing/evening-brief send dedups with an
+# unlocked SELECT-then-send, so two ticks overlapping at the same business hour
+# could both observe "not sent yet" and each fire a real duplicate WhatsApp
+# message. This lock serializes the whole pass across every process/connection:
+# whoever grabs it runs; any concurrent tick sees it held and skips (a no-op —
+# the running pass already covers every company). The value is arbitrary but
+# must stay stable so all callers contend on the same lock.
+_TICK_ADVISORY_LOCK_KEY = 728113
 
 
 async def _latest_briefing_today(
@@ -166,16 +179,37 @@ async def run_scheduled_tick(now: datetime | None = None) -> None:
     dispatched in its own session/transaction so a single failure is isolated
     and logged, never aborting the rest of the pass. `now` pins business-local
     time for tests; production passes None so each company uses its own zone.
-    """
-    async with async_session_factory() as db:
-        rows = await db.scalars(select(Company.id).where(Company.subscription_active.is_(True)))
-        company_ids = list(rows.all())
 
-    for company_id in company_ids:
+    The whole pass is guarded by a Postgres advisory lock so it can never run
+    concurrently with itself — see _TICK_ADVISORY_LOCK_KEY. If another tick
+    already holds the lock (the in-process poller and the external cron firing
+    close together), this call returns immediately without dispatching; the
+    holder's pass already covers every company.
+    """
+    # A dedicated session holds the connection-scoped advisory lock for the
+    # whole pass. It is used ONLY for the lock — every company is dispatched in
+    # its own separate session — so the lock connection is never committed or
+    # returned to the pool mid-pass, which is what keeps the lock held.
+    async with async_session_factory() as lock_db:
+        got_lock = await lock_db.scalar(
+            select(func.pg_try_advisory_lock(_TICK_ADVISORY_LOCK_KEY))
+        )
+        if not got_lock:
+            logger.info("Scheduled tick already in progress elsewhere — skipping this pass.")
+            return
         try:
-            await _dispatch_for_company(company_id, now)
-        except Exception:  # noqa: BLE001 - one company's failure must not stop the rest
-            logger.exception("Scheduled dispatch failed for company %s", company_id)
+            rows = await lock_db.scalars(
+                select(Company.id).where(Company.subscription_active.is_(True))
+            )
+            company_ids = list(rows.all())
+
+            for company_id in company_ids:
+                try:
+                    await _dispatch_for_company(company_id, now)
+                except Exception:  # noqa: BLE001 - one company's failure must not stop the rest
+                    logger.exception("Scheduled dispatch failed for company %s", company_id)
+        finally:
+            await lock_db.scalar(select(func.pg_advisory_unlock(_TICK_ADVISORY_LOCK_KEY)))
 
 
 def start_scheduler() -> AsyncIOScheduler | None:

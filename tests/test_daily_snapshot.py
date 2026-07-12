@@ -141,6 +141,57 @@ async def test_items_without_cost_price_excluded_from_margin(db: AsyncSession) -
     assert result.revenue_excluded_no_cost_data == Decimal("500.00")
 
 
+async def _make_csv_invoice_without_items(
+    db: AsyncSession,
+    company: Company,
+    dealer: Dealer,
+    *,
+    subtotal: Decimal,
+    invoice_date: date,
+) -> Invoice:
+    """A CSV-imported receivable invoice — no InvoiceItem rows, exactly like the
+    real import pipeline produces (only the WhatsApp order flow writes items).
+    """
+    invoice = Invoice(
+        company_id=company.id,
+        invoice_number=f"CSV-{uuid.uuid4().hex[:10]}",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer.id,
+        invoice_date=invoice_date,
+        due_date=invoice_date,
+        subtotal=subtotal,
+        gst_amount=Decimal("0.00"),
+        total_amount=subtotal,
+        status=InvoiceStatus.Pending,
+        source=InvoiceSource.csv_import,
+    )
+    db.add(invoice)
+    await db.commit()
+    await db.refresh(invoice)
+    return invoice
+
+
+@pytest.mark.asyncio
+async def test_csv_invoice_without_items_counts_as_sales(db: AsyncSession) -> None:
+    # Regression: CSV-imported invoices carry no InvoiceItem rows, so an
+    # item-level sales sum reported them as ₹0 even while invoices_created
+    # counted them — two contradicting figures in the same evening brief.
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company)
+    today = date.today()
+    await _make_csv_invoice_without_items(
+        db, company, dealer, subtotal=Decimal("20000.00"), invoice_date=today
+    )
+
+    result = await compute_daily_snapshot(db, company, today)
+    assert result.sales_amount == Decimal("20000.00")  # counted, not dropped
+    assert result.invoices_created == 1
+    # No per-item cost basis → no margin, whole revenue reported as excluded.
+    assert result.sales_margin == Decimal("0.00")
+    assert result.items_missing_cost_data == 1
+    assert result.revenue_excluded_no_cost_data == Decimal("20000.00")
+
+
 @pytest.mark.asyncio
 async def test_sales_never_counted_from_a_different_day(db: AsyncSession) -> None:
     company = await _make_company(db)

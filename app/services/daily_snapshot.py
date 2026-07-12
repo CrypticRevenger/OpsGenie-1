@@ -56,9 +56,33 @@ class DailySnapshotResult:
 async def _sales_and_margin(
     db: AsyncSession, company_id, business_date: date
 ) -> tuple[Decimal, Decimal, int, Decimal]:
-    rows = (
+    """`sales_amount` is invoice-level — each receivable invoice's pre-tax
+    subtotal — so CSV-imported invoices are counted. They never carry
+    InvoiceItem line rows (only the WhatsApp order flow writes those), so an
+    item-level sum silently reported them as ₹0 sales even while
+    `invoices_created` counted them: two figures in the same evening brief
+    contradicting each other.
+
+    Margin stays item-level because it needs a per-item cost basis. Any
+    revenue without a costed line item — a whole CSV invoice, or a line item
+    whose product has no purchase_price on file — is reported as *excluded*
+    (`revenue_excluded_no_cost_data`) rather than assumed to be zero-cost.
+    """
+    invoice_rows = (
+        await db.execute(
+            select(Invoice.id, Invoice.subtotal).where(
+                Invoice.company_id == company_id,
+                Invoice.direction == InvoiceDirection.receivable,
+                Invoice.invoice_date == business_date,
+            )
+        )
+    ).all()
+    sales_amount = sum((subtotal for _, subtotal in invoice_rows), Decimal("0.00"))
+
+    item_rows = (
         await db.execute(
             select(
+                InvoiceItem.invoice_id,
                 InvoiceItem.line_total,
                 InvoiceItem.quantity,
                 InvoiceItem.unit_price,
@@ -74,18 +98,29 @@ async def _sales_and_margin(
         )
     ).all()
 
-    sales_amount = Decimal("0.00")
     sales_margin = Decimal("0.00")
+    costed_revenue = Decimal("0.00")
     items_missing_cost_data = 0
-    revenue_excluded_no_cost_data = Decimal("0.00")
-
-    for line_total, quantity, unit_price, purchase_price in rows:
-        sales_amount += line_total
+    invoices_with_items: set = set()
+    for invoice_id, line_total, quantity, unit_price, purchase_price in item_rows:
+        invoices_with_items.add(invoice_id)
         if purchase_price is None:
             items_missing_cost_data += 1
-            revenue_excluded_no_cost_data += line_total
         else:
+            costed_revenue += line_total
             sales_margin += ((unit_price - purchase_price) * quantity).quantize(_CENTS)
+
+    # A receivable invoice with no line items at all (every CSV import) has no
+    # per-item cost basis — count each as one sale missing cost data so the
+    # "no cost price on file" note fires and its revenue shows as excluded.
+    items_missing_cost_data += sum(
+        1 for invoice_id, _ in invoice_rows if invoice_id not in invoices_with_items
+    )
+
+    # Everything margin couldn't cover: total pre-tax sales minus the revenue
+    # of costed line items. Identical to the old per-item sum on pure-WhatsApp
+    # days, and now correctly includes CSV-invoice revenue.
+    revenue_excluded_no_cost_data = sales_amount - costed_revenue
 
     return sales_amount, sales_margin, items_missing_cost_data, revenue_excluded_no_cost_data
 
