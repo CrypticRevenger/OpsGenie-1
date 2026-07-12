@@ -21,6 +21,7 @@ from app.models.company import Company
 from app.schemas.company import CompanyCreate, CompanyResponse, CompanyUpdate, SubscriptionResponse
 from app.schemas.pagination import Page
 from app.services.activation import activate_company
+from app.services.onboarding import FounderNumberConflictError, reject_founder_collision
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,11 @@ async def create_company(
     payload: CompanyCreate,
     db: AsyncSession = Depends(get_db),
 ) -> Company:
+    try:
+        reject_founder_collision(payload.whatsapp_number)
+    except FounderNumberConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
     company = Company(
         business_name=payload.business_name,
         owner_name=payload.owner_name,
