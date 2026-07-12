@@ -34,6 +34,17 @@ class InvalidPhoneNumberError(Exception):
     """The submitted number couldn't be normalised to E.164."""
 
 
+class FounderNumberConflictError(Exception):
+    """The submitted number matches FOUNDER_WHATSAPP_NUMBER.
+
+    That number is where NotificationEngine's founder-facing alerts (stale
+    data, briefing-delivery failure — app/services/notifications.py's
+    send_founder_alert) go for *every* company. Letting a company register
+    the same number would make that company's own chat silently receive
+    every other company's internal ops alerts alongside its real briefing.
+    """
+
+
 def normalize_number(raw: str) -> str:
     """Turn free-form form input into validated E.164 via libphonenumber.
 
@@ -64,6 +75,22 @@ def normalize_number(raw: str) -> str:
     return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
 
+def reject_founder_collision(number: str) -> None:
+    """Raise if `number` (already E.164-normalised) is FOUNDER_WHATSAPP_NUMBER.
+
+    Shared by both company-creation entry points — self-serve onboarding
+    below and the founder-only admin create route (app/api/admin/
+    companies.py) — since either can otherwise seed the exact bug this
+    guards against.
+    """
+    founder_number = get_settings().founder_whatsapp_number
+    if founder_number and number == founder_number:
+        raise FounderNumberConflictError(
+            "This number is reserved for OpsGenie's internal ops alerts and can't "
+            "be registered as a company's WhatsApp number."
+        )
+
+
 async def onboard_company(
     db: AsyncSession,
     *,
@@ -85,6 +112,7 @@ async def onboard_company(
         raise OnboardingDisabledError("Onboarding is not enabled.")
 
     number = normalize_number(whatsapp_number)
+    reject_founder_collision(number)
 
     existing = await db.scalar(select(Company).where(Company.whatsapp_number == number))
     if existing is not None:

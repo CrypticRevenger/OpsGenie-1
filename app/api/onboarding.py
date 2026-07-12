@@ -26,6 +26,7 @@ from app.schemas.company import SubscriptionResponse
 from app.schemas.onboarding import OnboardRequest, OnboardResponse
 from app.services.activation import activate_company
 from app.services.onboarding import (
+    FounderNumberConflictError,
     InvalidPhoneNumberError,
     OnboardingDisabledError,
     onboard_company,
@@ -72,6 +73,8 @@ async def submit_onboarding(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    except FounderNumberConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
     if created:
         message = "Thanks! You're registered. Next: activate your account."

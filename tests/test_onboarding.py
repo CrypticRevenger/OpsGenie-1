@@ -65,6 +65,32 @@ async def test_onboard_valid_creates_pending_company(client: AsyncClient, db: As
 
 
 @pytest.mark.asyncio
+async def test_onboard_rejects_founder_number(
+    client: AsyncClient, db: AsyncSession, monkeypatch
+) -> None:
+    """A company can't register with the same number FOUNDER_WHATSAPP_NUMBER
+    uses to receive every company's stale-data/briefing-failure alerts —
+    otherwise that company's chat would silently get every other company's
+    internal ops alerts too (the bug this guard prevents).
+    """
+    founder_number = _unique_number()
+    monkeypatch.setattr(get_settings(), "founder_whatsapp_number", founder_number)
+
+    resp = await client.post(
+        "/onboard",
+        json={
+            "business_name": "Collider Co",
+            "owner_name": "Owner",
+            "whatsapp_number": founder_number,
+        },
+    )
+    assert resp.status_code == 409, resp.text
+
+    company = await db.scalar(select(Company).where(Company.whatsapp_number == founder_number))
+    assert company is None
+
+
+@pytest.mark.asyncio
 async def test_onboard_optional_fields_omitted(client: AsyncClient, db: AsyncSession) -> None:
     number = _unique_number()
     resp = await client.post(

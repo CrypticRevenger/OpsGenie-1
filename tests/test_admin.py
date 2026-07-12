@@ -13,6 +13,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
+from app.core.config import get_settings
 from app.models.dealer import Dealer
 from httpx import AsyncClient
 from sqlalchemy import func, select
@@ -93,6 +94,28 @@ async def test_create_company_duplicate_whatsapp_returns_409(
     r2 = await client.post("/admin/companies", json=payload)
     assert r2.status_code == 409
     assert "already exists" in r2.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_create_company_founder_number_returns_409(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """Registering a company on FOUNDER_WHATSAPP_NUMBER would make that
+    company's chat silently receive every other company's stale-data /
+    briefing-failure alerts (app/services/notifications.py's
+    send_founder_alert routes all of those to this one number) — reject it.
+    """
+    founder_number = _unique_phone()
+    monkeypatch.setattr(get_settings(), "founder_whatsapp_number", founder_number)
+
+    payload = {
+        "business_name": "Collider Co",
+        "owner_name": "Owner",
+        "whatsapp_number": founder_number,
+    }
+    resp = await client.post("/admin/companies", json=payload)
+    assert resp.status_code == 409
+    assert "reserved" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
