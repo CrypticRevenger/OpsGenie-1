@@ -38,7 +38,7 @@ from app.core.config import get_settings
 from app.db.session import async_session_factory
 from app.models.company import Company
 from app.models.morning_briefing import MorningBriefing
-from app.services.briefing import generate_briefing
+from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.evening_brief import send_evening_brief
 from app.services.followup import send_due_today_follow_up
 from app.services.notifications import (
@@ -69,29 +69,6 @@ _scheduler: AsyncIOScheduler | None = None
 # the running pass already covers every company). The value is arbitrary but
 # must stay stable so all callers contend on the same lock.
 _TICK_ADVISORY_LOCK_KEY = 728113
-
-
-async def _latest_briefing_today(
-    db: AsyncSession, company: Company, business_date
-) -> MorningBriefing | None:
-    """Most recent briefing whose creation falls on the given business-local
-    date. created_at is stored in UTC, so it must be converted into the
-    company's own timezone before taking .date() — comparing a raw UTC date
-    to a business-local date would misfire for far-eastern zones (e.g. an 8am
-    briefing in a UTC+13 zone has a UTC date of "yesterday"), causing a
-    duplicate briefing. Filtered in Python after ordering — cheap at pilot
-    scale (a company has at most a handful of briefings per day).
-    """
-    briefing = await db.scalar(
-        select(MorningBriefing)
-        .where(MorningBriefing.company_id == company.id)
-        .order_by(MorningBriefing.created_at.desc())
-        .limit(1)
-    )
-    if briefing is None or briefing.created_at is None:
-        return None
-    local_created = briefing.created_at.astimezone(ZoneInfo(company.timezone))
-    return briefing if local_created.date() == business_date else None
 
 
 async def _deliver_briefing(db: AsyncSession, company: Company, briefing: MorningBriefing) -> bool:
@@ -178,7 +155,7 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
         }
 
         if hour == briefing_hour:
-            existing = await _latest_briefing_today(db, company, today)
+            existing = await latest_briefing_today(db, company, today)
             if existing is None:
                 try:
                     briefing = await generate_briefing(db, company.id)
@@ -200,7 +177,7 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
                     f"already_sent_today (status={existing.delivery_status})"
                 )
         elif hour == retry_hour:
-            briefing = await _latest_briefing_today(db, company, today)
+            briefing = await latest_briefing_today(db, company, today)
             if briefing is not None and briefing.delivery_status == "failed_to_send":
                 delivered = await _deliver_briefing(db, company, briefing)
                 if not delivered:

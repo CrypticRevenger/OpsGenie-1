@@ -24,8 +24,11 @@ import json
 import logging
 import re
 import uuid
+from datetime import date
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
@@ -38,7 +41,7 @@ from app.services.llm import (
 from app.services.priority_actions import get_priority_actions
 from app.services.query_menu import MENU_PROMPT
 from app.services.recommendations import _STALE_DATA_THRESHOLD_HOURS, ActionItem
-from app.services.snapshot import Snapshot, build_snapshot
+from app.services.snapshot import Snapshot, build_snapshot, business_now
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +184,37 @@ def _flatten(value: object) -> list[object]:
     return [value]
 
 
+async def latest_briefing_today(
+    db: AsyncSession, company: Company, business_date: date | None = None
+) -> MorningBriefing | None:
+    """Most recent briefing whose creation falls on the given business-local
+    date (defaults to the company's current business-local date). created_at
+    is stored in UTC, so it must be converted into the company's own timezone
+    before taking .date() — comparing a raw UTC date to a business-local date
+    would misfire for far-eastern zones (e.g. an 8am briefing in a UTC+13 zone
+    has a UTC date of "yesterday"), causing a duplicate briefing. Filtered in
+    Python after ordering — cheap at pilot scale (a company has at most a
+    handful of briefings per day).
+
+    Shared by the scheduler (dedup check before generating) and the on-demand
+    "give me my briefing" instant command (reuse today's already-generated
+    briefing instead of paying for a second LLM call) — one lookup, one
+    definition of "today's briefing" for both callers.
+    """
+    if business_date is None:
+        business_date = business_now(company.timezone).date()
+    briefing = await db.scalar(
+        select(MorningBriefing)
+        .where(MorningBriefing.company_id == company.id)
+        .order_by(MorningBriefing.created_at.desc())
+        .limit(1)
+    )
+    if briefing is None or briefing.created_at is None:
+        return None
+    local_created = briefing.created_at.astimezone(ZoneInfo(company.timezone))
+    return briefing if local_created.date() == business_date else None
+
+
 async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningBriefing:
     """build_snapshot -> get_priority_actions -> assemble payload ->
     generate_with_fallback -> append confidence indicator -> check
@@ -257,5 +291,6 @@ __all__ = [
     "confidence_indicator",
     "find_unverified_amounts",
     "generate_briefing",
+    "latest_briefing_today",
     "stale_data_banner",
 ]
