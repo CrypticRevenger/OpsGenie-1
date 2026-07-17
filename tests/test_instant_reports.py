@@ -62,10 +62,13 @@ async def test_empty_states_never_crash(db: AsyncSession) -> None:
         (instant_reports.all_suppliers_reply, "don't have any suppliers"),
         (instant_reports.top_debtors_reply, "no dealer"),
         (instant_reports.top_creditors_reply, "don't currently owe"),
-        (instant_reports.inventory_reply, "don't have any products"),
+        (instant_reports.recent_inventory_reply, "don't have any products"),
+        (instant_reports.all_inventory_reply, "don't have any products"),
         (instant_reports.faqs_reply, "don't have any saved policy"),
-        (instant_reports.invoices_reply, "don't have any invoices"),
-        (instant_reports.payments_reply, "don't have any payments"),
+        (instant_reports.recent_invoices_reply, "don't have any invoices"),
+        (instant_reports.all_invoices_reply, "don't have any invoices"),
+        (instant_reports.recent_payments_reply, "don't have any payments"),
+        (instant_reports.all_payments_reply, "don't have any payments"),
     ]
     for fn, expected_substring in expectations:
         reply = await fn(db, company)
@@ -162,12 +165,48 @@ async def test_inventory_shows_real_products(db: AsyncSession) -> None:
     )
     await db.commit()
 
-    reply = await instant_reports.inventory_reply(db, company)
-    assert "Rice" in reply
-    assert "kg" in reply
-    assert "400" in reply
-    assert "Dal" in reply
-    assert "price not set" in reply
+    recent_reply = await instant_reports.recent_inventory_reply(db, company)
+    assert "Rice" in recent_reply
+    assert "kg" in recent_reply
+    assert "400" in recent_reply
+    assert "Dal" in recent_reply
+    assert "price not set" in recent_reply
+
+    all_reply = await instant_reports.all_inventory_reply(db, company)
+    assert "Rice" in all_reply
+    assert "Dal" in all_reply
+
+
+@pytest.mark.asyncio
+async def test_recent_inventory_sorts_newest_first_and_caps(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """"Recent Inventory" must sort by recency (most recently added product
+    first) and cap at _RECENT_LIST_CAP, reporting the true total — "All
+    Inventory" then shows every product, same sort order, higher cap.
+    """
+    monkeypatch.setattr(instant_reports, "_RECENT_LIST_CAP", 2)
+    company = await _fresh_company(db)
+    # Postgres's now() (created_at's server_default) returns one value per
+    # transaction — a separate commit per product is what actually gives
+    # each row a distinct, later created_at (a single flush() per row within
+    # one transaction would tie them all, same as a real bulk-add message).
+    for name in ["Oldest", "Middle", "Newest"]:
+        db.add(Product(company_id=company.id, name=name, stock_quantity=Decimal("10")))
+        await db.commit()
+
+    recent_reply = await instant_reports.recent_inventory_reply(db, company)
+    assert "Recent Inventory (2 of 3):" in recent_reply
+    assert "Newest" in recent_reply
+    assert "Middle" in recent_reply
+    assert "Oldest" not in recent_reply  # capped out — older than the top 2
+    # Newest must be listed before Middle (sorted newest-first).
+    assert recent_reply.index("Newest") < recent_reply.index("Middle")
+
+    all_reply = await instant_reports.all_inventory_reply(db, company)
+    assert "All Inventory (3):" in all_reply
+    assert "Oldest" in all_reply
+    assert all_reply.index("Newest") < all_reply.index("Middle") < all_reply.index("Oldest")
 
 
 @pytest.mark.asyncio
@@ -219,19 +258,22 @@ async def test_invoices_reply_lists_all_and_targets_right_ones(db: AsyncSession)
     )
     await db.commit()
 
-    reply = await instant_reports.invoices_reply(db, company)
+    reply = await instant_reports.all_invoices_reply(db, company)
     assert "INV-OLD" in reply
     assert "INV-NEW" in reply
-    assert "Invoices (2):" in reply
+    assert "All Invoices (2):" in reply
     assert "…and" not in reply  # under the cap, no truncation note
 
 
 @pytest.mark.asyncio
-async def test_invoices_reply_truncates_with_accurate_count(db: AsyncSession, monkeypatch) -> None:
-    """A party with more invoices than the reply cap must still report the
-    true total (not the capped batch size) in the "…and N more" note.
+async def test_recent_invoices_reply_caps_and_all_invoices_shows_everything(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A party with more invoices than the "recent" cap must still report
+    the true total (not the capped batch size) in the "…and N more" note —
+    "all invoices" (a higher cap) then shows the rest.
     """
-    monkeypatch.setattr(instant_reports, "_LIST_REPLY_CAP", 2)
+    monkeypatch.setattr(instant_reports, "_RECENT_LIST_CAP", 2)
     company = await _fresh_company(db)
     dealer = Dealer(company_id=company.id, name="Matru")
     db.add(dealer)
@@ -254,9 +296,16 @@ async def test_invoices_reply_truncates_with_accurate_count(db: AsyncSession, mo
         )
     await db.commit()
 
-    reply = await instant_reports.invoices_reply(db, company)
-    assert "Invoices (2 of 5):" in reply
-    assert "…and 3 more" in reply
+    recent_reply = await instant_reports.recent_invoices_reply(db, company)
+    assert "Recent Invoices (2 of 5):" in recent_reply
+    assert "…and 3 more" in recent_reply
+    assert "reply 'all invoices'" in recent_reply
+
+    all_reply = await instant_reports.all_invoices_reply(db, company)
+    assert "All Invoices (5):" in all_reply
+    assert "…and" not in all_reply
+    for i in range(5):
+        assert f"INV-{i}" in all_reply
 
 
 @pytest.mark.asyncio
@@ -291,10 +340,14 @@ async def test_payments_reply_lists_real_payments(db: AsyncSession) -> None:
     )
     await db.commit()
 
-    reply = await instant_reports.payments_reply(db, company)
-    assert "30,000" in reply
-    assert "INV-1" in reply
-    assert "2026-01-15" in reply
+    recent_reply = await instant_reports.recent_payments_reply(db, company)
+    assert "30,000" in recent_reply
+    assert "INV-1" in recent_reply
+    assert "2026-01-15" in recent_reply
+
+    all_reply = await instant_reports.all_payments_reply(db, company)
+    assert "30,000" in all_reply
+    assert "INV-1" in all_reply
 
 
 # ── party_balance_reply / stock_item_reply ──────────────────────────────────
