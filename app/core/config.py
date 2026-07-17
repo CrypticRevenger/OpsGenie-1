@@ -153,6 +153,21 @@ class Settings(BaseSettings):
     # whole assistant down (see app/services/llm/cerebras_provider.py).
     cerebras_api_key: str | None = Field(default=None, alias="CEREBRAS_API_KEY")
     cerebras_model: str = Field(default="gpt-oss-120b", alias="CEREBRAS_MODEL")
+    # GitHub Models — free with just a GitHub personal access token (models:
+    # read permission), no separate billing signup at all. github_models_api_key
+    # holds that PAT, not a traditional provider API key.
+    github_models_api_key: str | None = Field(default=None, alias="GITHUB_MODELS_API_KEY")
+    github_models_model: str = Field(default="openai/gpt-4o-mini", alias="GITHUB_MODELS_MODEL")
+    # Cohere — free trial key via their OpenAI-compatible Compatibility API
+    # (base_url swap, see app/services/llm/cohere_provider.py). Monthly call
+    # cap (not daily), independent from every other provider's quota.
+    cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
+    cohere_model: str = Field(default="command-r7b-12-2024", alias="COHERE_MODEL")
+    # NVIDIA NIM (build.nvidia.com) — OpenAI-compatible catalog endpoint.
+    nvidia_api_key: str | None = Field(default=None, alias="NVIDIA_API_KEY")
+    nvidia_model: str = Field(
+        default="meta/llama-3.3-70b-instruct", alias="NVIDIA_MODEL"
+    )
 
     # Agentic WhatsApp assistant: max tool-call rounds per message (loop guard),
     # and how many prior dialogue turns to load as multi-turn memory.
