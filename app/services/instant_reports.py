@@ -83,7 +83,7 @@ async def priorities_reply(db: AsyncSession, company: Company) -> str:
     if not actions:
         return "🎯 Nothing urgent right now — no priority actions."
     lines = [f"{i}. {a.reason}" for i, a in enumerate(actions, start=1)]
-    return "🎯 Priorities\n\n" + "\n".join(lines)
+    return "🎯 Priorities\n\n" + "\n\n".join(lines)
 
 
 async def overdue_dealers_reply(db: AsyncSession, company: Company) -> str:
@@ -111,7 +111,7 @@ async def all_dealers_reply(db: AsyncSession, company: Company) -> str:
     if not dealers:
         return "You don't have any dealers on file yet."
     lines = [_party_line(d["name"], d["phone"], d["outstanding"]) for d in dealers]
-    return f"👥 Dealers ({len(dealers)}):\n" + "\n".join(lines)
+    return f"👥 Dealers ({len(dealers)}):\n\n" + "\n\n".join(lines)
 
 
 async def all_suppliers_reply(db: AsyncSession, company: Company) -> str:
@@ -120,7 +120,7 @@ async def all_suppliers_reply(db: AsyncSession, company: Company) -> str:
     if not suppliers:
         return "You don't have any suppliers on file yet."
     lines = [_party_line(s["name"], s["phone"], s["outstanding"]) for s in suppliers]
-    return f"🚚 Suppliers ({len(suppliers)}):\n" + "\n".join(lines)
+    return f"🚚 Suppliers ({len(suppliers)}):\n\n" + "\n\n".join(lines)
 
 
 async def top_debtors_reply(db: AsyncSession, company: Company) -> str:
@@ -132,7 +132,7 @@ async def top_debtors_reply(db: AsyncSession, company: Company) -> str:
         f"{i}. {d['name']} — {format_inr(Decimal(d['outstanding']))}"
         for i, d in enumerate(dealers, start=1)
     ]
-    return "💰 Top Debtors\n" + "\n".join(lines)
+    return "💰 Top Debtors\n\n" + "\n\n".join(lines)
 
 
 async def top_creditors_reply(db: AsyncSession, company: Company) -> str:
@@ -144,7 +144,7 @@ async def top_creditors_reply(db: AsyncSession, company: Company) -> str:
         f"{i}. {s['name']} — {format_inr(Decimal(s['outstanding']))}"
         for i, s in enumerate(suppliers, start=1)
     ]
-    return "💸 Top Creditors\n" + "\n".join(lines)
+    return "💸 Top Creditors\n\n" + "\n\n".join(lines)
 
 
 def _product_line(product: Product) -> str:
@@ -184,11 +184,11 @@ async def _inventory_query_reply(
         else f"📦 {label} ({len(products)}):"
     )
     footer = (
-        f"\n…and {remaining} more — reply 'all inventory' for the full list."
+        f"\n\n…and {remaining} more — reply 'all inventory' for the full list."
         if remaining > 0
         else ""
     )
-    return f"{header}\n" + "\n".join(lines) + footer
+    return f"{header}\n\n" + "\n\n".join(lines) + footer
 
 
 async def recent_inventory_reply(db: AsyncSession, company: Company) -> str:
@@ -240,11 +240,11 @@ async def _invoices_query_reply(
         f"📄 {label} ({len(rows)} of {total}):" if remaining > 0 else f"📄 {label} ({len(rows)}):"
     )
     footer = (
-        f"\n…and {remaining} more — reply 'all invoices' for the full list."
+        f"\n\n…and {remaining} more — reply 'all invoices' for the full list."
         if remaining > 0
         else ""
     )
-    return f"{header}\n" + "\n".join(lines) + footer
+    return f"{header}\n\n" + "\n\n".join(lines) + footer
 
 
 async def recent_invoices_reply(db: AsyncSession, company: Company) -> str:
@@ -287,11 +287,11 @@ async def _payments_query_reply(
         f"💵 {label} ({len(rows)} of {total}):" if remaining > 0 else f"💵 {label} ({len(rows)}):"
     )
     footer = (
-        f"\n…and {remaining} more — reply 'all payments' for the full list."
+        f"\n\n…and {remaining} more — reply 'all payments' for the full list."
         if remaining > 0
         else ""
     )
-    return f"{header}\n" + "\n".join(lines) + footer
+    return f"{header}\n\n" + "\n\n".join(lines) + footer
 
 
 async def recent_payments_reply(db: AsyncSession, company: Company) -> str:
@@ -364,7 +364,7 @@ async def sales_impact_reply(db: AsyncSession, company: Company, items: list[dic
         missing = ", ".join(result["items_missing_cost_data"])
         footer_bits.append(f"(no purchase price on file for {missing} — excluded from profit)")
 
-    return "\n".join(lines) + "\n\n" + "\n".join(footer_bits)
+    return "\n\n".join(lines) + "\n\n" + "\n".join(footer_bits)
 
 
 async def _resolve_product_name(db: AsyncSession, company: Company, raw_name: str) -> str | None:
