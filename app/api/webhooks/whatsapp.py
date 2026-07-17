@@ -52,11 +52,12 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
 from app.models.notification_log import NotificationLog
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
+from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
 from app.services.onboarding_flow import handle_onboarding_message
 from app.services.query_menu import menu_router
-from app.services.snapshot import build_snapshot
+from app.services.snapshot import build_snapshot, business_now
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
@@ -172,6 +173,31 @@ async def _export_link_reply(db: AsyncSession, company: Company) -> str:
     return f"Your latest Excel export is ready.\nDownload (valid {ttl} min): {link}"
 
 
+async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
+    """On-demand morning briefing for a distributor who asks directly instead
+    of waiting for the scheduled push (app/core/scheduler.py) — this is the
+    deterministic fix for "give me my morning briefing" otherwise falling
+    through to the free-form LLM assistant, which has no matching tool and
+    just refuses.
+
+    Reuses today's already-generated briefing if the scheduler already ran
+    (free, no LLM call); otherwise generates a fresh one on demand via the
+    exact same generate_briefing() the scheduler uses — real LLM cost, but
+    the user explicitly asked for it right now. Either way, this reply IS the
+    delivery (sent like any other webhook reply), so the row is marked
+    sent here — otherwise the scheduler's own "already generated today, skip"
+    dedup would silently swallow the scheduled push later today for a row
+    nothing ever actually delivered.
+    """
+    briefing = await latest_briefing_today(db, company)
+    if briefing is None:
+        briefing = await generate_briefing(db, company.id)
+    if briefing.delivery_status != "sent":
+        briefing.sent_at = business_now(company.timezone)
+        briefing.delivery_status = "sent"
+    return briefing.generated_text
+
+
 # Registry: exact-match keyword -> an instant, stateless async reply builder —
 # unlike _WORKFLOW_START_TRIGGERS, these never set active_workflow (there's
 # nothing to advance through, the whole answer is produced in one shot).
@@ -182,6 +208,15 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "send my excel": _export_link_reply,
     "my data sheet": _export_link_reply,
     "download my data": _export_link_reply,
+    "morning briefing": _morning_briefing_reply,
+    "my morning briefing": _morning_briefing_reply,
+    "give me morning briefing": _morning_briefing_reply,
+    "give me my morning briefing": _morning_briefing_reply,
+    "today's briefing": _morning_briefing_reply,
+    "todays briefing": _morning_briefing_reply,
+    "send my briefing": _morning_briefing_reply,
+    "my briefing": _morning_briefing_reply,
+    "brief me": _morning_briefing_reply,
 }
 
 logger = logging.getLogger(__name__)
