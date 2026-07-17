@@ -26,15 +26,30 @@ def _rs(amount: Decimal) -> str:
     return format_inr(amount).replace("₹", "Rs. ")
 
 
+def _latin1(text: str) -> str:
+    """fpdf2's core Helvetica font is Latin-1 only and *raises*
+    (FPDFUnicodeEncodingException) on any character outside it — and this app's
+    Indian distributors routinely have dealer/product names in Odia/Hindi/
+    Telugu (e.g. "श्री ट्रेडर्स"). Downgrading unencodable characters to '?'
+    keeps the invoice — whose critical content (number, dates, amounts) is
+    always ASCII — rendering and delivering, instead of the whole PDF blowing
+    up. A bundled Unicode TTF would render them properly but was deliberately
+    avoided to keep the dependency footprint small (same trade-off as the
+    ₹ -> "Rs." swap in _rs above); the caller also treats PDF failure as
+    non-blocking, so this is defence in depth, not the only guard.
+    """
+    return text.encode("latin-1", "replace").decode("latin-1")
+
+
 def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
     pdf = FPDF(format="A4")
     pdf.add_page()
 
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, company.business_name, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 10, _latin1(company.business_name), new_x="LMARGIN", new_y="NEXT")
     if company.gst_number:
         pdf.set_font("Helvetica", "", 10)
-        pdf.cell(0, 6, f"GSTIN: {company.gst_number}", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, _latin1(f"GSTIN: {company.gst_number}"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(4)
 
     pdf.set_font("Helvetica", "B", 13)
@@ -49,9 +64,9 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(0, 6, "Bill To", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 10)
-    pdf.cell(0, 6, result.dealer_name, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 6, _latin1(result.dealer_name), new_x="LMARGIN", new_y="NEXT")
     if result.dealer_phone:
-        pdf.cell(0, 6, result.dealer_phone, new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 6, _latin1(result.dealer_phone), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(6)
 
     col_widths = (58, 16, 26, 28, 16, 30)
@@ -63,7 +78,7 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
 
     pdf.set_font("Helvetica", "", 10)
     for line in result.lines:
-        pdf.cell(col_widths[0], 8, line.product_name)
+        pdf.cell(col_widths[0], 8, _latin1(line.product_name))
         pdf.cell(col_widths[1], 8, str(line.quantity))
         pdf.cell(col_widths[2], 8, _rs(line.unit_price))
         pdf.cell(col_widths[3], 8, _rs(line.line_total))

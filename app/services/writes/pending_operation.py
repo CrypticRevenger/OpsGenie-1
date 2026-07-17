@@ -21,6 +21,7 @@ within the same request.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -36,6 +37,8 @@ from app.services.money_format import format_inr
 from app.services.writes.orders import create_order
 from app.services.writes.payments import record_payment
 from app.services.writes.update_gst import update_gst
+
+logger = logging.getLogger(__name__)
 
 PENDING_OPERATION_TTL_MINUTES = 30
 
@@ -152,9 +155,21 @@ async def execute_pending_operation(
         )
 
         # PDF generation/delivery is a bonus, never a blocker — the invoice
-        # itself is already written above regardless of what happens here.
-        pdf_bytes = generate_invoice_pdf(company, result)
-        pdf_sent = await send_invoice_document(db, company, result, pdf_bytes)
+        # itself is already written above regardless of what happens here. Any
+        # failure (e.g. an fpdf2 rendering error on a name the core font can't
+        # encode) must degrade to "not sent", never propagate out: this runs
+        # before the webhook's single db.commit(), so an escaped exception
+        # would roll back the just-created order and land the request on Meta's
+        # aggressive retry loop, wedging the distributor's confirmation forever.
+        pdf_sent = False
+        try:
+            pdf_bytes = generate_invoice_pdf(company, result)
+            pdf_sent = await send_invoice_document(db, company, result, pdf_bytes)
+        except Exception:  # noqa: BLE001 - PDF is best-effort; the order is already written
+            logger.exception(
+                "Invoice %s: PDF generation/delivery failed (non-blocking).",
+                result.invoice_number,
+            )
         pdf_note = (
             f"\nPDF sent to {result.dealer_name}."
             if pdf_sent

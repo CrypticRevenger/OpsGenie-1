@@ -330,6 +330,26 @@ async def test_notify_briefing_failed_alerts_founder(db: AsyncSession, recorded_
 
 
 @pytest.mark.asyncio
+async def test_notify_briefing_failed_dedups_same_day(
+    db: AsyncSession, recorded_sends, monkeypatch
+):
+    # The retry hour is polled several times; a briefing that keeps failing to
+    # send must alert the founder at most once per business day, not on every
+    # tick — same guard as generation-failed / stale-data.
+    _set_founder_number(monkeypatch, _unique_phone())
+    company = await _make_company(db)
+
+    first = await notify_briefing_failed(db, company)
+    await db.commit()
+    second = await notify_briefing_failed(db, company)
+    await db.commit()
+
+    assert first is True
+    assert second is False
+    assert len(recorded_sends) == 1
+
+
+@pytest.mark.asyncio
 async def test_notify_briefing_generation_failed_alerts_founder(
     db: AsyncSession, recorded_sends, monkeypatch
 ):

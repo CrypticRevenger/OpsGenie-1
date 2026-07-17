@@ -328,7 +328,16 @@ async def check_stale_data_alert(
 async def notify_briefing_failed(db: AsyncSession, company: Company) -> bool:
     """Rule 4 entry point, called by the scheduler after a briefing send has
     already failed once and its 9am retry failed too.
+
+    Dedups once per company per business day via the shared founder_alert_sent
+    reason — the retry hour is polled several times (every
+    SCHEDULER_POLL_INTERVAL_MINUTES), so a briefing that keeps failing to send
+    would otherwise re-alert the founder on every tick in that hour. Same guard
+    notify_briefing_generation_failed and check_stale_data_alert already apply.
     """
+    day_start = business_now(company.timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+    if await _founder_alert_sent_since(db, company.id, _BRIEFING_FAILED_REASON, day_start):
+        return False
     message = (
         f"🚨 Briefing Delivery Failed — {company.business_name}\n\n"
         f"Today's morning briefing could not be delivered to {company.business_name} "

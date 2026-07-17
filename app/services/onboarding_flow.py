@@ -83,8 +83,18 @@ def _is(word: str, *options: str) -> bool:
 
 def _format_quantity(quantity: Decimal) -> str:
     """Render a stock quantity without parse_amount's forced 2-decimal padding
-    (e.g. Decimal("100.00") -> "100")."""
-    text = format(quantity, "f").rstrip("0").rstrip(".")
+    (e.g. Decimal("100.00") -> "100").
+
+    Only fractional trailing zeros are stripped — a whole-number Decimal whose
+    string form carries no decimal point (Decimal("50") -> "50", not the
+    "50".rstrip("0") == "5" a blanket strip would produce) must be left
+    intact. Every current caller passes a DB Numeric(14,4) or parse_amount's
+    2-decimal output (both always have a "."), but this helper must stay
+    correct for a bare whole Decimal too rather than depend on that invariant.
+    """
+    text = format(quantity, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
     return text or "0"
 
 
