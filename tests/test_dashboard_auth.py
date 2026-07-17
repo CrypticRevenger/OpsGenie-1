@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -14,6 +15,8 @@ from app.core.config import get_settings
 from app.core.dashboard_auth import SESSION_COOKIE_NAME
 from app.main import app
 from app.models.company import Company
+from app.models.dealer import Dealer
+from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.product import Product
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,5 +134,78 @@ async def test_company_list_shows_product_count(db: AsyncSession) -> None:
         # connection, so an uncommitted row in `db` wouldn't be visible to
         # it) — clean up explicitly rather than leaving it in the shared
         # local dev database like the webhook-level tests currently do.
+        await db.delete(company)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_company_detail_shows_paid_badge_correctly(db: AsyncSession) -> None:
+    """Regression test: the Status column used to compare
+    inv.status.value == "paid" (lowercase) against InvoiceStatus.Paid's real
+    value "Paid" (capital P) — a case mismatch that made every invoice,
+    company-wide, always render "Unpaid" regardless of its real status.
+    """
+    company = Company(
+        business_name="Dashboard Paid Badge Co",
+        owner_name="Owner",
+        whatsapp_number=f"+919{uuid.uuid4().int % 1_000_000_000:09d}",
+    )
+    db.add(company)
+    await db.flush()
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.flush()
+    db.add(
+        Invoice(
+            company_id=company.id,
+            invoice_number="INV-PAID-BADGE",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer.id,
+            invoice_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 1),
+            subtotal=Decimal("30000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("30000.00"),
+            status=InvoiceStatus.Paid,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    db.add(
+        Invoice(
+            company_id=company.id,
+            invoice_number="INV-PENDING-BADGE",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer.id,
+            invoice_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 1),
+            subtotal=Decimal("10000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("10000.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.commit()
+
+    try:
+        settings = get_settings()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as auth_client:
+            login_resp = await auth_client.post(
+                "/dashboard/login", data={"password": settings.dashboard_password}
+            )
+            assert login_resp.status_code == 303
+            resp = await auth_client.get(f"/dashboard/companies/{company.id}")
+
+        assert resp.status_code == 200
+
+        paid_row_start = resp.text.index("INV-PAID-BADGE")
+        paid_row_end = resp.text.index("</tr>", paid_row_start)
+        assert ">Paid<" in resp.text[paid_row_start:paid_row_end]
+
+        pending_row_start = resp.text.index("INV-PENDING-BADGE")
+        pending_row_end = resp.text.index("</tr>", pending_row_start)
+        assert ">Unpaid<" in resp.text[pending_row_start:pending_row_end]
+    finally:
         await db.delete(company)
         await db.commit()
