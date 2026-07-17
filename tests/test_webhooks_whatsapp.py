@@ -71,6 +71,31 @@ def _messages_payload(*, sender: str, message_type: str = "text", text: str = "h
     }
 
 
+def _interactive_reply_payload(
+    *, sender: str, kind: str, reply_id: str, title: str = "Option"
+) -> dict:
+    """A tapped list row (kind="list_reply") or reply button (kind="button_reply")
+    — matches Meta's inbound shape for an interactive tap, distinct from
+    _messages_payload's plain-text shape.
+    """
+    message = {
+        "from": sender,
+        "id": f"wamid.{uuid.uuid4().hex}",
+        "timestamp": "1735689600",
+        "type": "interactive",
+        "interactive": {"type": kind, kind: {"id": reply_id, "title": title}},
+    }
+    return {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "waba-id",
+                "changes": [{"value": {"messages": [message]}, "field": "messages"}],
+            }
+        ],
+    }
+
+
 def _statuses_payload(*, recipient: str, message_id: str, status: str = "delivered") -> dict:
     return {
         "object": "whatsapp_business_account",
@@ -561,7 +586,9 @@ async def test_help_command_aliases_all_reach_the_same_reply(
 
     monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
 
-    for alias in ["help", "Help", "menu", "commands", "what can you do"]:
+    # "menu" is deliberately excluded — it sends a tappable interactive list
+    # instead of this plain-text reply (see the "menu" tests below).
+    for alias in ["help", "Help", "commands", "what can you do"]:
         phone = _unique_phone()
         await _make_company(db, phone)
         bare_sender = phone.removeprefix("+")
@@ -574,7 +601,7 @@ async def test_help_command_aliases_all_reach_the_same_reply(
             )
         assert resp.status_code == 200
 
-    assert len(sent) == 5
+    assert len(sent) == 4
     assert len(set(sent)) == 1  # every alias produces the identical help text
 
 
@@ -664,6 +691,180 @@ async def test_slash_report_alias_matches_its_digit_equivalent(
     slash_reply = await _reply_for(slash_command)
     digit_reply = await _reply_for(digit)
     assert slash_reply == digit_reply
+
+
+# ── Tappable "menu" (WhatsApp interactive list) ──────────────────────────────
+
+
+def test_menu_list_sections_stay_within_whatsapp_row_cap() -> None:
+    """Meta caps an interactive list message at 10 rows total across all
+    sections — a silent overflow here would make WhatsApp reject the send.
+    """
+    from app.api.webhooks.whatsapp import _MENU_LIST_SECTIONS
+
+    assert len(_MENU_LIST_SECTIONS) <= 10
+    total_rows = sum(len(section["rows"]) for section in _MENU_LIST_SECTIONS)
+    assert total_rows <= 10
+
+
+def test_menu_list_text_stays_within_whatsapp_character_limits() -> None:
+    """Meta silently truncates (rather than errors) row titles/descriptions
+    over its limits, so a violation here would ship a broken-looking menu
+    instead of a loud failure — worth catching in CI.
+    """
+    from app.api.webhooks.whatsapp import _MENU_LIST_SECTIONS
+
+    for section in _MENU_LIST_SECTIONS:
+        assert len(section["title"]) <= 24
+        for row in section["rows"]:
+            assert len(row["id"]) <= 200
+            assert len(row["title"]) <= 24
+            assert len(row.get("description", "")) <= 72
+
+
+def test_menu_row_ids_are_understood_by_the_dispatch_chain() -> None:
+    """Every row's `id` is read back exactly like typed text (_extract_text_body),
+    so it must either be a real registered /slash_command, or a bare keyword
+    deliberately left for the free-form LLM assistant to interpret — never an
+    id that collides with nothing and would confuse a tap into "just a
+    question" the LLM has to guess at.
+    """
+    from app.api.webhooks import whatsapp as webhook_module
+    from app.services.query_menu import menu_router
+
+    for section in webhook_module._MENU_LIST_SECTIONS:
+        for row in section["rows"]:
+            row_id = row["id"]
+            if row_id.startswith("/"):
+                assert (
+                    row_id in webhook_module._WORKFLOW_START_TRIGGERS
+                    or row_id in webhook_module._INSTANT_COMMANDS
+                    or menu_router.match(row_id) == row_id
+                ), f"{row_id} is offered on the menu but isn't a registered command"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["menu", "/menu", "Menu"])
+async def test_menu_trigger_sends_interactive_list_not_plain_text(
+    db: AsyncSession, monkeypatch, trigger: str
+) -> None:
+    from app.api.webhooks.whatsapp import _MENU_LIST_SECTIONS
+
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    text_sent: list[str] = []
+    interactive_calls: list[dict] = []
+
+    async def _fake_text_send(to: str, body: str) -> WhatsAppSendResult:
+        text_sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    async def _fake_interactive_send(to: str, **kwargs) -> WhatsAppSendResult:
+        interactive_calls.append(kwargs)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_text_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.send_interactive_list_message", _fake_interactive_send
+    )
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text=trigger)).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert text_sent == []  # never fell back to plain text
+    assert len(interactive_calls) == 1
+    assert interactive_calls[0]["sections"] == _MENU_LIST_SECTIONS
+
+
+@pytest.mark.asyncio
+async def test_tapped_list_reply_starts_the_same_workflow_as_typing_it(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Tapping a list row must behave exactly like typing its `id` — proves
+    the interactive-reply extraction wires into the real dispatch chain, not
+    just a special-cased "menu" branch.
+    """
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    # Typed baseline.
+    phone_a = _unique_phone()
+    await _make_company(db, phone_a)
+    body_a = json.dumps(
+        _messages_payload(sender=phone_a.removeprefix("+"), text="/add_product")
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body_a,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body_a)},
+        )
+    assert resp.status_code == 200
+    typed_reply = sent[-1]
+
+    # Tapped list row with the same id.
+    phone_b = _unique_phone()
+    await _make_company(db, phone_b)
+    body_b = json.dumps(
+        _interactive_reply_payload(
+            sender=phone_b.removeprefix("+"),
+            kind="list_reply",
+            reply_id="/add_product",
+            title="Add Product",
+        )
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body_b,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body_b)},
+        )
+    assert resp.status_code == 200
+    tapped_reply = sent[-1]
+
+    assert tapped_reply == typed_reply
+
+
+@pytest.mark.asyncio
+async def test_tapped_button_reply_routes_like_typed_text(db: AsyncSession, monkeypatch) -> None:
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    body = json.dumps(
+        _interactive_reply_payload(
+            sender=phone.removeprefix("+"), kind="button_reply", reply_id="/help", title="Help"
+        )
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    from app.api.webhooks.whatsapp import _HELP_TEXT
+
+    assert sent == [_HELP_TEXT]
 
 
 @pytest.mark.asyncio
