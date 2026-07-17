@@ -34,6 +34,11 @@ async def trigger_tick() -> dict:
     business-local clock currently matches a configured hour. Safe to call
     as often as needed: every branch inside is idempotent/deduplicated
     per company per business day.
+
+    Returns per-company diagnostics (business-local time, which hour was
+    matched, what each concern decided) rather than a bare "done" — a tick
+    that matches no hour and does nothing looks identical to a broken one
+    from the outside otherwise, which is exactly what let real production
+    briefings silently stop going out for days without anyone noticing.
     """
-    await run_scheduled_tick()
-    return {"status": "tick complete"}
+    return await run_scheduled_tick()

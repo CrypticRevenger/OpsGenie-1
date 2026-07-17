@@ -106,7 +106,7 @@ async def _deliver_briefing(db: AsyncSession, company: Company, briefing: Mornin
     return bool(result)
 
 
-async def _dispatch_for_company(company_id, now: datetime | None) -> None:
+async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
     """All time-gated actions for one company, in a fresh session. `now`
     (business-local) is resolved from the company's timezone when not pinned
     by a caller/test.
@@ -117,12 +117,22 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> None:
     be committed before the next concern runs — otherwise a later failure
     would roll back the record of a message that already physically went out,
     breaking the 9am retry decision or causing a duplicate resend next tick.
+
+    Returns a diagnostic dict (what hour was matched, what each concern
+    decided to do) so a tick can be inspected after the fact — this is what
+    POST /admin/scheduler/tick surfaces, since a silent no-op here (e.g. a
+    wrong timezone, or a briefing_hour that never matches) is otherwise
+    indistinguishable from "everything is fine, nothing was due yet."
     """
     settings = get_settings()
     async with async_session_factory() as db:
         company = await db.get(Company, company_id)
         if company is None or not company.subscription_active:
-            return
+            return {
+                "company_id": str(company_id),
+                "dispatched": False,
+                "reason": "company not found or subscription inactive",
+            }
         local_now = now or business_now(company.timezone)
         hour = local_now.hour
         today = local_now.date()
@@ -138,43 +148,88 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> None:
             briefing_hour = settings.briefing_hour
             retry_hour = settings.briefing_retry_hour
 
+        evening_brief_hour = (
+            company.evening_brief_hour
+            if company.evening_brief_hour is not None
+            else settings.evening_brief_hour
+        )
+
+        diagnostics: dict = {
+            "company_id": str(company.id),
+            "company_name": company.business_name,
+            "dispatched": True,
+            "timezone": company.timezone,
+            "local_time": local_now.isoformat(),
+            "hour": hour,
+            "briefing_hour": briefing_hour,
+            "retry_hour": retry_hour,
+            "followup_hour": settings.followup_hour,
+            "evening_brief_hour": evening_brief_hour,
+            "actions": {
+                "briefing": "hour_not_matched",
+                "followup": "hour_not_matched",
+                "evening_brief": "hour_not_matched",
+                "notifications": "skipped_before_business_hours",
+            },
+        }
+
         if hour == briefing_hour:
             existing = await _latest_briefing_today(db, company, today)
             if existing is None:
                 briefing = await generate_briefing(db, company.id)
-                await _deliver_briefing(db, company, briefing)
+                delivered = await _deliver_briefing(db, company, briefing)
                 await db.commit()
+                diagnostics["actions"]["briefing"] = (
+                    "generated_and_sent" if delivered else "generated_but_send_failed"
+                )
+            else:
+                diagnostics["actions"]["briefing"] = (
+                    f"already_sent_today (status={existing.delivery_status})"
+                )
         elif hour == retry_hour:
             briefing = await _latest_briefing_today(db, company, today)
             if briefing is not None and briefing.delivery_status == "failed_to_send":
                 delivered = await _deliver_briefing(db, company, briefing)
                 if not delivered:
                     await notify_briefing_failed(db, company)
+                    diagnostics["actions"]["briefing"] = "retry_failed_founder_alerted"
+                else:
+                    diagnostics["actions"]["briefing"] = "retry_sent"
                 await db.commit()
+            elif briefing is not None:
+                diagnostics["actions"]["briefing"] = (
+                    f"no_retry_needed (status={briefing.delivery_status})"
+                )
+            else:
+                diagnostics["actions"]["briefing"] = "no_retry_needed (no briefing generated today)"
 
         if hour == settings.followup_hour:
-            await send_due_today_follow_up(db, company.id)
+            result = await send_due_today_follow_up(db, company.id)
             await db.commit()
+            diagnostics["actions"]["followup"] = result.status
 
-        evening_brief_hour = (
-            company.evening_brief_hour
-            if company.evening_brief_hour is not None
-            else settings.evening_brief_hour
-        )
         if hour == evening_brief_hour:
-            await send_evening_brief(db, company)
+            sent = await send_evening_brief(db, company)
             await db.commit()
+            diagnostics["actions"]["evening_brief"] = "sent" if sent else "already_finalized_today"
 
         # NotificationEngine only during business hours — the morning briefing
         # hour onward — so a payment that becomes "due tomorrow" at local
         # midnight doesn't fire a real WhatsApp alert at 00:15. Rules dedup
         # internally, so the first daytime tick is when each alert goes out.
         if hour >= briefing_hour:
-            await run_notification_checks(db, company.id, now=local_now)
+            result = await run_notification_checks(db, company.id, now=local_now)
             await db.commit()
+            diagnostics["actions"]["notifications"] = (
+                f"checked (supplier_reminders={result.supplier_reminders}, "
+                f"dealer_alerts={result.dealer_alerts}, "
+                f"stale_data_alert={result.stale_data_alert})"
+            )
+
+        return diagnostics
 
 
-async def run_scheduled_tick(now: datetime | None = None) -> None:
+async def run_scheduled_tick(now: datetime | None = None) -> dict:
     """One poll pass over every subscription-active company. Each company is
     dispatched in its own session/transaction so a single failure is isolated
     and logged, never aborting the rest of the pass. `now` pins business-local
@@ -185,7 +240,13 @@ async def run_scheduled_tick(now: datetime | None = None) -> None:
     already holds the lock (the in-process poller and the external cron firing
     close together), this call returns immediately without dispatching; the
     holder's pass already covers every company.
+
+    Returns a diagnostic dict — whether the lock was acquired, the server's
+    UTC time, and each company's per-concern dispatch decision (see
+    _dispatch_for_company) — so a caller (POST /admin/scheduler/tick) can be
+    inspected after the fact instead of trusting a silent "tick complete".
     """
+    server_time_utc = (now or datetime.now(ZoneInfo("UTC"))).isoformat()
     # A dedicated session holds the connection-scoped advisory lock for the
     # whole pass. It is used ONLY for the lock — every company is dispatched in
     # its own separate session — so the lock connection is never committed or
@@ -196,18 +257,30 @@ async def run_scheduled_tick(now: datetime | None = None) -> None:
         )
         if not got_lock:
             logger.info("Scheduled tick already in progress elsewhere — skipping this pass.")
-            return
+            return {
+                "server_time_utc": server_time_utc,
+                "lock_acquired": False,
+                "companies": [],
+            }
         try:
             rows = await lock_db.scalars(
                 select(Company.id).where(Company.subscription_active.is_(True))
             )
             company_ids = list(rows.all())
 
+            results = []
             for company_id in company_ids:
                 try:
-                    await _dispatch_for_company(company_id, now)
-                except Exception:  # noqa: BLE001 - one company's failure must not stop the rest
+                    result = await _dispatch_for_company(company_id, now)
+                    results.append(result or {"company_id": str(company_id)})
+                except Exception as exc:  # noqa: BLE001 - one company's failure must not stop the rest
                     logger.exception("Scheduled dispatch failed for company %s", company_id)
+                    results.append({"company_id": str(company_id), "error": str(exc)})
+            return {
+                "server_time_utc": server_time_utc,
+                "lock_acquired": True,
+                "companies": results,
+            }
         finally:
             await lock_db.scalar(select(func.pg_advisory_unlock(_TICK_ADVISORY_LOCK_KEY)))
 

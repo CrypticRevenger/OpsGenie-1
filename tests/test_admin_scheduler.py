@@ -22,15 +22,21 @@ async def test_trigger_tick_returns_202_and_runs_dispatch(
     client: AsyncClient, monkeypatch
 ) -> None:
     calls = []
+    fake_result = {
+        "server_time_utc": "2026-01-01T00:00:00+00:00",
+        "lock_acquired": True,
+        "companies": [],
+    }
 
-    async def _fake_tick(now=None) -> None:
+    async def _fake_tick(now=None) -> dict:
         calls.append(now)
+        return fake_result
 
     monkeypatch.setattr(scheduler_route, "run_scheduled_tick", _fake_tick)
 
     resp = await client.post("/admin/scheduler/tick")
     assert resp.status_code == 202
-    assert resp.json() == {"status": "tick complete"}
+    assert resp.json() == fake_result
     assert len(calls) == 1
 
 
