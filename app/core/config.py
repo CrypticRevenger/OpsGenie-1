@@ -131,7 +131,7 @@ class Settings(BaseSettings):
     # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
     # pluggable LLMProvider + automatic failover chain. llm_provider is the
     # primary; llm_fallbacks (comma-separated, e.g. "gemini,groq,anthropic")
-    # is tried in order if the primary fails retryably. Any subset of the 4
+    # is tried in order if the primary fails retryably. Any subset of the 5
     # providers' credentials can be populated at once without conflict — a
     # provider with no key configured is skipped silently by the chain, never
     # silently proceeding with a missing key on the one it does try.
@@ -147,6 +147,12 @@ class Settings(BaseSettings):
     openrouter_model: str = Field(
         default="nvidia/nemotron-3-ultra-550b-a55b:free", alias="OPENROUTER_MODEL"
     )
+    # Cerebras — OpenAI-compatible endpoint (same integration shape as Groq),
+    # added as a 5th fallback with its own independent free-tier quota so a
+    # same-day exhaustion of Groq/Gemini/OpenRouter's quotas doesn't take the
+    # whole assistant down (see app/services/llm/cerebras_provider.py).
+    cerebras_api_key: str | None = Field(default=None, alias="CEREBRAS_API_KEY")
+    cerebras_model: str = Field(default="gpt-oss-120b", alias="CEREBRAS_MODEL")
 
     # Agentic WhatsApp assistant: max tool-call rounds per message (loop guard),
     # and how many prior dialogue turns to load as multi-turn memory.
