@@ -70,6 +70,40 @@ async def _make_dealer_with_invoice(
     await db.commit()
 
 
+async def _make_dealer_with_invoices(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    name: str,
+    invoices: list[tuple[str, Decimal, date]],
+) -> Dealer:
+    """invoices: list of (invoice_number, amount, invoice_date) — earlier
+    invoice_date sorts first in FIFO allocation, same ordering
+    allocate_payment_fifo itself uses.
+    """
+    dealer = Dealer(company_id=company_id, name=name)
+    db.add(dealer)
+    await db.flush()
+    for invoice_number, amount, invoice_date in invoices:
+        db.add(
+            Invoice(
+                company_id=company_id,
+                invoice_number=invoice_number,
+                direction=InvoiceDirection.receivable,
+                dealer_id=dealer.id,
+                invoice_date=invoice_date,
+                due_date=invoice_date,
+                subtotal=amount,
+                gst_amount=Decimal("0.00"),
+                total_amount=amount,
+                status=InvoiceStatus.Pending,
+                source=InvoiceSource.csv_import,
+            )
+        )
+    await db.commit()
+    await db.refresh(dealer)
+    return dealer
+
+
 def _sign(body: bytes) -> str:
     secret = get_settings().whatsapp_app_secret
     digest = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
@@ -357,3 +391,144 @@ async def test_mid_flow_numeric_reply_not_swallowed_by_menu(db: AsyncSession, mo
 
     company = await db.get(Company, company_id)
     assert company.active_workflow == "record_payment"
+
+
+@pytest.mark.asyncio
+async def test_multiple_open_invoices_asks_which_one(db: AsyncSession, monkeypatch) -> None:
+    """Regression test: a party with 2+ open invoices used to silently
+    FIFO-allocate to whichever invoice sorted first, with no way to target a
+    specific one. The flow must now list them and let the user pick.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    dealer = await _make_dealer_with_invoices(
+        db,
+        company_id,
+        "Matru",
+        [
+            ("INV-OLD", Decimal("50000.00"), date(2026, 1, 1)),
+            ("INV-NEW", Decimal("30000.00"), date(2026, 1, 10)),
+        ],
+    )
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Matru")
+        assert "2 open invoices" in sent[-1]
+        assert "INV-OLD" in sent[-1]
+        assert "INV-NEW" in sent[-1]
+
+        # Pick the newer invoice explicitly (2nd in the oldest-first listing).
+        await _send(client, bare_sender, "2")
+        assert "how much" in sent[-1].lower()
+
+        await _send(client, bare_sender, "30000")
+        await _send(client, bare_sender, "today")
+        assert "confirm" in sent[-1].lower()
+        assert "INV-NEW" in sent[-1]
+
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+        assert "INV-NEW" in sent[-1]
+        assert "INV-OLD" not in sent[-1]
+
+    new_invoice = await db.scalar(
+        select(Invoice).where(Invoice.dealer_id == dealer.id, Invoice.invoice_number == "INV-NEW")
+    )
+    old_invoice = await db.scalar(
+        select(Invoice).where(Invoice.dealer_id == dealer.id, Invoice.invoice_number == "INV-OLD")
+    )
+    assert new_invoice.status == InvoiceStatus.Paid
+    assert old_invoice.status == InvoiceStatus.Pending  # untouched
+
+
+@pytest.mark.asyncio
+async def test_multiple_open_invoices_all_falls_back_to_fifo(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    dealer = await _make_dealer_with_invoices(
+        db,
+        company_id,
+        "Matru",
+        [
+            ("INV-OLD", Decimal("50000.00"), date(2026, 1, 1)),
+            ("INV-NEW", Decimal("30000.00"), date(2026, 1, 10)),
+        ],
+    )
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Matru")
+        await _send(client, bare_sender, "all")
+        assert "how much" in sent[-1].lower()
+
+        await _send(client, bare_sender, "60000")
+        await _send(client, bare_sender, "today")
+        assert "confirm" in sent[-1].lower()
+        assert "invoice" not in sent[-1].lower()  # no specific target named
+
+        await _send(client, bare_sender, "YES")
+
+    old_invoice = await db.scalar(
+        select(Invoice).where(Invoice.dealer_id == dealer.id, Invoice.invoice_number == "INV-OLD")
+    )
+    new_invoice = await db.scalar(
+        select(Invoice).where(Invoice.dealer_id == dealer.id, Invoice.invoice_number == "INV-NEW")
+    )
+    # 60000 across INV-OLD (50000, oldest first) then INV-NEW (remaining 10000).
+    assert old_invoice.status == InvoiceStatus.Paid
+    assert new_invoice.status == InvoiceStatus.Partially_Paid
+
+
+@pytest.mark.asyncio
+async def test_invoice_selection_bad_input_reasks(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoices(
+        db,
+        company_id,
+        "Matru",
+        [
+            ("INV-A", Decimal("50000.00"), date(2026, 1, 1)),
+            ("INV-B", Decimal("30000.00"), date(2026, 1, 10)),
+        ],
+    )
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Matru")
+        await _send(client, bare_sender, "5")  # out of range
+        assert "1 to 2" in sent[-1]
+
+        await _send(client, bare_sender, "banana")
+        assert "1 to 2" in sent[-1]
+
+        await _send(client, bare_sender, "1")
+        assert "how much" in sent[-1].lower()
