@@ -684,6 +684,176 @@ async def test_report_menu_keywords_never_reach_the_llm_assistant(
     assert len(sent) == len(keywords)
 
 
+# ── Deterministic prefix lookups: balance <name> / stock <item> / sell N of X ──
+
+
+@pytest.mark.asyncio
+async def test_balance_prefix_command_never_reaches_llm(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    dealer = Dealer(company_id=company_id, name="Ram Traders")
+    db.add(dealer)
+    await db.flush()
+    db.add(
+        Invoice(
+            company_id=company_id,
+            invoice_number="INV-BAL",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer.id,
+            invoice_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 1),
+            subtotal=Decimal("25000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("25000.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("should not reach the LLM assistant")),
+    )
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="balance Ram Traders")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert "Ram Traders" in sent[0]
+    assert "25,000" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_stock_prefix_command_never_reaches_llm(db: AsyncSession, monkeypatch) -> None:
+    from app.models.product import Product
+
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    db.add(
+        Product(
+            company_id=company_id,
+            name="Rice",
+            unit="kg",
+            selling_price=Decimal("400.00"),
+            stock_quantity=Decimal("200"),
+        )
+    )
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("should not reach the LLM assistant")),
+    )
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="stock rice")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert "Rice" in sent[0]
+    assert "200 kg" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_sales_impact_fast_path_never_reaches_llm(db: AsyncSession, monkeypatch) -> None:
+    from app.models.product import Product
+
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    db.add(
+        Product(
+            company_id=company_id,
+            name="Rice",
+            unit="kg",
+            selling_price=Decimal("400.00"),
+            purchase_price=Decimal("300.00"),
+            stock_quantity=Decimal("200"),
+        )
+    )
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("should not reach the LLM assistant")),
+    )
+
+    body = json.dumps(
+        _messages_payload(sender=bare_sender, text="if I sell 50 kg of rice")
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert "50 Rice" in sent[0]
+    assert "150 left in stock" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_sales_impact_falls_back_to_llm(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A parsed product name with no catalogue match must still reach the
+    LLM assistant (the deterministic fast-path returns None, not a guess).
+    """
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    fake_answer = AsyncMock(return_value="I don't have that product on file.")
+    monkeypatch.setattr("app.api.webhooks.whatsapp.answer_question", fake_answer)
+
+    body = json.dumps(
+        _messages_payload(sender=bare_sender, text="if I sell 50 kg of quinoa")
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    fake_answer.assert_awaited_once()
+
+
 # ── Instant command: /help ──────────────────────────────────────────────────────
 
 

@@ -467,6 +467,33 @@ async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
     return briefing.generated_text
 
 
+_BALANCE_PREFIX = "balance "
+_STOCK_PREFIX = "stock "
+
+
+async def _try_deterministic_free_text(db: AsyncSession, company: Company, text: str) -> str | None:
+    """The last deterministic tier before the LLM assistant: a name/item-
+    scoped lookup ("balance <name>", "stock <item>") or the "if I sell N of
+    X" fast-path — too free-form for _INSTANT_COMMANDS' exact-match dict,
+    but narrow enough to resolve with certainty against the real party
+    list/catalogue. Returns None (never a guess) if nothing matches
+    confidently, so the caller falls through to the LLM assistant exactly
+    as before — this can only ever add coverage, never regress it.
+    """
+    stripped = text.strip()
+    lower = stripped.lower()
+    if lower.startswith(_BALANCE_PREFIX):
+        name = stripped[len(_BALANCE_PREFIX) :].strip()
+        if name:
+            return await instant_reports.party_balance_reply(db, company, name)
+    elif lower.startswith(_STOCK_PREFIX):
+        name = stripped[len(_STOCK_PREFIX) :].strip()
+        if name:
+            return await instant_reports.stock_item_reply(db, company, name)
+
+    return await instant_reports.try_deterministic_sales_impact(db, company, text)
+
+
 # Registry: exact-match keyword -> an instant, stateless async reply builder —
 # unlike _WORKFLOW_START_TRIGGERS, these never set active_workflow (there's
 # nothing to advance through, the whole answer is produced in one shot).
@@ -1001,6 +1028,18 @@ async def receive_whatsapp_webhook(
                                     command = text.strip().lower()
                                     notification_type = "instant_command"
                                     reply = await instant(db, company)
+                                elif (
+                                    deterministic := await _try_deterministic_free_text(
+                                        db, company, text
+                                    )
+                                ) is not None:
+                                    # A narrower, parsed deterministic match ("balance
+                                    # <name>", "stock <item>", "if I sell N of X") — still
+                                    # never touches the LLM, but needs an argument
+                                    # _INSTANT_COMMANDS' exact-match dict can't take.
+                                    command = text.strip().lower()
+                                    notification_type = "instant_command"
+                                    reply = deterministic
                                 else:
                                     # Anything else -> the grounded LLM assistant, which
                                     # answers free-form questions from real figures and
