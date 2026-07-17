@@ -131,7 +131,7 @@ class Settings(BaseSettings):
     # AI (Phase 5B) — BriefingService narration layer only, via app.services.llm's
     # pluggable LLMProvider + automatic failover chain. llm_provider is the
     # primary; llm_fallbacks (comma-separated, e.g. "gemini,groq,anthropic")
-    # is tried in order if the primary fails retryably. Any subset of the 5
+    # is tried in order if the primary fails retryably. Any subset of the
     # providers' credentials can be populated at once without conflict — a
     # provider with no key configured is skipped silently by the chain, never
     # silently proceeding with a missing key on the one it does try.
@@ -147,12 +147,6 @@ class Settings(BaseSettings):
     openrouter_model: str = Field(
         default="nvidia/nemotron-3-ultra-550b-a55b:free", alias="OPENROUTER_MODEL"
     )
-    # Cerebras — OpenAI-compatible endpoint (same integration shape as Groq),
-    # added as a 5th fallback with its own independent free-tier quota so a
-    # same-day exhaustion of Groq/Gemini/OpenRouter's quotas doesn't take the
-    # whole assistant down (see app/services/llm/cerebras_provider.py).
-    cerebras_api_key: str | None = Field(default=None, alias="CEREBRAS_API_KEY")
-    cerebras_model: str = Field(default="gpt-oss-120b", alias="CEREBRAS_MODEL")
     # GitHub Models — free with just a GitHub personal access token (models:
     # read permission), no separate billing signup at all. github_models_api_key
     # holds that PAT, not a traditional provider API key.
@@ -160,14 +154,10 @@ class Settings(BaseSettings):
     github_models_model: str = Field(default="openai/gpt-4o-mini", alias="GITHUB_MODELS_MODEL")
     # Cohere — free trial key via their OpenAI-compatible Compatibility API
     # (base_url swap, see app/services/llm/cohere_provider.py). Monthly call
-    # cap (not daily), independent from every other provider's quota.
+    # cap (not daily), independent from every other provider's quota. Verified
+    # working end-to-end (including tool calling) with a live key.
     cohere_api_key: str | None = Field(default=None, alias="COHERE_API_KEY")
     cohere_model: str = Field(default="command-r7b-12-2024", alias="COHERE_MODEL")
-    # NVIDIA NIM (build.nvidia.com) — OpenAI-compatible catalog endpoint.
-    nvidia_api_key: str | None = Field(default=None, alias="NVIDIA_API_KEY")
-    nvidia_model: str = Field(
-        default="meta/llama-3.3-70b-instruct", alias="NVIDIA_MODEL"
-    )
 
     # Agentic WhatsApp assistant: max tool-call rounds per message (loop guard),
     # and how many prior dialogue turns to load as multi-turn memory.
