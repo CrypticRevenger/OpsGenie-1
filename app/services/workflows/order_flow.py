@@ -62,37 +62,45 @@ def start_order_workflow(company: Company) -> str:
     return "Who is this order for? (dealer name)"
 
 
-def _preview_and_finalize(scratch: dict, gst_rate: Decimal) -> tuple[str, dict]:
+def _preview_and_finalize(scratch: dict, company_gst_rate: Decimal) -> tuple[str, dict]:
     """Builds the confirmation preview text and the PendingOperation payload
     from the collected raw items — never a precomputed total on its own, but
     a preview naturally has to show one; execute-time re-derives everything
     fresh against current prices/stock rather than trusting this text.
 
     The subtotal/GST/total breakdown must mirror what writes/orders.py's
-    create_order actually commits (subtotal → GST at the company's gst_rate →
-    total), so the user confirms the same number they'll be invoiced for. A
-    bare line-total sum with no GST would understate the real invoice total
-    for any GST-configured company.
+    create_order actually commits (each line's own GST rate — its own
+    override if set, else the company default — summed to a total), so the
+    user confirms the same number they'll be invoiced for. A bare line-total
+    sum with no GST would understate the real invoice total for any
+    GST-configured company.
     """
     dealer_name = scratch["dealer_name"]
     items = scratch["items"]
     lines = []
     subtotal = Decimal("0.00")
+    gst_amount = Decimal("0.00")
+    line_rates: set[Decimal] = set()
     for item in items:
         price = Decimal(item["price"]) if item.get("price") is not None else Decimal("0.00")
         quantity = Decimal(item["quantity"])
         line_total = (price * quantity).quantize(Decimal("0.01"))
+        item_gst_raw = item.get("gst_rate")
+        line_gst_rate = Decimal(item_gst_raw) if item_gst_raw is not None else company_gst_rate
+        line_gst_amount = (line_total * line_gst_rate / Decimal("100")).quantize(Decimal("0.01"))
         subtotal += line_total
+        gst_amount += line_gst_amount
+        line_rates.add(line_gst_rate)
         lines.append(
             f"- {quantity} x {item['product_name']} @ {format_inr(price)} "
             f"= {format_inr(line_total)}"
         )
 
-    gst_amount = (subtotal * gst_rate / Decimal("100")).quantize(Decimal("0.01"))
     total = subtotal + gst_amount
     total_lines = [f"Subtotal: {format_inr(subtotal)}"]
     if gst_amount > 0:
-        total_lines.append(f"GST ({gst_rate}%): {format_inr(gst_amount)}")
+        rate_label = f" ({next(iter(line_rates))}%)" if len(line_rates) == 1 else ""
+        total_lines.append(f"GST{rate_label}: {format_inr(gst_amount)}")
     total_lines.append(f"Total: {format_inr(total)}")
 
     preview = (
@@ -163,6 +171,7 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
             scratch["current_product"] = {
                 "name": product.name,
                 "price": str(product.selling_price),
+                "gst_rate": str(product.gst_rate) if product.gst_rate is not None else None,
             }
             scratch["step"] = "awaiting_quantity"
             company.workflow_scratch = scratch
@@ -171,7 +180,11 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if product is not None:
             # On file but no price recorded yet (common for products the
             # guided onboarding conversation created with a name only).
-            scratch["current_product"] = {"name": product.name, "price": None}
+            scratch["current_product"] = {
+                "name": product.name,
+                "price": None,
+                "gst_rate": str(product.gst_rate) if product.gst_rate is not None else None,
+            }
             scratch["step"] = "awaiting_price"
             company.workflow_scratch = scratch
             return f"What's the selling price for {product.name}?"
@@ -221,6 +234,7 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
                 "product_name": current["name"],
                 "quantity": str(quantity),
                 "price": current.get("price"),
+                "gst_rate": current.get("gst_rate"),
             }
         )
         scratch["items"] = items

@@ -104,6 +104,14 @@ class OnboardingState(enum.StrEnum):
     awaiting_language = "awaiting_language"
     awaiting_briefing_hour = "awaiting_briefing_hour"
     completed = "completed"
+    # Asked right after business type, before any product is collected —
+    # whether GST is one flat rate for the whole catalogue or varies by
+    # product. See app/services/onboarding_flow.py.
+    gst_mode_ask = "gst_mode_ask"
+    gst_rate_same = "gst_rate_same"
+    # Only reached when gst_mode_ask answered "varies" — asked once per
+    # product in the one-by-one loop, right after purchase price.
+    product_awaiting_gst_rate = "product_awaiting_gst_rate"
 
 
 class Company(UUIDMixin, TimestampMixin, Base):
@@ -135,6 +143,13 @@ class Company(UUIDMixin, TimestampMixin, Base):
     # surprise tax added to their invoices without configuring it first.
     gst_rate: Mapped[Decimal] = mapped_column(
         Numeric(5, 2), nullable=False, default=Decimal("0"), server_default=text("0")
+    )
+    # Set by onboarding's gst_mode_ask branch (or the "update gst" WhatsApp
+    # command) — when True, individual Product.gst_rate overrides are used
+    # instead of this single company-wide rate. See
+    # app/services/writes/orders.py::create_order.
+    gst_varies_by_product: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
     )
 
     # Phase 9 — InvoiceDueDateFollowUpService conversation state (see

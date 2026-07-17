@@ -10,7 +10,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, Uuid
+from sqlalchemy import ForeignKey, Numeric, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -41,6 +41,12 @@ class InvoiceItem(UUIDMixin, Base):
     quantity: Mapped[Decimal] = mapped_column(Quantity, nullable=False)
     unit_price: Mapped[Decimal] = mapped_column(Money, nullable=False)
     line_total: Mapped[Decimal] = mapped_column(Money, nullable=False)
+    # Snapshot of the rate/amount actually applied to this line at invoice
+    # time (from Product.gst_rate or the company default, whichever applied
+    # then) — never rewritten by a later rate change, so historical invoices
+    # stay accurate. See app/services/writes/orders.py::create_order.
+    gst_rate: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False, default=Decimal("0"))
+    gst_amount: Mapped[Decimal] = mapped_column(Money, nullable=False, default=Decimal("0"))
 
     # ── Relationships ────────────────────────────────────────────────────────
     invoice: Mapped[Invoice] = relationship("Invoice", back_populates="items")

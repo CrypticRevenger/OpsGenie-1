@@ -27,23 +27,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
 from app.models.product import Product
+from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import (
-    _BULK_PURCHASE_PRICE_PROMPT,
-    _BULK_UNIT_PROMPT,
+    _BULK_FORMAT_PROMPT,
     _UNIT_PROMPT,
     _classify_product_mode,
     _describe_product,
     _format_quantity,
     _is,
-    _parse_bulk_products,
+    _parse_bulk_line,
 )
 
 _MODE_PROMPT = (
     "Let's add products. Reply 'one by one' to add them individually, "
-    "or 'bulk' to send them all at once with prices (e.g. Rice - 400, Dal - 450). "
-    "Reply 'done' to stop anytime."
+    "or 'bulk' to send them all at once with full details "
+    "(e.g. Rice, 300, 400, kg, 100, 5). Reply 'done' to stop anytime."
 )
 
 
@@ -55,6 +55,41 @@ def start_add_product_workflow(company: Company) -> str:
     company.active_workflow = "add_product"
     company.workflow_scratch = {"step": "awaiting_mode"}
     return _MODE_PROMPT
+
+
+def _finalize_add_product(
+    db: AsyncSession,
+    company: Company,
+    scratch: dict,
+    purchase_price: Decimal | None,
+    gst_rate: Decimal | None,
+) -> str:
+    """Creates the Product row from the one-by-one loop's accumulated
+    scratch fields — reached either directly after purchase price
+    (gst_varies_by_product False) or after the extra GST question (True).
+    """
+    name = scratch.get("name", "Product")
+    quantity = Decimal(scratch.get("quantity", "0"))
+    unit = scratch.get("unit")
+    price_raw = scratch.get("price")
+    price = Decimal(price_raw) if price_raw is not None else None
+    db.add(
+        Product(
+            company_id=company.id,
+            name=name,
+            stock_quantity=quantity,
+            unit=unit,
+            selling_price=price,
+            purchase_price=purchase_price,
+            gst_rate=gst_rate,
+        )
+    )
+    company.workflow_scratch = {"step": "awaiting_name"}
+    unit_suffix = f" {unit}" if unit else ""
+    return (
+        f"Added product: {name} ({_format_quantity(quantity)}{unit_suffix} in stock). "
+        "Send another, or 'done'."
+    )
 
 
 async def handle_add_product_workflow_message(db: AsyncSession, company: Company, text: str) -> str:
@@ -80,10 +115,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
         if mode == "bulk":
             scratch["step"] = "awaiting_bulk"
             company.workflow_scratch = scratch
-            return (
-                "Send your products now — one per line or comma-separated, with an "
-                "optional price (e.g. Rice - 400, Dal - 450). Reply 'done' when finished."
-            )
+            return _BULK_FORMAT_PROMPT
         if mode == "one_by_one":
             scratch["step"] = "awaiting_name"
             company.workflow_scratch = scratch
@@ -95,55 +127,34 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
             company.active_workflow = None
             company.workflow_scratch = None
             return "All done adding products."
-        parsed = _parse_bulk_products(stripped)
-        if not parsed:
-            return (
-                "I couldn't find any products in that message. List them one per line or "
-                "comma-separated, with an optional price (e.g. Rice - 400, Dal - 450)."
-            )
-        scratch["pending_bulk"] = [
-            [name, str(price) if price is not None else None] for name, price in parsed
-        ]
-        scratch["step"] = "awaiting_bulk_unit"
-        company.workflow_scratch = scratch
-        return _BULK_UNIT_PROMPT
-
-    if step == "awaiting_bulk_unit":
-        unit = None if _is(stripped, "skip") else stripped
-        company.workflow_scratch = {
-            "step": "awaiting_bulk_purchase_price",
-            "pending_bulk": scratch.get("pending_bulk", []),
-            "unit": unit,
-        }
-        return _BULK_PURCHASE_PRICE_PROMPT
-
-    if step == "awaiting_bulk_purchase_price":
-        unit = scratch.get("unit")
-        pending = [
-            (item[0], Decimal(item[1]) if item[1] is not None else None)
-            for item in scratch.get("pending_bulk", [])
-        ]
-        purchase_prices: dict[str, Decimal] = {}
-        if not _is(stripped, "skip", "no", "none", "done"):
-            purchase_prices = {
-                name.lower(): price
-                for name, price in _parse_bulk_products(stripped)
-                if price is not None
-            }
-        for name, price in pending:
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return _BULK_FORMAT_PROMPT
+        parsed_items = []
+        for line in lines:
+            try:
+                parsed_items.append(_parse_bulk_line(line))
+            except ValueError as exc:
+                return f"Couldn't read that: {exc}\n\n{_BULK_FORMAT_PROMPT}"
+        for item in parsed_items:
             db.add(
                 Product(
                     company_id=company.id,
-                    name=name,
-                    selling_price=price,
-                    unit=unit,
-                    purchase_price=purchase_prices.get(name.lower()),
+                    name=item["name"],
+                    stock_quantity=item["stock"],
+                    unit=item["unit"],
+                    selling_price=item["selling_price"],
+                    purchase_price=item["purchase_price"],
+                    gst_rate=item["gst_rate"],
                 )
             )
-        names = ", ".join(_describe_product(name, price, unit) for name, price in pending)
-        company.workflow_scratch = {"step": "awaiting_bulk"}
+        names = ", ".join(
+            _describe_product(item["name"], item["selling_price"], item["unit"])
+            for item in parsed_items
+        )
         return (
-            f"Added {len(pending)} product(s): {names}. Send more, or reply 'done' when finished."
+            f"Added {len(parsed_items)} product(s): {names}. "
+            "Send more, or reply 'done' when finished."
         )
 
     if step == "awaiting_name":
@@ -196,27 +207,27 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
                 purchase_price = parse_amount(stripped)
             except ValueError:
                 return "Please send a number, e.g. 300 (or 'skip')."
-        name = scratch.get("name", "Product")
-        quantity = Decimal(scratch.get("quantity", "0"))
-        unit = scratch.get("unit")
-        price_raw = scratch.get("price")
-        price = Decimal(price_raw) if price_raw is not None else None
-        db.add(
-            Product(
-                company_id=company.id,
-                name=name,
-                stock_quantity=quantity,
-                unit=unit,
-                selling_price=price,
-                purchase_price=purchase_price,
-            )
-        )
-        company.workflow_scratch = {"step": "awaiting_name"}
-        unit_suffix = f" {unit}" if unit else ""
-        return (
-            f"Added product: {name} ({_format_quantity(quantity)}{unit_suffix} in stock). "
-            "Send another, or 'done'."
-        )
+        if company.gst_varies_by_product:
+            scratch["purchase_price"] = str(purchase_price) if purchase_price is not None else None
+            scratch["step"] = "awaiting_gst_rate"
+            company.workflow_scratch = scratch
+            name = scratch.get("name", "this product")
+            return f"What's the GST% for {name}? (e.g. 5, 12, 18, or 'skip' to decide later)"
+        return _finalize_add_product(db, company, scratch, purchase_price, None)
+
+    if step == "awaiting_gst_rate":
+        gst_rate = None
+        if not _is(stripped, "skip", "not sure", "done"):
+            try:
+                gst_rate = parse_gst_rate(stripped)
+            except ValueError:
+                return (
+                    "Please send a number between 0 and 100, e.g. 18 "
+                    "(or 'skip' to decide later)."
+                )
+        purchase_price_raw = scratch.get("purchase_price")
+        purchase_price = Decimal(purchase_price_raw) if purchase_price_raw is not None else None
+        return _finalize_add_product(db, company, scratch, purchase_price, gst_rate)
 
     # Unreachable in practice (every step above is exhaustive for this flow),
     # but never leave a company stuck in an unknown workflow step.
