@@ -111,6 +111,59 @@ Verified enum↔DB parity (all 6 enum types), single migration head, config↔`.
 
 ## What remains to do
 
+> ⭐ = explicitly requested next / high customer value. Items reference existing code where a foundation already exists to build on.
+
+### ⭐ Multilingual support (Hindi / Odia / Telugu / regional)
+Onboarding already collects a `language` preference, but replies are English-only. To be genuinely multi-lingual for our Berhampur/Odisha (and wider Indian) base:
+- [ ] **Localize the deterministic surfaces** — the menu, `instant_reports.py`, workflow prompts (`workflows/*`, `onboarding_flow.py`), follow-up questions, notification/briefing text, and error messages are all hardcoded English strings. Introduce a message catalog keyed by `company.language` (deterministic text stays deterministic — translated, not LLM-generated).
+- [ ] **Drive LLM narration + assistant replies in the chosen language** (the provider chain already handles this; just pass the language through the system prompt).
+- [ ] **Unicode invoice PDF** — `invoice_pdf.py` currently downgrades non-Latin-1 names to `?` (the `def0c1c` fix). Bundling a Unicode TTF (e.g. Noto Sans / DejaVu with Devanagari + Odia + Telugu glyphs) would render real regional names on invoices. (Deferred earlier to keep deps small — this is the trade-off to revisit for multilingual.)
+- [ ] **Language switch command** ("change language" / भाषा बदलें) so a distributor can switch after onboarding.
+- [ ] **Numerals & date formatting** per locale where appropriate (Indian digit grouping already done in `money_format.py`).
+
+### ⭐ Reports & downloadable statements — Vyapar / Tally style
+Today there is one all-time Excel workbook (`company_export.py`). Distributors expect **period-scoped, standard accounting reports** they can download:
+- [ ] **Month-wise / date-range filtering** on every export (the builder already streams; add `from`/`to` params, and a "month" shortcut).
+- [ ] **Party ledger statement** — per-dealer / per-supplier running-balance ledger (opening balance → each invoice/payment → closing balance), the single most-requested Tally report. Download per party + WhatsApp "ledger <name>".
+- [ ] **Payment / receipt register** by month (a dedicated sheet, not just the transactions list).
+- [ ] **GST reports** — GSTR-1-style sales register and purchase register by month (GST is already captured per line/invoice).
+- [ ] **Sales & purchase registers**, day book, and an **outstanding (aging) report** bucketed 0–30 / 31–60 / 61–90 / 90+ days.
+- [ ] **PDF versions** of the key statements (not just Excel) for easy sharing; expose them through the same short-lived signed-link mechanism already used for the workbook.
+- [ ] **WhatsApp triggers** for each ("this month's ledger", "GST report", "outstanding report") returning a signed download link.
+
+### ⭐ Proactive early-warning alerts (7 days ahead)
+The snapshot already computes 7-day expected collections/payments and a `cash_deficit` flag, but nothing sends a *forward-looking* heads-up. Wire scheduled predictive alerts on top of the existing engine:
+- [ ] **Cash-shortage forecast** — "⚠️ Cash is projected to go negative in ~N days (expected out ₹X > cash+in ₹Y)"; a scheduled `NotificationEngine` rule using the 7-day window, deduped like the existing rules.
+- [ ] **Stock-out forecast** — using sales velocity (units sold / period from `InvoiceItem`) vs current `stock_quantity`, alert "Product X will run out in ~N days at current sales pace." Also covers the unbuilt V0.3 "inventory alerts" item.
+- [ ] **Overdue-about-to-happen** — nudge before an invoice's due date, not only after (complements the existing after-due follow-up flow).
+- [ ] Fold all three into the morning briefing as a "Watch this week" section, and as standalone push alerts.
+
+### Onboarding improvements
+- [ ] **Seed from an existing export** — let a new distributor upload their Tally/Vyapar file during onboarding to bootstrap dealers/suppliers/invoices, instead of typing everything (importer already exists; wire it into the onboarding flow).
+- [ ] **Per-party opening balances** — capture each dealer/supplier's existing outstanding at onboarding so historical balances are correct from day one (today only company opening cash is collected).
+- [ ] **Self-serve reconciliation check** — after seeding, show the distributor a computed outstanding per party and ask them to confirm it matches their books (the AP BIOCARE ₹3,19,828 check, made self-serve).
+- [ ] **Resume/partial onboarding** — let a distributor pause and continue later; show a progress indicator.
+
+### Interaction & input improvements
+- [ ] **Voice notes** — accept WhatsApp audio, transcribe, and route through the same handlers (huge for low-literacy operators; SPEC lists voice as Future).
+- [ ] **Invoice photo → OCR** — accept an image of a paper invoice and pre-fill an order/invoice for confirmation (SPEC V0.3/Future).
+- [ ] **Dealer-facing reminders** — send overdue reminders directly to the *dealer's* WhatsApp (with the distributor's consent), not only to the distributor.
+- [ ] **Richer confirmations** — show before/after state on every write ("stock 40 → 30", "outstanding ₹3,19,828 → ₹2,70,478").
+- [ ] **Delivery/read status surfaced** to the distributor for messages they trigger (data is already captured in `NotificationLog`).
+
+### Edit / correction / data-management
+- [ ] **Undo / void** a just-recorded payment or order (mistakes happen; there is no reversal path today — only create).
+- [ ] **Edit an invoice/payment** after creation (amount, date, party) with a full audit trail.
+- [ ] **Edit party details over WhatsApp** — phone, credit limit, payment terms, GSTIN (currently only via admin API/dashboard).
+- [ ] **Stock-take / bulk stock adjustment** flow (count correction, not just per-sale decrement).
+
+### Validation & data-integrity
+- [ ] **Duplicate-entry warning at capture time** — warn on a likely-duplicate invoice/payment before writing (ties to the known `(party, date, amount)` idempotency gap below).
+- [ ] **Credit-limit breach warning** — when an order would push a dealer over their `credit_limit`, flag it in the confirm step (limit is already stored and used in risk scoring).
+- [ ] **GSTIN format validation** — the 15-char India GSTIN checksum, on entry.
+- [ ] **Phone normalization/validation** to E.164 at every entry point (webhook already normalizes; entry forms/flows should too).
+- [ ] **Consistent amount/quantity guards** — extend the existing negative/zero rejections uniformly across all write flows.
+
 ### Deployment / ops (verify & finish)
 - [ ] **Confirm production is redeployed** with the latest `master` (through `def0c1c`) and that Alembic migrations have been run on the Neon prod DB (it's a manual/one-shot step; local DB is at head).
 - [ ] **Set production env vars** correctly — notably `PUBLIC_BASE_URL` (local `.env` currently points to `http://localhost:8000`; prod must be the real Render URL for export/onboarding links to work).
@@ -123,8 +176,8 @@ Verified enum↔DB parity (all 6 enum types), single migration head, config↔`.
 
 ### V0.3 features not yet built
 - [ ] **Marketing broadcast** to the dealer network.
-- [ ] **Business analytics / trend reporting** beyond today + month-to-date (e.g. week-over-week, dealer trends).
-- [ ] **Inventory alerts** derived from sales data (low-stock nudges) — stock is tracked now, alerts are not.
+- [ ] **Business analytics / trend reporting** beyond today + month-to-date (e.g. week-over-week, dealer trends) — overlaps the reports section above.
+- [ ] **Inventory alerts** — covered by the ⭐ 7-day stock-out forecast above (stock is tracked now, alerts are not).
 
 ### Known gaps / tech debt (deliberately deferred, pilot-acceptable)
 - [ ] **Payment idempotency** keys on `(party, date, amount)` — a genuine same-day, same-amount duplicate payment can still be dropped as a "re-import".
