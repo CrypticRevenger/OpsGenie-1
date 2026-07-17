@@ -10,6 +10,7 @@ against a plain (unauthenticated-by-admin-standards) client.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -1010,6 +1011,55 @@ async def test_redelivered_message_is_not_reprocessed(db: AsyncSession, monkeypa
         await db.scalars(select(NotificationLog).where(NotificationLog.company_id == company_id))
     ).all()
     assert len(logs) == 1
+
+
+@pytest.mark.asyncio
+async def test_concurrent_redelivery_of_slow_reply_sends_only_one(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """test_redelivered_message_is_not_reprocessed above covers sequential
+    redelivery (first request fully finishes before the second arrives).
+    Meta's retries aren't guaranteed sequential — a reply slow enough (an LLM
+    call, or "menu"'s 3 sends) can still be in flight when the retry lands,
+    at which point the existing dedup check (looking for an already-*sent*
+    reply) can't see anything yet and would let both process, sending two
+    replies. The advisory lock in the webhook must make the second delivery
+    block until the first actually finishes, then correctly see it as done.
+    """
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+    call_count = 0
+
+    async def _slow_then_fast_assistant(db, company, text) -> str:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await asyncio.sleep(0.3)  # simulate a slow LLM round-trip
+        return "the answer"
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.answer_question", _slow_then_fast_assistant)
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    payload = _messages_payload(sender=bare_sender, text="some free-form question")
+    fixed_message_id = payload["entry"][0]["changes"][0]["value"]["messages"][0]["id"]
+    body = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)}
+
+    async def _post():
+        async with await _anon_client() as client:
+            return await client.post("/webhooks/whatsapp", content=body, headers=headers)
+
+    resp1, resp2 = await asyncio.gather(_post(), _post())
+    assert resp1.status_code == 200
+    assert resp2.status_code == 200
+    assert len(sent) == 1, f"expected exactly one reply for message {fixed_message_id}, got {sent}"
 
 
 @pytest.mark.asyncio
