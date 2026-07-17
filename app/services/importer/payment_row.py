@@ -105,6 +105,51 @@ async def _already_imported(db: AsyncSession, company_id: uuid.UUID, source_row_
     return existing is not None
 
 
+async def open_invoices_with_outstanding(
+    db: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    direction: Direction,
+    party_id: uuid.UUID,
+    invoice_id: uuid.UUID | None = None,
+) -> list[tuple[Invoice, Decimal]]:
+    """Every open (Pending/Partially_Paid) invoice for one party, oldest
+    first, paired with its own remaining balance (total_amount minus
+    payments already recorded against it). `invoice_id` narrows to a single
+    invoice when the caller already knows which one — same query shape
+    either way, so allocate_payment_fifo and the "record payment" guided
+    flow's invoice-picker (app/services/workflows/payment_flow.py) share one
+    query pattern instead of two near-identical ones.
+    """
+    party_column = Invoice.dealer_id if direction == "receivable" else Invoice.supplier_id
+    stmt = select(Invoice).where(
+        Invoice.company_id == company_id,
+        Invoice.direction == InvoiceDirection(direction),
+        party_column == party_id,
+        Invoice.status.in_([InvoiceStatus.Pending, InvoiceStatus.Partially_Paid]),
+    )
+    if invoice_id is not None:
+        stmt = stmt.where(Invoice.id == invoice_id)
+    stmt = stmt.order_by(Invoice.invoice_date, Invoice.invoice_number)
+    open_invoices = list((await db.execute(stmt)).scalars().all())
+    if not open_invoices:
+        return []
+
+    # One grouped query for all open invoices' paid-to-date, instead of one
+    # SUM query per invoice (was O(rows x open invoices) per payment file).
+    invoice_ids = [invoice.id for invoice in open_invoices]
+    paid_rows = await db.execute(
+        select(Payment.invoice_id, func.sum(Payment.amount))
+        .where(Payment.invoice_id.in_(invoice_ids))
+        .group_by(Payment.invoice_id)
+    )
+    paid_by_invoice: dict[uuid.UUID, Decimal] = dict(paid_rows.all())
+    return [
+        (invoice, invoice.total_amount - paid_by_invoice.get(invoice.id, Decimal("0.00")))
+        for invoice in open_invoices
+    ]
+
+
 async def allocate_payment_fifo(
     db: AsyncSession,
     *,
@@ -121,40 +166,32 @@ async def allocate_payment_fifo(
     source_row_key: str,
     source: PaymentSource = PaymentSource.csv_import,
     created_by: str = "import",
+    invoice_id: uuid.UUID | None = None,
 ) -> list[tuple[Invoice, Decimal, Payment]]:
     """Returns the (invoice, amount_allocated, payment) splits actually made —
     the CSV import path ignores this; app/services/writes/payments.py's
     record_payment uses it to report which invoices a WhatsApp-recorded
     payment touched.
+
+    `invoice_id` targets one specific invoice (re-validated fresh here, same
+    "never trust the preview" contract as every PendingOperation-backed
+    write) instead of spreading the payment across every open invoice —
+    set when the WhatsApp guided flow's invoice-picker resolved to (or the
+    user explicitly chose) a single invoice. None preserves the original
+    FIFO-across-all-open-invoices behavior, unchanged for CSV imports (which
+    never name an invoice) and for a party with only one open invoice.
     """
-    party_column = Invoice.dealer_id if direction == "receivable" else Invoice.supplier_id
-    stmt = (
-        select(Invoice)
-        .where(
-            Invoice.company_id == company_id,
-            Invoice.direction == InvoiceDirection(direction),
-            party_column == party_id,
-            Invoice.status.in_([InvoiceStatus.Pending, InvoiceStatus.Partially_Paid]),
-        )
-        .order_by(Invoice.invoice_date, Invoice.invoice_number)
+    invoices_with_outstanding = await open_invoices_with_outstanding(
+        db, company_id=company_id, direction=direction, party_id=party_id, invoice_id=invoice_id
     )
-    open_invoices = list((await db.execute(stmt)).scalars().all())
-    if not open_invoices:
+    if not invoices_with_outstanding:
+        if invoice_id is not None:
+            raise ValueError(f"that invoice for {party_name} is no longer open")
         raise ValueError(f"no outstanding invoice on file for {party_name}")
 
-    # One grouped query for all open invoices' paid-to-date, instead of one
-    # SUM query per invoice (was O(rows x open invoices) per payment file).
-    invoice_ids = [invoice.id for invoice in open_invoices]
-    paid_rows = await db.execute(
-        select(Payment.invoice_id, func.sum(Payment.amount))
-        .where(Payment.invoice_id.in_(invoice_ids))
-        .group_by(Payment.invoice_id)
-    )
-    paid_by_invoice: dict[uuid.UUID, Decimal] = dict(paid_rows.all())
-
+    open_invoices = [invoice for invoice, _outstanding in invoices_with_outstanding]
     remaining_by_invoice: dict[uuid.UUID, Decimal] = {
-        invoice.id: invoice.total_amount - paid_by_invoice.get(invoice.id, Decimal("0.00"))
-        for invoice in open_invoices
+        invoice.id: outstanding for invoice, outstanding in invoices_with_outstanding
     }
 
     total_outstanding = sum(remaining_by_invoice.values(), Decimal("0.00"))

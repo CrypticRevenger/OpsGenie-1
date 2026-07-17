@@ -87,6 +87,7 @@ async def execute_pending_operation(
     """
     if op.operation_type == PendingOperationType.record_payment:
         payload = op.payload
+        payload_invoice_id = payload.get("invoice_id")
         try:
             result = await record_payment(
                 db,
@@ -95,6 +96,7 @@ async def execute_pending_operation(
                 party_name=payload["party_name"],
                 amount=Decimal(payload["amount"]),
                 payment_date=date.fromisoformat(payload["payment_date"]),
+                invoice_id=uuid.UUID(payload_invoice_id) if payload_invoice_id else None,
             )
         except (ValueError, KeyError, TypeError) as exc:
             # ValueError covers the real re-validation failures

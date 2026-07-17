@@ -46,12 +46,19 @@ async def record_payment(
     party_name: str,
     amount: Decimal,
     payment_date: date_type,
+    invoice_id: uuid.UUID | None = None,
 ) -> RecordPaymentResult:
     """Record a WhatsApp-guided payment against a party's open invoices.
 
+    invoice_id targets one specific invoice (resolved by the guided flow's
+    invoice-picker) instead of spreading across every open invoice — see
+    allocate_payment_fifo's own docstring for the None-preserves-FIFO
+    contract.
+
     Raises ValueError (via allocate_payment_fifo) if the party has no open
-    invoice on file, or if amount exceeds their total outstanding — the
-    caller turns this into a friendly reply rather than committing bad data.
+    invoice on file, the named invoice is no longer open, or the amount
+    exceeds outstanding — the caller turns this into a friendly reply rather
+    than committing bad data.
     """
     party = await find_or_create_party(db, company.id, direction, party_name)
 
@@ -70,6 +77,7 @@ async def record_payment(
         source_row_key=f"whatsapp:{uuid.uuid4()}",
         source=PaymentSource.whatsapp,
         created_by="whatsapp_workflow",
+        invoice_id=invoice_id,
     )
 
     remaining = await calculate_party_outstanding(db, direction=direction, party_id=party.id)
