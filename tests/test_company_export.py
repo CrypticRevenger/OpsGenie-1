@@ -122,10 +122,10 @@ async def test_fresh_company_produces_headers_only_sheets(db: AsyncSession) -> N
         "Invoices",
         "Payments",
         "Daily Business Summary",
-        "Activity Log",
         "FAQs",
     }
     assert expected_sheets.issubset(set(wb.sheetnames))
+    assert "Activity Log" not in wb.sheetnames
 
     products_rows = list(wb["Products"].iter_rows(values_only=True))
     assert len(products_rows) == 1  # header row only
@@ -139,7 +139,7 @@ async def test_workbook_reflects_real_data(db: AsyncSession) -> None:
     wb = _load(await build_company_workbook(db, company))
 
     invoice_rows = list(wb["Invoices"].iter_rows(values_only=True))
-    assert len(invoice_rows) == 2  # header + 1 invoice
+    assert len(invoice_rows) == 3  # header + 1 invoice + total
     data_row = invoice_rows[1]
     assert data_row[0].startswith("WA-")
     assert data_row[2] == "Ram Traders"
@@ -147,7 +147,7 @@ async def test_workbook_reflects_real_data(db: AsyncSession) -> None:
     assert data_row[11] == 600  # Amount Outstanding
 
     receivables_rows = list(wb["Receivables"].iter_rows(values_only=True))
-    assert len(receivables_rows) == 2
+    assert len(receivables_rows) == 3  # header + 1 invoice + total
     assert receivables_rows[1][4] == 600  # Amount Outstanding
 
     dealers_rows = list(wb["Dealers"].iter_rows(values_only=True))
@@ -186,7 +186,7 @@ async def test_export_never_leaks_across_companies(db: AsyncSession) -> None:
 
     a_invoices = list(wb_a["Invoices"].iter_rows(values_only=True))
     b_invoices = list(wb_b["Invoices"].iter_rows(values_only=True))
-    assert len(a_invoices) == 2
+    assert len(a_invoices) == 3  # header + 1 invoice + total
     assert len(b_invoices) == 1  # header only — no data leaked from company_a
 
 
