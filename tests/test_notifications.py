@@ -27,6 +27,7 @@ from app.services.notifications import (
     check_stale_data_alert,
     check_supplier_payment_reminders,
     notify_briefing_failed,
+    notify_briefing_generation_failed,
     send_founder_alert,
 )
 from app.services.snapshot import (
@@ -326,3 +327,44 @@ async def test_notify_briefing_failed_alerts_founder(db: AsyncSession, recorded_
     )
     assert event is not None
     assert event.payload["reason"] == "briefing_failed"
+
+
+@pytest.mark.asyncio
+async def test_notify_briefing_generation_failed_alerts_founder(
+    db: AsyncSession, recorded_sends, monkeypatch
+):
+    founder = _unique_phone()
+    _set_founder_number(monkeypatch, founder)
+    company = await _make_company(db)
+
+    fired = await notify_briefing_generation_failed(db, company, NOW)
+    await db.commit()
+
+    assert fired is True
+    assert recorded_sends[0][0] == founder
+    assert "Briefing Generation Failed" in recorded_sends[0][1]
+    event = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.company_id == company.id,
+            BusinessEvent.event_type == BusinessEventType.founder_alert_sent,
+        )
+    )
+    assert event is not None
+    assert event.payload["reason"] == "briefing_failed"
+
+
+@pytest.mark.asyncio
+async def test_notify_briefing_generation_failed_dedups_same_day(
+    db: AsyncSession, recorded_sends, monkeypatch
+):
+    _set_founder_number(monkeypatch, _unique_phone())
+    company = await _make_company(db)
+
+    first = await notify_briefing_generation_failed(db, company, NOW)
+    await db.commit()
+    second = await notify_briefing_generation_failed(db, company, NOW)
+    await db.commit()
+
+    assert first is True
+    assert second is False
+    assert len(recorded_sends) == 1

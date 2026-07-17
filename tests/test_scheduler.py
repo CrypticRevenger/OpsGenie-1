@@ -57,6 +57,7 @@ def spies(monkeypatch):
         "followup": [],
         "notify": [],
         "briefing_failed": [],
+        "generation_failed": [],
         "evening_brief": [],
     }
 
@@ -93,6 +94,10 @@ def spies(monkeypatch):
         calls["briefing_failed"].append(company.id)
         return True
 
+    async def _generation_failed(db, company, now):
+        calls["generation_failed"].append(company.id)
+        return True
+
     async def _evening_brief(db, company):
         calls["evening_brief"].append(company.id)
         return True
@@ -102,6 +107,7 @@ def spies(monkeypatch):
     monkeypatch.setattr(scheduler, "send_due_today_follow_up", _followup)
     monkeypatch.setattr(scheduler, "run_notification_checks", _notify)
     monkeypatch.setattr(scheduler, "notify_briefing_failed", _briefing_failed)
+    monkeypatch.setattr(scheduler, "notify_briefing_generation_failed", _generation_failed)
     monkeypatch.setattr(scheduler, "send_evening_brief", _evening_brief)
     return calls
 
@@ -153,6 +159,51 @@ async def test_briefing_not_regenerated_if_already_sent_today(db: AsyncSession, 
     await _dispatch_for_company(company.id, _at(8))  # first: generates
     await _dispatch_for_company(company.id, _at(8))  # second: must skip
     assert spies["generate"] == [company.id]  # only once
+
+
+@pytest.mark.asyncio
+async def test_generation_failure_alerts_founder_not_scheduler_crash(
+    db: AsyncSession, spies, monkeypatch
+) -> None:
+    """If generate_briefing() itself raises (e.g. every LLM provider in the
+    fallback chain failed), the company's dispatch must not blow up — it
+    should alert the founder and record the failure in diagnostics, exactly
+    like a post-generation send failure does.
+    """
+
+    async def _failing_gen(db, company_id):
+        raise RuntimeError("all providers exhausted")
+
+    monkeypatch.setattr(scheduler, "generate_briefing", _failing_gen)
+
+    company = await _make_company(db)
+    result = await _dispatch_for_company(company.id, _at(8))
+
+    assert spies["generation_failed"] == [company.id]
+    assert spies["send"] == []  # never reached _deliver_briefing
+    assert "generation_failed_founder_alerted" in result["actions"]["briefing"]
+
+
+@pytest.mark.asyncio
+async def test_generation_failure_does_not_block_retry_hour_next_tick(
+    db: AsyncSession, spies, monkeypatch
+) -> None:
+    """No MorningBriefing row exists after a generation failure, so the
+    following retry-hour tick must find "nothing to retry" rather than
+    erroring — it only resends an existing failed_to_send row.
+    """
+
+    async def _failing_gen(db, company_id):
+        raise RuntimeError("all providers exhausted")
+
+    monkeypatch.setattr(scheduler, "generate_briefing", _failing_gen)
+
+    company = await _make_company(db)
+    await _dispatch_for_company(company.id, _at(8))
+    result = await _dispatch_for_company(company.id, _at(9))
+
+    assert spies["briefing_failed"] == []  # retry path never triggered
+    assert "no_retry_needed" in result["actions"]["briefing"]
 
 
 # ── Retry + founder alert ────────────────────────────────────────────────────

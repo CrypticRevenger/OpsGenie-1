@@ -340,6 +340,36 @@ async def notify_briefing_failed(db: AsyncSession, company: Company) -> bool:
     )
 
 
+async def notify_briefing_generation_failed(
+    db: AsyncSession, company: Company, now: datetime
+) -> bool:
+    """Founder alert when generate_briefing() itself raises — e.g. every
+    configured LLM provider failed or was misconfigured — before any
+    MorningBriefing row was even created. Distinct from notify_briefing_failed,
+    which only covers a send failing *after* generation already succeeded.
+    Without this, a broken LLM chain silently produces zero briefings, zero
+    retries (there's no row for the 9am retry hour to find), and zero
+    visibility — exactly what let real production briefings go dark for days.
+
+    Dedups once per company per business day via the shared founder_alert_sent
+    reason: the scheduler tick can poll several times within the same matching
+    hour, and every one of those would otherwise re-attempt generation and
+    re-alert.
+    """
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if await _founder_alert_sent_since(db, company.id, _BRIEFING_FAILED_REASON, day_start):
+        return False
+    message = (
+        f"🚨 Briefing Generation Failed — {company.business_name}\n\n"
+        f"Today's morning briefing could not be generated for {company.business_name} "
+        "— the AI narration step errored out before anything was sent.\n"
+        "Check the LLM provider configuration (API keys, model names)."
+    )
+    return await send_founder_alert(
+        db, company=company, reason=_BRIEFING_FAILED_REASON, message=message
+    )
+
+
 # ── Orchestrator ────────────────────────────────────────────────────────────
 
 
