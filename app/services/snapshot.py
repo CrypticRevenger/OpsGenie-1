@@ -94,6 +94,13 @@ class Snapshot:
     data_freshness_hours: float | None
     data_completeness_score: float | None  # stubbed None — no daily-import tracking yet
     confidence_score: float
+    # Added so RecommendationEngine's company-level actions (cash_deficit_warning,
+    # stale_data_warning) can name the business instead of surfacing its raw
+    # UUID in customer-facing text — build_recommendations() stays a pure
+    # function of a Snapshot (no DB access), it just gets more of what's
+    # already fetched here. Defaulted so existing test fixtures that build a
+    # Snapshot without it don't break.
+    business_name: str = "Your Company"
 
 
 def is_cash_sufficient(cash_available: Decimal, amount: Decimal) -> bool:
@@ -341,4 +348,5 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
         data_freshness_hours=freshness_hours,
         data_completeness_score=None,
         confidence_score=_confidence_score(freshness_hours),
+        business_name=company.business_name,
     )
