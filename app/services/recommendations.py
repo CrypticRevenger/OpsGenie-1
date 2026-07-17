@@ -61,7 +61,7 @@ def build_recommendations(snapshot: Snapshot) -> list[ActionItem]:
             ActionItem(
                 priority=1,
                 action_type="cash_deficit_warning",
-                entity_name=f"Company {snapshot.company_id}",
+                entity_name=snapshot.business_name,
                 entity_id=snapshot.company_id,
                 amount=deficit,
                 reason=f"Net cash position is a shortfall of {deficit} over the next 7 days.",
@@ -130,7 +130,7 @@ def build_recommendations(snapshot: Snapshot) -> list[ActionItem]:
             ActionItem(
                 priority=3,
                 action_type="stale_data_warning",
-                entity_name=f"Company {snapshot.company_id}",
+                entity_name=snapshot.business_name,
                 entity_id=snapshot.company_id,
                 amount=None,
                 reason=(

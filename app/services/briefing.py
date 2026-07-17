@@ -50,8 +50,9 @@ SYSTEM_PROMPT_TEMPLATE = (
     "following structured business data into a brief, friendly, sectioned WhatsApp "
     "morning briefing in {language}. Sections: Cash Position, Attention Required, "
     "Today's Actions. Every number comes from the data provided — do not add, "
-    "estimate, or modify any figure. Keep each section to 3 to 5 lines. Use simple "
-    "language readable in 30 seconds on a phone screen."
+    "estimate, or modify any figure. Always write every money amount with a ₹ "
+    "prefix (e.g. ₹90,000.00) — never a bare number and never $. Keep each section "
+    "to 3 to 5 lines. Use simple language readable in 30 seconds on a phone screen."
 )
 
 _AMOUNT_RE = re.compile(r"₹\s?([\d,]+(?:\.\d+)?)")

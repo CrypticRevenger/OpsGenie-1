@@ -31,6 +31,7 @@ def _base_snapshot(**overrides) -> Snapshot:
         data_freshness_hours=1.0,
         data_completeness_score=None,
         confidence_score=100.0,
+        business_name="Test Company",
     )
     defaults.update(overrides)
     return Snapshot(**defaults)
@@ -72,6 +73,8 @@ def test_cash_deficit_fires_warning():
     assert len(warnings) == 1
     assert warnings[0].priority == 1
     assert warnings[0].amount == Decimal("65000.00")
+    # Customer-facing text must never leak the raw company UUID.
+    assert warnings[0].entity_name == "Test Company"
 
 
 def test_no_cash_deficit_no_warning():
@@ -185,7 +188,10 @@ def test_call_dealer_actions_ordered_by_outstanding_descending():
 def test_stale_data_over_24h_fires_warning():
     snapshot = _base_snapshot(data_freshness_hours=48.0)
     actions = build_recommendations(snapshot)
-    assert len([a for a in actions if a.action_type == "stale_data_warning"]) == 1
+    warnings = [a for a in actions if a.action_type == "stale_data_warning"]
+    assert len(warnings) == 1
+    # Customer-facing text must never leak the raw company UUID.
+    assert warnings[0].entity_name == "Test Company"
 
 
 def test_no_data_ever_imported_fires_stale_warning():
