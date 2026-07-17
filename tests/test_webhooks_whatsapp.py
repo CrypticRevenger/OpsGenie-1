@@ -564,7 +564,9 @@ async def test_help_command_replies_with_command_guide(db: AsyncSession, monkeyp
     assert len(sent) == 1
     reply = sent[0]
 
-    slash_commands = set(re.findall(r"/[a-z_]+", reply))
+    # (?<![\w]) so "in/out" doesn't false-positive-match "/out" as a command —
+    # a real /slash_command is always preceded by whitespace, "(", or start.
+    slash_commands = set(re.findall(r"(?<![\w])/[a-z_]+", reply))
     assert slash_commands, "expected at least one /slash_command in the help text"
     for command in slash_commands:
         assert (
@@ -696,15 +698,18 @@ async def test_slash_report_alias_matches_its_digit_equivalent(
 # ── Tappable "menu" (WhatsApp interactive list) ──────────────────────────────
 
 
-def test_menu_list_sections_stay_within_whatsapp_row_cap() -> None:
-    """Meta caps an interactive list message at 10 rows total across all
-    sections — a silent overflow here would make WhatsApp reject the send.
+def test_menu_messages_stay_within_whatsapp_row_cap() -> None:
+    """Meta caps a single interactive list message at 10 rows total across
+    all sections — "menu" is split into multiple messages (_MENU_MESSAGES)
+    specifically to cover everything without any one message overflowing.
     """
-    from app.api.webhooks.whatsapp import _MENU_LIST_SECTIONS
+    from app.api.webhooks.whatsapp import _MENU_MESSAGES
 
-    assert len(_MENU_LIST_SECTIONS) <= 10
-    total_rows = sum(len(section["rows"]) for section in _MENU_LIST_SECTIONS)
-    assert total_rows <= 10
+    assert len(_MENU_MESSAGES) > 0
+    for message in _MENU_MESSAGES:
+        assert len(message["sections"]) <= 10
+        total_rows = sum(len(section["rows"]) for section in message["sections"])
+        assert total_rows <= 10
 
 
 def test_menu_list_text_stays_within_whatsapp_character_limits() -> None:
@@ -712,14 +717,15 @@ def test_menu_list_text_stays_within_whatsapp_character_limits() -> None:
     over its limits, so a violation here would ship a broken-looking menu
     instead of a loud failure — worth catching in CI.
     """
-    from app.api.webhooks.whatsapp import _MENU_LIST_SECTIONS
+    from app.api.webhooks.whatsapp import _MENU_MESSAGES
 
-    for section in _MENU_LIST_SECTIONS:
-        assert len(section["title"]) <= 24
-        for row in section["rows"]:
-            assert len(row["id"]) <= 200
-            assert len(row["title"]) <= 24
-            assert len(row.get("description", "")) <= 72
+    for message in _MENU_MESSAGES:
+        for section in message["sections"]:
+            assert len(section["title"]) <= 24
+            for row in section["rows"]:
+                assert len(row["id"]) <= 200
+                assert len(row["title"]) <= 24
+                assert len(row.get("description", "")) <= 72
 
 
 def test_menu_row_ids_are_understood_by_the_dispatch_chain() -> None:
@@ -732,15 +738,16 @@ def test_menu_row_ids_are_understood_by_the_dispatch_chain() -> None:
     from app.api.webhooks import whatsapp as webhook_module
     from app.services.query_menu import menu_router
 
-    for section in webhook_module._MENU_LIST_SECTIONS:
-        for row in section["rows"]:
-            row_id = row["id"]
-            if row_id.startswith("/"):
-                assert (
-                    row_id in webhook_module._WORKFLOW_START_TRIGGERS
-                    or row_id in webhook_module._INSTANT_COMMANDS
-                    or menu_router.match(row_id) == row_id
-                ), f"{row_id} is offered on the menu but isn't a registered command"
+    for message in webhook_module._MENU_MESSAGES:
+        for section in message["sections"]:
+            for row in section["rows"]:
+                row_id = row["id"]
+                if row_id.startswith("/"):
+                    assert (
+                        row_id in webhook_module._WORKFLOW_START_TRIGGERS
+                        or row_id in webhook_module._INSTANT_COMMANDS
+                        or menu_router.match(row_id) == row_id
+                    ), f"{row_id} is offered on the menu but isn't a registered command"
 
 
 @pytest.mark.asyncio
@@ -748,7 +755,7 @@ def test_menu_row_ids_are_understood_by_the_dispatch_chain() -> None:
 async def test_menu_trigger_sends_interactive_list_not_plain_text(
     db: AsyncSession, monkeypatch, trigger: str
 ) -> None:
-    from app.api.webhooks.whatsapp import _MENU_LIST_SECTIONS
+    from app.api.webhooks.whatsapp import _MENU_MESSAGES
 
     phone = _unique_phone()
     await _make_company(db, phone)
@@ -779,8 +786,11 @@ async def test_menu_trigger_sends_interactive_list_not_plain_text(
         )
     assert resp.status_code == 200
     assert text_sent == []  # never fell back to plain text
-    assert len(interactive_calls) == 1
-    assert interactive_calls[0]["sections"] == _MENU_LIST_SECTIONS
+    # One send per _MENU_MESSAGES entry — everything must actually go out.
+    assert len(interactive_calls) == len(_MENU_MESSAGES)
+    assert [call["sections"] for call in interactive_calls] == [
+        m["sections"] for m in _MENU_MESSAGES
+    ]
 
 
 @pytest.mark.asyncio

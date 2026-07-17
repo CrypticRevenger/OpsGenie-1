@@ -186,89 +186,239 @@ async def _export_link_reply(db: AsyncSession, company: Company) -> str:
     return f"Your latest Excel export is ready.\nDownload (valid {ttl} min): {link}"
 
 
-_HELP_TEXT = """📖 OpsGenie Help
+_HELP_TEXT = """*OpsGenie Help*
 
-📊 Quick Reports
-/cash — Cash position (or just reply 1)
-/collections — Collections due this week (or 2)
-/suppliers — Supplier payments due (or 3)
-/dealer_risk — Dealer risk summary (or 4)
+*Cash & Overview*
+• cash / cash position — current cash, 7-day expected in/out, net position (or reply 1 / /cash)
+• summary / business summary — cash, net position, 7-day collections/payments, overdue dealers
+• priorities / what should I do — ranked actions: cash warnings, dealers to call, supplier dues
 
-📦 Manage Products
-/add_product — add a new item; I'll ask for name, stock, unit, selling price and purchase price
-/update_stock — e.g. /update_stock, then Rice, then 80
-/update_price — e.g. /update_price, then Rice, then 120
-/update_purchase_price — change what you pay your supplier for an item
-/delete_product — e.g. /delete_product, then Rice
+*Dealers (they owe you)*
+• dealers / all dealers — every dealer with phone & outstanding
+• top debtors / who owes most — dealers with the largest outstanding
+• overdue / overdue dealers — days overdue & risk level (or reply 4 / /dealer_risk)
+• balance <name> — outstanding for one dealer, e.g. balance Ram Traders
 
-🧾 Orders & Payments
-/create_order — record a sale to a dealer, product by product
-/record_payment — log a payment received from a dealer or paid to a supplier
+*Suppliers (you owe them)*
+• suppliers / all suppliers — every supplier with phone & outstanding
+• top creditors — suppliers you owe the most
+• balance <name> — outstanding for one supplier
 
-📤 Your Data
-/export_data — a download link to your full business data as Excel
-/morning_briefing — resend today's briefing
+*Upcoming Cash Flow*
+• collections / upcoming collections — expected from dealers, next 7 days (or 2 / /collections)
+• payments / upcoming payments — owed to suppliers in the next 7 days (or reply 3 / /suppliers)
 
-🗣 Anything Else
-Just ask in plain English, e.g. "How much does Ram owe me?" or "What's my cash position?"
+*Inventory*
+• inventory / products / stock — full product catalogue (stock qty, selling price)
+• stock <product> — check a specific item, e.g. stock Rice
 
-Reply /help anytime to see this again, or reply menu for a tappable list."""
+*Transactions*
+• invoices / recent invoices — latest invoices (number, party, total, status, dates)
+• payments / recent payments — latest payments recorded
+• faq / policy — your saved business policy answers (delivery days, returns, minimum order)
+
+*Manage Products* (guided, one question at a time)
+• add product (or /add_product) — add a new item: name, stock, unit, selling price, purchase price
+• update stock (or /update_stock) — change a product's stock quantity
+• update price (or /update_price) — change a product's selling price
+• update purchase price (or /update_purchase_price) — change what you pay your supplier
+• update product (or /update_product) — pick price, purchase price, or stock to update
+• delete product (or /delete_product) — remove a catalogue item
+
+*Orders & Payments*
+• new order (or /create_order, or "new invoice") — record a sale to a dealer, product by product
+• record payment (or /record_payment) — log a payment received from a dealer or paid to a supplier
+
+*Your Data*
+• export data (or /export_data) — a download link to your full business data as Excel
+• morning briefing (or /morning_briefing) — resend today's briefing
+
+*Quick Access*
+• menu — tap through your options instead of typing
+• help (or /help) — see this list again anytime"""
 
 
 async def _help_reply(db: AsyncSession, company: Company) -> str:
     return _HELP_TEXT
 
 
-# "menu" sends a tappable WhatsApp list instead of plain text — a curated top
-# 10 (Meta's cap on rows per list message), not the full /help catalogue.
-# Row ids are read back exactly like typed text (see _extract_text_body), so
-# each one is either an existing /slash_command or a bare keyword the
-# free-form assistant (app/services/assistant.py) already understands.
+# "menu" sends tappable WhatsApp list messages instead of plain text — every
+# zero-argument capability in _HELP_TEXT, split across 3 messages since Meta
+# caps a single list at 10 rows total. (balance <name> / stock <product>
+# need a typed argument, so they can't be a fixed tappable row — they stay
+# type-to-use, per _HELP_TEXT.) Row ids are read back exactly like typed text
+# (see _extract_text_body), so each one is either an existing /slash_command
+# or a bare keyword the free-form assistant (app/services/assistant.py)
+# already understands.
 _MENU_TRIGGERS = ("menu", "/menu")
 _MENU_FALLBACK_TEXT = "Tap an option below, or reply /help for the full list."
-_MENU_LIST_SECTIONS = [
+_MENU_MESSAGES: list[dict] = [
     {
-        "title": "Quick Reports",
-        "rows": [
-            {"id": "cash", "title": "Cash Position", "description": "Current cash & 7-day in/out"},
-            {"id": "summary", "title": "Business Summary", "description": "Overall snapshot"},
-            {"id": "priorities", "title": "Priorities", "description": "What should I do today"},
-            {"id": "/dealer_risk", "title": "Dealer Risk", "description": "Overdue dealers, risk"},
+        "body": "Reports & Overview — tap one:",
+        "button_text": "Choose a report",
+        "sections": [
+            {
+                "title": "Cash & Overview",
+                "rows": [
+                    {
+                        "id": "cash",
+                        "title": "Cash Position",
+                        "description": "Current cash & 7-day in/out",
+                    },
+                    {
+                        "id": "summary",
+                        "title": "Business Summary",
+                        "description": "Overall snapshot",
+                    },
+                    {
+                        "id": "priorities",
+                        "title": "Priorities",
+                        "description": "What should I do today",
+                    },
+                ],
+            },
+            {
+                "title": "Money Flow",
+                "rows": [
+                    {
+                        "id": "overdue",
+                        "title": "Overdue Dealers",
+                        "description": "Days overdue & risk level",
+                    },
+                    {
+                        "id": "upcoming collections",
+                        "title": "Collections Due",
+                        "description": "Expected in next 7 days",
+                    },
+                    {
+                        "id": "upcoming payments",
+                        "title": "Payments Due",
+                        "description": "Owed to suppliers, 7 days",
+                    },
+                ],
+            },
+            {
+                "title": "Dealers & Suppliers",
+                "rows": [
+                    {
+                        "id": "all dealers",
+                        "title": "All Dealers",
+                        "description": "Every dealer, phone & outstanding",
+                    },
+                    {
+                        "id": "all suppliers",
+                        "title": "All Suppliers",
+                        "description": "Every supplier, phone & outstanding",
+                    },
+                    {
+                        "id": "top debtors",
+                        "title": "Top Debtors",
+                        "description": "Dealers who owe you the most",
+                    },
+                    {
+                        "id": "top creditors",
+                        "title": "Top Creditors",
+                        "description": "Suppliers you owe the most",
+                    },
+                ],
+            },
         ],
     },
     {
-        "title": "Money Flow",
-        "rows": [
+        "body": "Inventory, Transactions & Products — tap one:",
+        "button_text": "Choose an option",
+        "sections": [
             {
-                "id": "overdue",
-                "title": "Overdue Dealers",
-                "description": "Late payments, risk level",
+                "title": "Inventory & Transactions",
+                "rows": [
+                    {
+                        "id": "inventory",
+                        "title": "Inventory",
+                        "description": "Stock quantity & selling price",
+                    },
+                    {
+                        "id": "invoices",
+                        "title": "Recent Invoices",
+                        "description": "Latest invoices, newest first",
+                    },
+                    {
+                        "id": "recent payments",
+                        "title": "Recent Payments",
+                        "description": "Latest payments recorded",
+                    },
+                    {"id": "faq", "title": "FAQs", "description": "Your saved business policies"},
+                ],
             },
             {
-                "id": "collections",
-                "title": "Collections Due",
-                "description": "Expected in next 7 days",
+                "title": "Manage Products",
+                "rows": [
+                    {
+                        "id": "/add_product",
+                        "title": "Add Product",
+                        "description": "Add a new catalogue item",
+                    },
+                    {
+                        "id": "/update_stock",
+                        "title": "Update Stock",
+                        "description": "Change a product's stock qty",
+                    },
+                    {
+                        "id": "/update_price",
+                        "title": "Update Price",
+                        "description": "Change a product's selling price",
+                    },
+                    {
+                        "id": "/update_purchase_price",
+                        "title": "Update Cost Price",
+                        "description": "Change what you pay your supplier",
+                    },
+                    {
+                        "id": "/delete_product",
+                        "title": "Delete Product",
+                        "description": "Remove a catalogue item",
+                    },
+                    {
+                        "id": "/update_product",
+                        "title": "Update Product",
+                        "description": "Pick price, cost, or stock to change",
+                    },
+                ],
             },
-            {"id": "payments", "title": "Payments Due", "description": "Owed to suppliers, 7 days"},
         ],
     },
     {
-        "title": "Quick Actions",
-        "rows": [
+        "body": "Orders, Payments & Your Data — tap one:",
+        "button_text": "Choose an option",
+        "sections": [
             {
-                "id": "/add_product",
-                "title": "Add Product",
-                "description": "Add a new catalogue item",
+                "title": "Orders & Payments",
+                "rows": [
+                    {
+                        "id": "/create_order",
+                        "title": "Create Order",
+                        "description": "Record a sale to a dealer",
+                    },
+                    {
+                        "id": "/record_payment",
+                        "title": "Record Payment",
+                        "description": "Log a payment received or paid",
+                    },
+                ],
             },
             {
-                "id": "/record_payment",
-                "title": "Record Payment",
-                "description": "Log a payment received/paid",
-            },
-            {
-                "id": "/export_data",
-                "title": "Export Data",
-                "description": "Download your Excel data",
+                "title": "Your Data",
+                "rows": [
+                    {
+                        "id": "/export_data",
+                        "title": "Export Data",
+                        "description": "Download your Excel data",
+                    },
+                    {
+                        "id": "/morning_briefing",
+                        "title": "Morning Briefing",
+                        "description": "Resend today's briefing",
+                    },
+                ],
             },
         ],
     },
@@ -668,7 +818,7 @@ async def receive_whatsapp_webhook(
                 if message.get("type") in ("text", "interactive"):
                     text = _extract_text_body(message)
                     command: str | None = None
-                    interactive: dict | None = None
+                    interactive_batch: list[dict] | None = None
                     if company.onboarding_state != OnboardingState.completed:
                         # Guided setup outranks everything else — mid-onboarding
                         # a "1" is an answer to the current question, not the
@@ -729,11 +879,7 @@ async def receive_whatsapp_webhook(
                         command = text.strip().lower()
                         notification_type = "interactive_menu"
                         reply = _MENU_FALLBACK_TEXT
-                        interactive = {
-                            "body": "What would you like to check?",
-                            "button_text": "Choose an option",
-                            "sections": _MENU_LIST_SECTIONS,
-                        }
+                        interactive_batch = _MENU_MESSAGES
                     else:
                         # .lower() so the /cash-style slash aliases are
                         # case-insensitive like _WORKFLOW_START_TRIGGERS and
@@ -766,16 +912,33 @@ async def receive_whatsapp_webhook(
                             # never forwards an unverifiable number.
                             notification_type = ASSISTANT_NOTIFICATION_TYPE
                             reply = await answer_question(db, company, text)
-                    await _send_reply_and_log(
-                        db,
-                        company,
-                        sender,
-                        notification_type=notification_type,
-                        reply=reply,
-                        command=command,
-                        correlation_id=inbound_event.id,
-                        interactive=interactive,
-                    )
+                    if interactive_batch is not None:
+                        # "menu" — several list messages, one per _send_reply_and_log
+                        # call (Meta has no single-message way to exceed 10 rows).
+                        # A redelivery of this inbound message only needs to find
+                        # one whatsapp_reply_sent event to skip re-sending all of
+                        # them — see _reply_already_sent.
+                        for payload in interactive_batch:
+                            await _send_reply_and_log(
+                                db,
+                                company,
+                                sender,
+                                notification_type=notification_type,
+                                reply=payload["body"],
+                                command=command,
+                                correlation_id=inbound_event.id,
+                                interactive=payload,
+                            )
+                    else:
+                        await _send_reply_and_log(
+                            db,
+                            company,
+                            sender,
+                            notification_type=notification_type,
+                            reply=reply,
+                            command=command,
+                            correlation_id=inbound_event.id,
+                        )
 
             for status_entry in value.get("statuses", []):
                 recipient = _normalize_to_e164(status_entry.get("recipient_id", ""))
