@@ -50,11 +50,15 @@ from app.core.config import get_settings
 from app.db.session import async_session_factory, get_db
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
+from app.models.dealer import Dealer
+from app.models.invoice import Invoice
 from app.models.notification_log import NotificationLog
+from app.models.supplier import Supplier
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
+from app.services.money_format import format_inr
 from app.services.onboarding_flow import handle_onboarding_message
 from app.services.query_menu import menu_router
 from app.services.snapshot import build_snapshot, business_now
@@ -466,6 +470,50 @@ async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
     return briefing.generated_text
 
 
+# WhatsApp's text message body caps around 4096 characters — 60 invoice lines
+# comfortably fits with room for the header/footer, generous enough that
+# "and N more" almost never triggers for a real distributor's catalogue.
+_INVOICES_REPLY_CAP = 60
+
+
+async def _invoices_reply(db: AsyncSession, company: Company) -> str:
+    """The full invoice list, deterministically — "Recent Invoices" is a
+    fixed, tappable menu option (not a free-form question), so it must never
+    depend on an LLM call (rate limits, an occasional bad tool-call
+    response, or the money-safety guard rejecting a reply) to show real
+    data that's sitting right there in the database.
+    """
+    total = await db.scalar(
+        select(func.count()).select_from(Invoice).where(Invoice.company_id == company.id)
+    )
+    if not total:
+        return "You don't have any invoices yet."
+
+    stmt = (
+        select(Invoice, Dealer.name, Supplier.name)
+        .outerjoin(Dealer, Invoice.dealer_id == Dealer.id)
+        .outerjoin(Supplier, Invoice.supplier_id == Supplier.id)
+        .where(Invoice.company_id == company.id)
+        .order_by(Invoice.invoice_date.desc(), Invoice.invoice_number)
+        .limit(_INVOICES_REPLY_CAP)
+    )
+    rows = (await db.execute(stmt)).all()
+    lines = [
+        f"{invoice.invoice_number} — {dealer_name or supplier_name or 'unknown party'} — "
+        f"{format_inr(invoice.total_amount)} — {invoice.status.value} — "
+        f"due {invoice.due_date.isoformat()}"
+        for invoice, dealer_name, supplier_name in rows
+    ]
+    remaining = total - len(rows)
+    header = (
+        f"📄 Invoices ({len(rows)} of {total}):" if remaining > 0 else f"📄 Invoices ({len(rows)}):"
+    )
+    footer = (
+        f"\n…and {remaining} more — use 'export data' for the full list." if remaining > 0 else ""
+    )
+    return f"{header}\n" + "\n".join(lines) + footer
+
+
 # Registry: exact-match keyword -> an instant, stateless async reply builder —
 # unlike _WORKFLOW_START_TRIGGERS, these never set active_workflow (there's
 # nothing to advance through, the whole answer is produced in one shot).
@@ -487,6 +535,10 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "brief me": _morning_briefing_reply,
     "/export_data": _export_link_reply,
     "/morning_briefing": _morning_briefing_reply,
+    "invoices": _invoices_reply,
+    "recent invoices": _invoices_reply,
+    "all invoices": _invoices_reply,
+    "/invoices": _invoices_reply,
     "/help": _help_reply,
     "help": _help_reply,
     "commands": _help_reply,

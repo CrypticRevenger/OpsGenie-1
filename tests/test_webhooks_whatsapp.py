@@ -17,6 +17,7 @@ import json
 import uuid
 from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
 from app.core.config import get_settings
@@ -522,6 +523,111 @@ async def test_morning_briefing_command_reuses_todays_briefing_without_regenerat
     await db.refresh(existing)
     assert existing.delivery_status == "sent"
     assert existing.sent_at is not None
+
+
+# ── Instant command: invoices ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_invoices_command_lists_all_deterministically(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """"invoices"/"recent invoices" must be an instant deterministic reply —
+    never the LLM assistant — so it can't fail from a rate-limited provider
+    or the money-safety guard rejecting a reply, and shows every real
+    invoice on file rather than whatever the LLM chose to summarize.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    dealer = Dealer(company_id=company_id, name="Matru")
+    db.add(dealer)
+    await db.flush()
+    db.add(
+        Invoice(
+            company_id=company_id,
+            invoice_number="INV-OLD",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer.id,
+            invoice_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 1),
+            subtotal=Decimal("50000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("50000.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    db.add(
+        Invoice(
+            company_id=company_id,
+            invoice_number="INV-NEW",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer.id,
+            invoice_date=date(2026, 1, 10),
+            due_date=date(2026, 1, 10),
+            subtotal=Decimal("30000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("30000.00"),
+            status=InvoiceStatus.Paid,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    # If this ever fell through to the LLM assistant, this would raise —
+    # proving the instant-command path is what actually answered.
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("should not reach the LLM assistant")),
+    )
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="invoices")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "INV-NEW" in sent[0]
+    assert "INV-OLD" in sent[0]
+    assert "Matru" in sent[0]
+    assert "30,000" in sent[0]
+    assert "50,000" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_invoices_command_no_invoices_yet(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="recent invoices")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert "don't have any invoices" in sent[0].lower()
 
 
 # ── Instant command: /help ──────────────────────────────────────────────────────
