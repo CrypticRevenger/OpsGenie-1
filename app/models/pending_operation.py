@@ -37,6 +37,9 @@ class PendingOperationType(enum.StrEnum):
     # Phase 2B — guided multi-line-item order creation, see
     # app/services/workflows/order_flow.py + app/services/writes/orders.py.
     create_order = "create_order"
+    # Company-wide or single-product GST rate change, see
+    # app/services/workflows/gst_flow.py + app/services/writes/update_gst.py.
+    update_gst = "update_gst"
 
 
 class PendingOperation(UUIDMixin, TimestampMixin, Base):

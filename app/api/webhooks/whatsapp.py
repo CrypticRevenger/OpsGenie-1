@@ -65,6 +65,10 @@ from app.services.whatsapp_client import (
     send_interactive_list_message,
     send_text_message,
 )
+from app.services.workflows.gst_flow import (
+    handle_update_gst_workflow_message,
+    start_update_gst_workflow,
+)
 from app.services.workflows.order_flow import (
     handle_order_workflow_message,
     start_order_workflow,
@@ -99,6 +103,7 @@ _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[s
     "add_product": handle_add_product_workflow_message,
     "delete_product": handle_delete_product_workflow_message,
     "update_product": handle_update_product_workflow_message,
+    "update_gst": handle_update_gst_workflow_message,
 }
 
 # Registry: exact-match keyword -> starter that sets active_workflow and
@@ -156,6 +161,10 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "edit stock": start_update_stock_workflow,
     "restock": start_update_stock_workflow,
     "update quantity": start_update_stock_workflow,
+    "update gst": start_update_gst_workflow,
+    "update gst rate": start_update_gst_workflow,
+    "change gst": start_update_gst_workflow,
+    "edit gst": start_update_gst_workflow,
     # Slash-command shortcuts — same handlers as the phrases above, just a
     # fixed, guessable form so a user can lean on /help's list instead of
     # having to phrase the request naturally.
@@ -168,6 +177,7 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "/update_price": start_update_price_workflow,
     "/update_purchase_price": start_update_purchase_price_workflow,
     "/update_stock": start_update_stock_workflow,
+    "/update_gst": start_update_gst_workflow,
 }
 
 
@@ -223,6 +233,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • update price (or /update_price) — change a product's selling price
 • update purchase price (or /update_purchase_price) — change what you pay your supplier
 • update product (or /update_product) — pick price, purchase price, or stock to update
+• update gst (or /update_gst) — change GST for all products, or one specific product
 • delete product (or /delete_product) — remove a catalogue item
 
 *Orders & Payments*
@@ -402,6 +413,11 @@ _MENU_MESSAGES: list[dict] = [
                         "id": "/record_payment",
                         "title": "Record Payment",
                         "description": "Log a payment received or paid",
+                    },
+                    {
+                        "id": "/update_gst",
+                        "title": "Update GST",
+                        "description": "Change GST for all products, or one product",
                     },
                 ],
             },

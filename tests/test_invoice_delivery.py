@@ -53,6 +53,8 @@ def _make_result(*, dealer_phone: str | None) -> CreateOrderResult:
                 quantity=Decimal("10"),
                 unit_price=Decimal("55.00"),
                 line_total=Decimal("550.00"),
+                gst_rate=Decimal("0.00"),
+                gst_amount=Decimal("0.00"),
             )
         ],
         subtotal=Decimal("550.00"),

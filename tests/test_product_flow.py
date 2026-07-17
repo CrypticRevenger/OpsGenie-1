@@ -102,16 +102,35 @@ async def test_one_by_one_add_then_done_clears_workflow(db: AsyncSession) -> Non
 
 
 @pytest.mark.asyncio
+async def test_one_by_one_add_asks_gst_when_company_varies_by_product(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    company.gst_varies_by_product = True
+    await db.flush()
+    start_add_product_workflow(company)
+
+    await _send(db, company, "one by one")
+    await _send(db, company, "Rice")
+    await _send(db, company, "100")
+    await _send(db, company, "kg")
+    await _send(db, company, "40")
+    reply = await _send(db, company, "30")
+    assert "GST%" in reply
+    reply = await _send(db, company, "5")
+    assert "Added product: Rice" in reply
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.gst_rate == Decimal("5.00")
+
+
+@pytest.mark.asyncio
 async def test_bulk_add_saves_each_item_and_prices(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     start_add_product_workflow(company)
 
     await _send(db, company, "bulk")
-    reply = await _send(db, company, "rice - 400, dal - 450")
-    assert "unit" in reply.lower()
-    reply = await _send(db, company, "kg")
-    assert "purchase price" in reply.lower()
-    reply = await _send(db, company, "rice - 300, dal - 320")
+    reply = await _send(
+        db, company, "rice, 300, 400, kg, skip, skip\ndal, 320, 450, kg, skip, skip"
+    )
     assert "Added 2 product" in reply
     assert await _count(db, company.id) == 2
 

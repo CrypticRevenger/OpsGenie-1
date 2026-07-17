@@ -54,9 +54,10 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
         pdf.cell(0, 6, result.dealer_phone, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(6)
 
-    col_widths = (80, 30, 35, 35)
+    col_widths = (58, 16, 26, 28, 16, 30)
+    headers = ("Item", "Qty", "Unit Price", "Line Total", "GST%", "GST Amt")
     pdf.set_font("Helvetica", "B", 10)
-    for header, width in zip(("Item", "Qty", "Unit Price", "Line Total"), col_widths, strict=True):
+    for header, width in zip(headers, col_widths, strict=True):
         pdf.cell(width, 8, header, border="B")
     pdf.ln()
 
@@ -66,19 +67,16 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
         pdf.cell(col_widths[1], 8, str(line.quantity))
         pdf.cell(col_widths[2], 8, _rs(line.unit_price))
         pdf.cell(col_widths[3], 8, _rs(line.line_total))
+        pdf.cell(col_widths[4], 8, f"{line.gst_rate}%")
+        pdf.cell(col_widths[5], 8, _rs(line.gst_amount))
         pdf.ln()
     pdf.ln(4)
 
     pdf.set_font("Helvetica", "", 10)
     pdf.cell(0, 6, f"Subtotal: {_rs(result.subtotal)}", new_x="LMARGIN", new_y="NEXT", align="R")
-    pdf.cell(
-        0,
-        6,
-        f"GST ({company.gst_rate}%): {_rs(result.gst_amount)}",
-        new_x="LMARGIN",
-        new_y="NEXT",
-        align="R",
-    )
+    # No single "(X%)" label here — lines can carry different GST rates (see
+    # the per-line GST% column above), so a lone percentage would mislead.
+    pdf.cell(0, 6, f"GST: {_rs(result.gst_amount)}", new_x="LMARGIN", new_y="NEXT", align="R")
     pdf.set_font("Helvetica", "B", 12)
     pdf.cell(0, 8, f"Total: {_rs(result.total_amount)}", new_x="LMARGIN", new_y="NEXT", align="R")
 

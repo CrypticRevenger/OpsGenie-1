@@ -17,7 +17,6 @@ that only runs once onboarding is completed.
 
 from __future__ import annotations
 
-import re
 import uuid
 from decimal import Decimal
 
@@ -29,6 +28,7 @@ from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, Invoice
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.followup import _parse_relative_date
+from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.importer.parties import find_or_create_party
 from app.services.money_format import format_inr
@@ -97,19 +97,7 @@ def _format_quantity(quantity: Decimal) -> str:
 _BULK_MODE_WORDS = {"bulk", "all at once", "at once", "together", "list", "in bulk"}
 _ONE_BY_ONE_MODE_WORDS = {"one by one", "one at a time", "individually", "single", "one"}
 
-_BULLET_PREFIX_RE = re.compile(r"^[-*•]+\s*")
-# A per-item "name <sep> price" suffix, e.g. "Rice - 400", "Dal: 450",
-# "Jeans @500", "Rice - Rs 400 each". Requires the tail after the last
-# separator to be a bare number so a hyphenated name with no price (e.g.
-# "T-Shirt") never matches.
-_ITEM_PRICE_RE = re.compile(
-    r"^(?P<name>.+?)\s*[-:@]\s*(?:rs\.?|inr|₹)?\s*(?P<price>\d[\d,]*(?:\.\d+)?)"
-    r"\s*(?:each|/-|/each)?$",
-    re.IGNORECASE,
-)
-# A shared price applying to every item in the message, e.g. a trailing
-# "500 each" line/phrase rather than a per-item price.
-_SHARED_EACH_RE = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*each\b", re.IGNORECASE)
+_SKIP_FIELD_WORDS = {"skip", "none", "-", ""}
 
 
 def _classify_product_mode(text: str) -> str | None:
@@ -121,51 +109,57 @@ def _classify_product_mode(text: str) -> str | None:
     return None
 
 
-def _split_bulk_items(text: str) -> list[str]:
-    """Newlines always separate items; within a line, commas do too — matches
-    both a pasted one-per-line list and the "Rice - 400, Dal - 450" shape.
+def _bulk_field(parts: list[str], index: int) -> str | None:
+    """The raw text of a positional field, or None if absent/short-line/
+    explicitly skipped."""
+    if index >= len(parts):
+        return None
+    value = parts[index].strip()
+    return None if value.lower() in _SKIP_FIELD_WORDS else value
+
+
+def _parse_bulk_line(line: str) -> dict:
+    """Parse one "Name, Purchase Price, Selling Price, Unit, Stock, GST%"
+    line. Raises ValueError (with a message naming the offending field) on
+    any present-but-unparseable numeric field — a bad line is rejected
+    outright rather than silently dropped or half-saved.
     """
-    parts: list[str] = []
-    for line in text.splitlines():
-        parts.extend(line.split(","))
-    return [p.strip() for p in parts if p.strip()]
+    parts = line.split(",")
+    name = parts[0].strip() if parts else ""
+    if not name:
+        raise ValueError(f"'{line}' has no product name")
 
+    purchase_raw = _bulk_field(parts, 1)
+    selling_raw = _bulk_field(parts, 2)
+    unit = _bulk_field(parts, 3)
+    stock_raw = _bulk_field(parts, 4)
+    gst_raw = _bulk_field(parts, 5)
 
-def _parse_bulk_products(text: str) -> list[tuple[str, Decimal | None]]:
-    """Parse a free-form bulk product message into (name, price) pairs. Price
-    is None when the item carries no price (e.g. a plain name-only list) —
-    the caller still saves the product, just without selling_price set.
-    """
-    shared_match = _SHARED_EACH_RE.search(text)
-    shared_price: Decimal | None = None
-    if shared_match:
-        try:
-            shared_price = parse_amount(shared_match.group(1))
-        except ValueError:
-            shared_price = None
+    try:
+        purchase_price = parse_amount(purchase_raw) if purchase_raw else None
+    except ValueError as exc:
+        raise ValueError(f"'{name}': purchase price — {exc}") from exc
+    try:
+        selling_price = parse_amount(selling_raw) if selling_raw else None
+    except ValueError as exc:
+        raise ValueError(f"'{name}': selling price — {exc}") from exc
+    try:
+        stock = parse_amount(stock_raw) if stock_raw else Decimal("0")
+    except ValueError as exc:
+        raise ValueError(f"'{name}': stock — {exc}") from exc
+    try:
+        gst_rate = parse_gst_rate(gst_raw) if gst_raw else None
+    except ValueError as exc:
+        raise ValueError(f"'{name}': GST — {exc}") from exc
 
-    items: list[tuple[str, Decimal | None]] = []
-    for raw_item in _split_bulk_items(text):
-        item = _BULLET_PREFIX_RE.sub("", raw_item).strip()
-        if not item:
-            continue
-        match = _ITEM_PRICE_RE.match(item)
-        if match:
-            name = match.group("name").strip()
-            try:
-                price = parse_amount(match.group("price"))
-            except ValueError:
-                price = shared_price
-        else:
-            # No per-item price — this item may just be the message's shared
-            # "<amount> each" declaration on its own line, not a product.
-            name = _SHARED_EACH_RE.sub("", item).strip(" -:@").strip()
-            if not name:
-                continue
-            price = shared_price
-        if name:
-            items.append((name, price))
-    return items
+    return {
+        "name": name,
+        "purchase_price": purchase_price,
+        "selling_price": selling_price,
+        "unit": unit,
+        "stock": stock,
+        "gst_rate": gst_rate,
+    }
 
 
 def _describe_product(name: str, price: Decimal | None, unit: str | None = None) -> str:
@@ -175,14 +169,61 @@ def _describe_product(name: str, price: Decimal | None, unit: str | None = None)
     return f"{name} ({', '.join(bits)})" if bits else name
 
 
+def _finalize_one_by_one_product(
+    db: AsyncSession,
+    company: Company,
+    scratch: dict,
+    purchase_price: Decimal | None,
+    gst_rate: Decimal | None,
+) -> str:
+    """Creates the Product row from the one-by-one loop's accumulated
+    scratch fields — the loop's single terminal point, reached either
+    directly after purchase price (gst_varies_by_product False) or after the
+    extra GST question (True). Loops back to product_awaiting_name either
+    way.
+    """
+    name = scratch.get("name", "Product")
+    quantity = Decimal(scratch.get("quantity", "0"))
+    unit = scratch.get("unit")
+    price_raw = scratch.get("price")
+    price = Decimal(price_raw) if price_raw is not None else None
+    db.add(
+        Product(
+            company_id=company.id,
+            name=name,
+            stock_quantity=quantity,
+            unit=unit,
+            selling_price=price,
+            purchase_price=purchase_price,
+            gst_rate=gst_rate,
+        )
+    )
+    company.onboarding_scratch = None
+    company.onboarding_state = OnboardingState.product_awaiting_name
+    unit_suffix = f" {unit}" if unit else ""
+    return (
+        f"Added product: {name} ({_format_quantity(quantity)}{unit_suffix} in stock). "
+        "Send another, or 'done'."
+    )
+
+
 _UNIT_PROMPT = "What unit is this measured in? (e.g. kg, pcs, box, litre, or 'skip')"
-_BULK_UNIT_PROMPT = (
-    "What unit are these measured in? (e.g. kg, pcs, box, litre — applies to all of "
-    "these, or 'skip' if it varies)"
+
+_PRODUCT_INTRO = (
+    f"{_progress(1)}\n\n"
+    "Now let's add your products. Reply 'one by one' to add them individually, "
+    "or 'bulk' to send them all at once with full details "
+    "(e.g. Rice, 300, 400, kg, 100, 5). Reply 'done' to skip."
 )
-_BULK_PURCHASE_PRICE_PROMPT = (
-    "Want to add purchase prices (what you pay your supplier) too? Reply in the same "
-    "format (Rice - 300, Dal - 320), or 'skip' if you don't want to track them."
+
+_BULK_FORMAT_PROMPT = (
+    "Send your products one per line, in this format:\n"
+    "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
+    "e.g.\n"
+    "Rice, 300, 400, kg, 100, 5\n"
+    "Dal, 320, 450, kg, 50, 12\n"
+    "Use 'skip' for any field you don't want to set "
+    "(e.g. Rice, skip, 400, kg, 100, skip). Reply 'done' when finished."
 )
 
 
@@ -202,13 +243,40 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 1. Business type ─────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_business_type:
         company.business_type = stripped
-        company.onboarding_state = OnboardingState.product_awaiting_mode
+        company.onboarding_state = OnboardingState.gst_mode_ask
         return (
-            f"{_progress(1)}\n\n"
-            "Now let's add your products. Reply 'one by one' to add them individually, "
-            "or 'bulk' to send them all at once with prices "
-            "(e.g. Rice - 400, Dal - 450). Reply 'done' to skip."
+            "Do all your products have the same GST rate, or does it vary by product? "
+            "Reply 'same', 'varies', or 'not sure' to decide later."
         )
+
+    if state == OnboardingState.gst_mode_ask:
+        if _is(stripped, "not sure", "skip", "later"):
+            company.onboarding_state = OnboardingState.product_awaiting_mode
+            return _PRODUCT_INTRO
+        if _is(stripped, "varies", "vary"):
+            company.gst_varies_by_product = True
+            company.onboarding_state = OnboardingState.product_awaiting_mode
+            return _PRODUCT_INTRO
+        if _is(stripped, "same"):
+            company.onboarding_state = OnboardingState.gst_rate_same
+            return "What's your GST rate? (e.g. 5, 12, 18, or 0 if exempt)"
+        return "Please reply 'same', 'varies', or 'not sure'."
+
+    if state == OnboardingState.gst_rate_same:
+        if _is(stripped, "not sure", "skip", "later"):
+            company.onboarding_state = OnboardingState.product_awaiting_mode
+            return _PRODUCT_INTRO
+        try:
+            rate = parse_gst_rate(stripped)
+        except ValueError:
+            return (
+                "Please send a number between 0 and 100, e.g. 18 "
+                "(or 'not sure' to decide later)."
+            )
+        company.gst_rate = rate
+        company.gst_varies_by_product = False
+        company.onboarding_state = OnboardingState.product_awaiting_mode
+        return _PRODUCT_INTRO
 
     # ── 2. Products (name -> stock quantity, repeatable, or bulk paste) ──────
     if state == OnboardingState.product_awaiting_mode:
@@ -221,10 +289,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         mode = _classify_product_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.product_awaiting_bulk
-            return (
-                "Send all your products now — one per line or comma-separated, with an "
-                "optional price (e.g. Rice - 400, Dal - 450). Reply 'done' when finished."
-            )
+            return _BULK_FORMAT_PROMPT
         if mode == "one_by_one":
             company.onboarding_state = OnboardingState.product_awaiting_name
             return "Send your first product's name (e.g. Rice), or 'done' to skip."
@@ -237,54 +302,33 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
                 f"{_progress(2)}\n\n"
                 "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
             )
-        parsed = _parse_bulk_products(stripped)
-        if not parsed:
-            return (
-                "I couldn't find any products in that message. List them one per line or "
-                "comma-separated, with an optional price (e.g. Rice - 400, Dal - 450)."
-            )
-        company.onboarding_scratch = {
-            "pending_bulk": [
-                [name, str(price) if price is not None else None] for name, price in parsed
-            ]
-        }
-        company.onboarding_state = OnboardingState.product_awaiting_bulk_unit
-        return _BULK_UNIT_PROMPT
-
-    if state == OnboardingState.product_awaiting_bulk_unit:
-        unit = None if _is(stripped, "skip") else stripped
-        company.onboarding_scratch = {"pending_bulk": scratch.get("pending_bulk", []), "unit": unit}
-        company.onboarding_state = OnboardingState.product_awaiting_bulk_purchase_price
-        return _BULK_PURCHASE_PRICE_PROMPT
-
-    if state == OnboardingState.product_awaiting_bulk_purchase_price:
-        unit = scratch.get("unit")
-        pending = [
-            (item[0], Decimal(item[1]) if item[1] is not None else None)
-            for item in scratch.get("pending_bulk", [])
-        ]
-        purchase_prices: dict[str, Decimal] = {}
-        if not _is(stripped, "skip", "no", "none", "done"):
-            purchase_prices = {
-                name.lower(): price
-                for name, price in _parse_bulk_products(stripped)
-                if price is not None
-            }
-        for name, price in pending:
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return _BULK_FORMAT_PROMPT
+        parsed_items = []
+        for line in lines:
+            try:
+                parsed_items.append(_parse_bulk_line(line))
+            except ValueError as exc:
+                return f"Couldn't read that: {exc}\n\n{_BULK_FORMAT_PROMPT}"
+        for item in parsed_items:
             db.add(
                 Product(
                     company_id=company.id,
-                    name=name,
-                    selling_price=price,
-                    unit=unit,
-                    purchase_price=purchase_prices.get(name.lower()),
+                    name=item["name"],
+                    stock_quantity=item["stock"],
+                    unit=item["unit"],
+                    selling_price=item["selling_price"],
+                    purchase_price=item["purchase_price"],
+                    gst_rate=item["gst_rate"],
                 )
             )
-        names = ", ".join(_describe_product(name, price, unit) for name, price in pending)
-        company.onboarding_scratch = None
-        company.onboarding_state = OnboardingState.product_awaiting_bulk
+        names = ", ".join(
+            _describe_product(item["name"], item["selling_price"], item["unit"])
+            for item in parsed_items
+        )
         return (
-            f"Added {len(pending)} product(s): {names}. "
+            f"Added {len(parsed_items)} product(s): {names}. "
             "Send more, or reply 'done' when finished."
         )
 
@@ -339,28 +383,27 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
                 purchase_price = parse_amount(stripped)
             except ValueError:
                 return "Please send a number, e.g. 300 (or 'skip')."
-        name = scratch.get("name", "Product")
-        quantity = Decimal(scratch.get("quantity", "0"))
-        unit = scratch.get("unit")
-        price_raw = scratch.get("price")
-        price = Decimal(price_raw) if price_raw is not None else None
-        db.add(
-            Product(
-                company_id=company.id,
-                name=name,
-                stock_quantity=quantity,
-                unit=unit,
-                selling_price=price,
-                purchase_price=purchase_price,
-            )
-        )
-        company.onboarding_scratch = None
-        company.onboarding_state = OnboardingState.product_awaiting_name
-        unit_suffix = f" {unit}" if unit else ""
-        return (
-            f"Added product: {name} ({_format_quantity(quantity)}{unit_suffix} in stock). "
-            "Send another, or 'done'."
-        )
+        if company.gst_varies_by_product:
+            scratch["purchase_price"] = str(purchase_price) if purchase_price is not None else None
+            company.onboarding_scratch = scratch
+            company.onboarding_state = OnboardingState.product_awaiting_gst_rate
+            name = scratch.get("name", "this product")
+            return f"What's the GST% for {name}? (e.g. 5, 12, 18, or 'skip' to decide later)"
+        return _finalize_one_by_one_product(db, company, scratch, purchase_price, None)
+
+    if state == OnboardingState.product_awaiting_gst_rate:
+        gst_rate = None
+        if not _is(stripped, "skip", "not sure", "done"):
+            try:
+                gst_rate = parse_gst_rate(stripped)
+            except ValueError:
+                return (
+                    "Please send a number between 0 and 100, e.g. 18 "
+                    "(or 'skip' to decide later)."
+                )
+        purchase_price_raw = scratch.get("purchase_price")
+        purchase_price = Decimal(purchase_price_raw) if purchase_price_raw is not None else None
+        return _finalize_one_by_one_product(db, company, scratch, purchase_price, gst_rate)
 
     # ── 3. Dealers (name -> phone -> credit days, repeatable) ────────────────
     if state == OnboardingState.dealer_awaiting_name:

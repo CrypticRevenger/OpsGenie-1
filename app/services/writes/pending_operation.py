@@ -35,6 +35,7 @@ from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.money_format import format_inr
 from app.services.writes.orders import create_order
 from app.services.writes.payments import record_payment
+from app.services.writes.update_gst import update_gst
 
 PENDING_OPERATION_TTL_MINUTES = 30
 
@@ -165,6 +166,32 @@ async def execute_pending_operation(
             f"GST: {format_inr(result.gst_amount)}\n"
             f"Total: {format_inr(result.total_amount)}{warning}{pdf_note}"
         )
+
+    if op.operation_type == PendingOperationType.update_gst:
+        payload = op.payload
+        payload_gst_rate = payload.get("gst_rate")
+        try:
+            result = await update_gst(
+                db,
+                company,
+                scope=payload["scope"],
+                gst_rate=Decimal(payload_gst_rate) if payload_gst_rate is not None else None,
+                product_name=payload.get("product_name"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            # Same reasoning as the record_payment/create_order branches
+            # above: a re-validation failure (e.g. the product was deleted
+            # between preview and confirm) degrades to a friendly reply
+            # rather than aborting the whole webhook batch's commit.
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return f"Couldn't update GST: {exc}. Please start again."
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        rate_text = f"{result.gst_rate}%" if result.gst_rate is not None else "the company default"
+        target = "all products" if result.scope == "all" else result.product_name
+        return f"✅ GST for {target} set to {rate_text}."
 
     # Unreachable while PendingOperationType has no other members, but never
     # leave a company stuck on a confirmation type this code doesn't know yet.

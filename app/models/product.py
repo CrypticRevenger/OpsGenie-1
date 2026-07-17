@@ -11,7 +11,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, String, Uuid, text
+from sqlalchemy import ForeignKey, Index, Numeric, String, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -38,6 +38,10 @@ class Product(UUIDMixin, TimestampMixin, Base):
     unit: Mapped[str | None] = mapped_column(String, nullable=True)
     selling_price: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     purchase_price: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
+    # NULL means "no override — inherit Company.gst_rate" (only consulted
+    # when Company.gst_varies_by_product is True). See
+    # app/services/writes/orders.py::create_order.
+    gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     # Phase 2B — decremented by app/services/writes/orders.py::create_order.
     # Allowed to go negative (flagged, not blocked) since physical counts can
     # lag digital ones; server_default backfills existing rows to 0.

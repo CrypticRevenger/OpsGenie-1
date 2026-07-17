@@ -65,6 +65,14 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     # Business type
     await _send(db, company, "Pharma Distributor")
     assert company.business_type == "Pharma Distributor"
+    assert company.onboarding_state == OnboardingState.gst_mode_ask
+
+    # GST mode: same rate for everything
+    await _send(db, company, "same")
+    assert company.onboarding_state == OnboardingState.gst_rate_same
+    await _send(db, company, "12")
+    assert company.gst_rate == Decimal("12.00")
+    assert company.gst_varies_by_product is False
     assert company.onboarding_state == OnboardingState.product_awaiting_mode
 
     # Product mode: one by one
@@ -170,6 +178,7 @@ async def test_skip_everything_optional(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "Kirana")
+    await _send(db, company, "not sure")  # decide GST setup later
     await _send(db, company, "done")  # no products
     await _send(db, company, "done")  # no dealers
     await _send(db, company, "done")  # no suppliers
@@ -191,6 +200,7 @@ async def test_bad_amount_reasks_without_advancing(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")  # decide GST setup later
     await _send(db, company, "done")
     await _send(db, company, "done")
     await _send(db, company, "done")
@@ -207,6 +217,7 @@ async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")  # decide GST setup later
     await _send(db, company, "one by one")
 
     # Bad quantity re-asks without advancing
@@ -238,6 +249,7 @@ async def test_product_mode_unrecognized_reasks(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")  # decide GST setup later
     reply = await _send(db, company, "huh?")
     assert company.onboarding_state == OnboardingState.product_awaiting_mode  # stayed
     assert "bulk" in reply.lower()
@@ -252,20 +264,20 @@ async def test_product_bulk_paste_saves_each_item_separately(db: AsyncSession) -
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "Cloth store")
+    await _send(db, company, "not sure")  # decide GST setup later
     assert company.onboarding_state == OnboardingState.product_awaiting_mode
 
     await _send(db, company, "bulk")
     assert company.onboarding_state == OnboardingState.product_awaiting_bulk
 
-    reply = await _send(db, company, "T-Shirt\nShirt\nJeans\nKurti")
-    assert company.onboarding_state == OnboardingState.product_awaiting_bulk_unit
-    assert "unit" in reply.lower()
-
-    reply = await _send(db, company, "pcs")
-    assert company.onboarding_state == OnboardingState.product_awaiting_bulk_purchase_price
-    assert "purchase price" in reply.lower()
-
-    reply = await _send(db, company, "skip")
+    reply = await _send(
+        db,
+        company,
+        "T-Shirt, skip, skip, pcs, skip, skip\n"
+        "Shirt, skip, skip, pcs, skip, skip\n"
+        "Jeans, skip, skip, pcs, skip, skip\n"
+        "Kurti, skip, skip, pcs, skip, skip",
+    )
     assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # loops for more
     assert "Added 4 product" in reply
     assert await _count(db, Product, company.id) == 4
@@ -284,13 +296,10 @@ async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "Kirana")
+    await _send(db, company, "not sure")  # decide GST setup later
     await _send(db, company, "bulk")
 
-    await _send(db, company, "rice - 400, dal - 450")
-    assert company.onboarding_state == OnboardingState.product_awaiting_bulk_unit
-    await _send(db, company, "kg")
-    assert company.onboarding_state == OnboardingState.product_awaiting_bulk_purchase_price
-    await _send(db, company, "rice - 300, dal - 320")
+    await _send(db, company, "rice, 300, 400, kg, skip, skip\ndal, 320, 450, kg, skip, skip")
     assert await _count(db, Product, company.id) == 2
     rice = await db.scalar(
         select(Product).where(Product.company_id == company.id, Product.name == "rice")
@@ -301,14 +310,13 @@ async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
     assert rice.selling_price == Decimal("400.00")
     assert rice.unit == "kg"
     assert rice.purchase_price == Decimal("300.00")
+    assert rice.gst_rate is None
     assert dal.selling_price == Decimal("450.00")
     assert dal.unit == "kg"
     assert dal.purchase_price == Decimal("320.00")
 
     # A second bulk message keeps adding without resetting the earlier ones.
-    await _send(db, company, "Sugar")
-    await _send(db, company, "skip")  # no unit this time
-    await _send(db, company, "skip")  # no purchase price either
+    await _send(db, company, "Sugar, skip, skip, skip, skip, skip")
     assert await _count(db, Product, company.id) == 3
 
     await _send(db, company, "done")
@@ -316,16 +324,137 @@ async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
-async def test_product_bulk_paste_unparseable_reasks(db: AsyncSession) -> None:
+async def test_product_bulk_paste_with_gst(db: AsyncSession) -> None:
+    """Each bulk line can set its own GST% (the 6th field), independent of
+    the same/varies mode picked earlier."""
     company = await _fresh_company(db)
     await _send(db, company, "hi")
     await _send(db, company, "Kirana")
+    await _send(db, company, "varies")
+    await _send(db, company, "bulk")
+
+    await _send(db, company, "Rice, 300, 400, kg, 100, 5\nDal, 320, 450, kg, 50, 12")
+    rice = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.name == "Rice")
+    )
+    dal = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.name == "Dal")
+    )
+    assert rice.gst_rate == Decimal("5.00")
+    assert rice.stock_quantity == Decimal("100")
+    assert dal.gst_rate == Decimal("12.00")
+    assert dal.stock_quantity == Decimal("50")
+
+
+@pytest.mark.asyncio
+async def test_product_bulk_paste_missing_name_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "Kirana")
+    await _send(db, company, "not sure")  # decide GST setup later
     await _send(db, company, "bulk")
 
     reply = await _send(db, company, ",  , ")
     assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # stayed
-    assert "couldn't find" in reply.lower()
+    assert "couldn't read" in reply.lower()
     assert await _count(db, Product, company.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_product_bulk_paste_bad_gst_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "Kirana")
+    await _send(db, company, "varies")
+    await _send(db, company, "bulk")
+
+    reply = await _send(db, company, "Rice, 300, 400, kg, 100, 150")  # 150% is out of range
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # stayed
+    assert "couldn't read" in reply.lower()
+    assert await _count(db, Product, company.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_gst_mode_ask_invalid_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+    assert company.onboarding_state == OnboardingState.gst_mode_ask
+    reply = await _send(db, company, "huh?")
+    assert company.onboarding_state == OnboardingState.gst_mode_ask  # stayed
+    assert "same" in reply.lower() and "varies" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_gst_mode_not_sure_never_blocks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+    assert company.gst_rate == Decimal("0")
+    assert company.gst_varies_by_product is False
+
+
+@pytest.mark.asyncio
+async def test_gst_rate_same_bad_input_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+    await _send(db, company, "same")
+    assert company.onboarding_state == OnboardingState.gst_rate_same
+    reply = await _send(db, company, "a lot")
+    assert company.onboarding_state == OnboardingState.gst_rate_same  # stayed
+    assert "0 and 100" in reply
+    reply = await _send(db, company, "150")  # out of range
+    assert company.onboarding_state == OnboardingState.gst_rate_same  # stayed
+    assert "0 and 100" in reply
+    await _send(db, company, "18")
+    assert company.gst_rate == Decimal("18.00")
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+
+
+@pytest.mark.asyncio
+async def test_gst_varies_asks_per_product_rate(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+    await _send(db, company, "varies")
+    assert company.gst_varies_by_product is True
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+
+    await _send(db, company, "one by one")
+    await _send(db, company, "Rice")
+    await _send(db, company, "100")  # quantity
+    await _send(db, company, "kg")  # unit
+    await _send(db, company, "400")  # price
+    await _send(db, company, "300")  # purchase price
+    assert company.onboarding_state == OnboardingState.product_awaiting_gst_rate
+    reply = await _send(db, company, "18")
+    assert company.onboarding_state == OnboardingState.product_awaiting_name
+    assert "Added product" in reply
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.gst_rate == Decimal("18.00")
+
+
+@pytest.mark.asyncio
+async def test_gst_varies_per_product_rate_can_be_skipped(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "hi")
+    await _send(db, company, "FMCG")
+    await _send(db, company, "varies")
+    await _send(db, company, "one by one")
+    await _send(db, company, "Rice")
+    await _send(db, company, "skip")
+    await _send(db, company, "skip")
+    await _send(db, company, "skip")
+    await _send(db, company, "skip")
+    assert company.onboarding_state == OnboardingState.product_awaiting_gst_rate
+    await _send(db, company, "skip")
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.gst_rate is None
 
 
 @pytest.mark.asyncio

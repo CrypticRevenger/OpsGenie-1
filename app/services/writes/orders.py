@@ -24,6 +24,7 @@ from app.models.company import Company
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.invoice_item import InvoiceItem
 from app.models.product import Product
+from app.services.gst import effective_gst_rate
 from app.services.importer.parties import find_or_create_party
 from app.services.snapshot import business_now
 
@@ -40,6 +41,8 @@ class OrderLine:
     quantity: Decimal
     unit_price: Decimal
     line_total: Decimal
+    gst_rate: Decimal
+    gst_amount: Decimal
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,8 @@ async def create_order(
         product = await _resolve_product(db, company.id, item)
         unit_price = product.selling_price
         line_total = (unit_price * quantity).quantize(_CENTS)
+        line_gst_rate = effective_gst_rate(product.gst_rate, company.gst_rate)
+        line_gst_amount = (line_total * line_gst_rate / Decimal("100")).quantize(_CENTS)
 
         product.stock_quantity = product.stock_quantity - quantity
         if product.stock_quantity < 0:
@@ -138,11 +143,13 @@ async def create_order(
                 quantity=quantity,
                 unit_price=unit_price,
                 line_total=line_total,
+                gst_rate=line_gst_rate,
+                gst_amount=line_gst_amount,
             )
         )
 
     subtotal = sum((line.line_total for line in lines), Decimal("0.00"))
-    gst_amount = (subtotal * company.gst_rate / Decimal("100")).quantize(_CENTS)
+    gst_amount = sum((line.gst_amount for line in lines), Decimal("0.00"))
     total_amount = subtotal + gst_amount
     today = business_now(company.timezone).date()
     due_date = today + timedelta(days=dealer.payment_terms_days or _DEFAULT_DUE_DAYS)
@@ -173,6 +180,8 @@ async def create_order(
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 line_total=line.line_total,
+                gst_rate=line.gst_rate,
+                gst_amount=line.gst_amount,
             )
         )
 
