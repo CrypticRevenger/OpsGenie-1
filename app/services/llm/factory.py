@@ -21,13 +21,25 @@ from app.services.llm.base import (
 )
 from app.services.llm.cerebras_provider import CerebrasProvider
 from app.services.llm.claude_provider import ClaudeProvider
+from app.services.llm.cohere_provider import CohereProvider
 from app.services.llm.gemini_provider import GeminiProvider
+from app.services.llm.github_models_provider import GitHubModelsProvider
 from app.services.llm.groq_provider import GroqProvider
+from app.services.llm.nvidia_provider import NvidiaProvider
 from app.services.llm.openrouter_provider import OpenRouterProvider
 
 logger = logging.getLogger(__name__)
 
-_KNOWN_PROVIDERS = {"anthropic", "gemini", "groq", "openrouter", "cerebras"}
+_KNOWN_PROVIDERS = {
+    "anthropic",
+    "gemini",
+    "groq",
+    "openrouter",
+    "cerebras",
+    "github_models",
+    "cohere",
+    "nvidia",
+}
 
 
 def _build_provider(name: str, settings: Settings) -> LLMProvider:
@@ -43,6 +55,14 @@ def _build_provider(name: str, settings: Settings) -> LLMProvider:
         )
     if name == "cerebras":
         return CerebrasProvider(api_key=settings.cerebras_api_key, model=settings.cerebras_model)
+    if name == "github_models":
+        return GitHubModelsProvider(
+            api_key=settings.github_models_api_key, model=settings.github_models_model
+        )
+    if name == "cohere":
+        return CohereProvider(api_key=settings.cohere_api_key, model=settings.cohere_model)
+    if name == "nvidia":
+        return NvidiaProvider(api_key=settings.nvidia_api_key, model=settings.nvidia_model)
     raise ValueError(
         f"Unknown LLM provider {name!r}. Expected one of: {', '.join(sorted(_KNOWN_PROVIDERS))}."
     )
