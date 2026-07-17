@@ -1,151 +1,142 @@
 # OpsGenie — Project Status
 
-_Last updated: 2026-07-06_
+_Last updated: 2026-07-17 (through commit `def0c1c` — whole-codebase audit pass)_
 
-A running record of everything built so far, in order, and what's still open. See `SPEC.md` for the original product/technical spec and `docs/api.md` for the API reference. This file is the "what actually happened" complement to those two.
+A running record of everything built so far, mapped to the SPEC's version roadmap, plus what's still open. See `SPEC.md` for the original product/technical spec and `docs/api.md` for the API reference. This file is the "what actually happened / what's left" complement to those two.
 
 ---
 
 ## What OpsGenie is
 
-A WhatsApp-first daily financial operating assistant for B2B distributors. It ingests existing business records (Tally/Vyapar/Excel exports), maintains a deterministic ledger of invoices/payments/dealers/suppliers, and delivers daily cash-position briefings and guided write actions (record a payment, place an order) entirely over WhatsApp — with an LLM layer for narration and free-form Q&A, but **never** for owning business state or doing money math.
+A WhatsApp-first daily financial operating assistant for B2B distributors. It ingests existing business records (Tally / Vyapar / Excel exports), maintains a **deterministic** ledger of invoices / payments / dealers / suppliers, and delivers daily cash-position briefings, on-demand reports, and guided write actions (record a payment, create an order/invoice, update GST/stock) entirely over WhatsApp — with an LLM layer for narration and free-form Q&A, but **never** for owning business state or doing money math.
 
-Being built solo, targeting real distributor pilots (not a demo/student project) — see the "Working principles" section below for what that discipline has meant in practice.
+Built solo, targeting real distributor pilots (not a demo). First real pilot dataset: **AP BIOCARE** (veterinary/agri distributor, Berhampur, Odisha). Standing reconciliation check: Siddha Mahaveer Agencies' computed outstanding must equal **₹3,19,828.00**.
+
+---
+
+## Version status at a glance
+
+| SPEC version | Scope | Status |
+|---|---|---|
+| **V0.0 — Proof of Value** | CSV import → deterministic snapshot → LLM briefing → manual WhatsApp send | ✅ Complete |
+| **V0.1 — Operational Product** | WhatsApp webhook, numbered query menu, morning-briefing scheduler, invoice follow-up flow, notification engine, confidence/stale-data indicator | ✅ Complete (all Steps 11–16) |
+| **V0.2 — Source of Truth** | Create invoices/orders via WhatsApp, record payments via WhatsApp, GST math, PDF invoice delivery to dealer | ✅ Complete (code); Meta document-template approval to confirm |
+| **V0.3 — Intelligence & Expansion** | Free-form AI Q&A, inventory alerts, marketing broadcast, analytics/trends | 🚧 Partial — free-form AI Q&A + inventory tracking + daily/MTD analytics done; broadcast & trend reporting not built |
+| **Post-SPEC additions** | Self-serve onboarding + subscription gating, public marketing site (Vercel), password-gated admin dashboard, per-company Excel export, FAQ, per-product GST | ✅ Done (user-driven, beyond original SPEC) |
+
+**System size today:** 17 ORM table models · 32 Alembic migrations (single linear head, DB at head) · 53 test files / **624 tests** (623 pass, 1 real-API test deselected by default) · ruff clean.
 
 ---
 
 ## Timeline: what's been built, in order
 
 ### Phase 0 — Project foundation
-Repo scaffolding, FastAPI app factory, config/logging/exception-handling core.
+Repo scaffolding, FastAPI app factory, config / logging / exception-handling core, health check.
 
 ### Phase 1 — Database schema
-All 13 ORM models, first Alembic migration, full model test coverage.
+All ORM models + first Alembic migration. (SPEC named 13 tables; the schema has since grown to 17 as write features landed.)
 
 ### Phase 2 — Admin CRUD
-`company` / `dealer` / `supplier` create/read endpoints.
+`company` / `dealer` / `supplier` create/read endpoints (founder-facing, `X-API-Key` gated).
 
 ### Phase 3 — Import pipeline
-Pluggable importer architecture (Tally / Vyapar / Canonical CSV/Excel formats), idempotent invoice + payment import with FIFO payment allocation. Real pilot data first used here (see "Real pilot data" below).
+Pluggable importer architecture (Tally / Vyapar / Canonical CSV/Excel), idempotent invoice + payment import with **FIFO payment allocation**. First real-pilot-data validation here.
 
 ### Phase 4 — Invoice/payment read APIs
 Filterable list endpoints with computed `amount_paid` / `amount_outstanding`.
 
 ### Phase 5A — Business engine (pure Python, no LLM)
-`BusinessSnapshotService`, `DealerOutstandingCalculator`, `RecommendationEngine`, `GET /admin/companies/{id}/cashflow`. Deliberately split from 5B so the deterministic engine shipped and got validated before any LLM code was written (see "Working principles").
+`BusinessSnapshotService`, `DealerOutstandingCalculator`, `RecommendationEngine`, `GET /admin/companies/{id}/cashflow`. Split from 5B so the deterministic engine shipped and was validated before any LLM code existed.
 
 ### Phase 5B — LLM briefing/narration layer
-`BriefingService` narrates the Phase 5A snapshot in natural language. Ended up as a **pluggable multi-provider failover chain** (`app/services/llm/`) rather than a single hardcoded Claude call: `ClaudeProvider`, `GeminiProvider`, `GroqProvider`, `OpenRouterProvider`, selected/chained via `.env` (`LLM_PROVIDER` + `LLM_FALLBACKS`). Verified in production: a real OpenRouter 429 failed over to Gemini automatically with identical dealer figures.
+`BriefingService` narrates the 5A snapshot. Built as a **pluggable multi-provider failover chain** (`app/services/llm/`): Claude / Gemini / Groq / OpenRouter / GitHub Models / Cohere, selected & chained via `.env` (`LLM_PROVIDER` + `LLM_FALLBACKS`). Verified in production: a real OpenRouter 429 failed over to Gemini with identical figures. Money is never invented by the LLM — every figure comes from the deterministic snapshot.
 
 ### Pre-Phase-6 production hardening
-Full architect review, six real fixes: corrected 7-day cashflow math to use outstanding (not gross) invoice amounts, added `Company.timezone` (business-day boundaries were off by a day around UTC/IST midnight), committed `uv.lock`, made Docker run migrations before boot, capped import upload size at 10MB, stopped leaking exception internals from `/health`.
+Money math corrected (outstanding, not gross, in 7-day windows), business-timezone boundaries (`Company.timezone`, IST), `uv.lock` committed, deploy migration step, upload size cap, health endpoint leak fix.
 
 ### Phase 6 — Auth + pagination
-Shared-key `X-API-Key` auth (fails closed if unset) on all `/admin/*` routes; generic `Page[T]` pagination on all 5 list endpoints, `limit` capped at 200.
+Single shared `ADMIN_API_KEY` (fails closed, generic 401), `Page[T]` pagination on all 5 list endpoints (limit capped at 200).
 
-### Phase 7 — WhatsApp inbound webhook
-`GET`/`POST /webhooks/whatsapp` — Meta verification handshake + HMAC-SHA256 signature check, both fail closed. Scope was "parse and durably log," not routing (no query menu yet).
+### Phase 7 — WhatsApp inbound webhook (V0.1 Step 11)
+`GET`/`POST /webhooks/whatsapp` with its own two security mechanisms (verify-token handshake + `X-Hub-Signature-256` HMAC over raw body). Parses Meta payloads, matches sender to a `Company`, durably logs every message/status as a `BusinessEvent`.
 
-### Phase 8 — Numbered query menu
-Four canned reports (Cash / Collections / Suppliers / Dealer Risk) triggered by replying 1-4. First outbound WhatsApp sending (`whatsapp_client.py`), a generic `CommandRouter` (registry pattern, not if/elif), and full send→log→correlation-ID traceability from inbound message to delivery status.
+### Phase 8 — Numbered query menu (V0.1 Step 12)
+Generic `CommandRouter`, first-ever outbound sender (`whatsapp_client.py`), four canned reports (Cash / Collections / Suppliers / Dealer Risk) built strictly from snapshot fields. End-to-end traceability: inbound event → reply → Meta wamid → `NotificationLog` → status webhook. Idempotency against Meta redelivery.
 
-### Phase 9 — Invoice due-date follow-up
-On an invoice's due date, the bot asks "Has payment been received? 1 Yes 2 Partial 3 Not yet" and routes the reply into payment recording, entirely in-thread. Deterministic-only relative-date parsing (weekday names, "tomorrow", "N days") — no fuzzy date guessing.
+### Phase 9 — Invoice due-date follow-up (V0.1 Step 13)
+`InvoiceDueDateFollowUpService` — a full WhatsApp state machine ("Has payment been received? 1 Yes / 2 Partial / 3 Not yet") routing replies back through payment recording. One active follow-up per company at a time; deterministic-only date parsing.
 
-### Phases 10-12 — Notifications, scheduler, stale-data banner
-Built together in one pass — completed all of SPEC's V0.1 scope. `NotificationEngine` (4 rule-based alerts: supplier payment due, high-risk dealer with no recent follow-up, no data in 24h, briefing delivery failed), one `APScheduler` interval poll job (every 15 min, checks each company's own business-local hour against configured briefing/retry/follow-up hours), and a stale-data banner prepended to briefings when data is >24h old.
+### Phases 10–12 — Notifications + scheduler + stale-data banner (V0.1 Steps 14–16)
+`NotificationEngine` (4 pure-rule alerts, internal dedup), `APScheduler` single-poll tick honoring each company's business-local hour, stale-data banner on briefings. **Completes all of V0.1.**
 
-### Deploy checkpoint
-First-ever push to GitHub (`github.com/CrypticRevenger/OpsGenie`), deployed to Render. Migrated the database from Render's free (30-day-expiring) Postgres to **Neon** free tier for persistence. Real Meta WhatsApp webhook verified live against the user's own phone — found and fixed the non-obvious gotcha that the app must be subscribed to the WABA (`POST /{WABA_ID}/subscribed_apps`), not just have the callback URL registered.
+### Post-V0.1 deployment & product work
+- `DELETE /admin/companies/{id}` (cascade), migrated prod DB Render→**Neon** (persistent), deployed at `https://opsgenie.onrender.com`.
+- **Live WhatsApp integration verified** (real menu/fallback replies to the founder's phone; the WABA `subscribed_apps` gotcha was the blocker).
+- **Self-serve onboarding + subscription gating** (contradicts original SPEC, but intended): public `/onboard`, founder activation flips `subscription_active` + sends welcome template; webhook only replies to active companies.
+- **Public marketing site** (landing / onboard wizard / privacy / terms / contact), also deploys standalone to **Vercel**; `/onboard` + API + scheduler stay on Render.
+- **Password-gated admin dashboard** (`/dashboard`, session cookie).
 
-### Post-V0.1: self-serve product additions (beyond original SPEC)
-- `DELETE /admin/companies/{id}` — cascade delete.
-- **Self-serve onboarding + subscription gating**: public `/onboard` wizard creates a pending company; founder (or now the public flow itself) activates via a shared activation service that flips `subscription_active` and sends a Meta-approved WhatsApp welcome template. Webhook only replies to active subscriptions.
-- **Public marketing website**: landing page, onboarding wizard, privacy/terms/contact — deployed standalone to **Vercel** as a static build (`scripts/build_static_site.py`) while the API/scheduler stay on Render (Vercel can't run APScheduler). Shared content lives in framework-free `app/content/landing.py` so the static build doesn't need FastAPI installed. Logo, WhatsApp-styled theme, animations, responsive polish.
-- `WELCOME_TEMPLATE_NAME` currently uses Meta's stock `hello_world` template as a stand-in while the real `opsgenie_welcome` template is pending Meta approval.
+### V0.2 — WhatsApp-native writes ("Source of Truth")
+- **Phase 2A — record payment** via guided WhatsApp workflow: generic `PendingOperation` confirm-gate (YES/NO), reuses the FIFO allocator; unknown parties confirmed before creating.
+- **Phase 2B — create order** via guided workflow: real `stock_quantity` on `Product` (decremented per line), FAQ table + `get_faqs` agent tool, `get_inventory` tool.
+- **Invoice-creation completion**: company-configurable GST (`Company.gst_rate` + per-product override), 14-day default due date, **PDF invoice generation** (`fpdf2`) + **delivery to dealer** via Meta document template.
+- **Daily Business Summary**: `DailyBusinessSnapshot` (separate honest metrics — never a blended P/L), evening WhatsApp brief, dashboard card, month-to-date totals; shared `priority_actions.py` engine.
+- Purchase-price collection (cost basis for margin), per-product GST, "update gst" flow.
 
-### V0.2 Phase 1 — Agentic read agent
-Multi-turn conversational memory (`ConversationTurn` model) + a provider-agnostic tool-calling loop (`app/services/agent/`) with 13 read-only tools over the existing snapshot/outstanding services. A **money-safety gate** (`money_guard.py`) discards any LLM reply containing a rupee figure not actually present in the tool outputs it fetched — falls back to a safe canned reply instead of ever risking a hallucinated number.
+### V0.3 (partial) — Intelligence
+- **Free-form AI Q&A**: agentic read agent (`app/services/agent/`) with 13 read-only tools, multi-turn memory (`ConversationTurn`), provider-agnostic tool loop, and a **money-safety guard** that discards any LLM reply containing a figure the tools didn't actually return.
+- **Deterministic report tier** (`instant_reports.py`): every menu keyword answers straight from the DB, never depending on an LLM call succeeding.
+- **Sales-impact fast-path** ("if I sell N of X" → remaining stock / revenue / profit), computed deterministically.
+- **Per-company Excel export** (`company_export.py`, 11 sheets), downloadable via short-lived HMAC-signed WhatsApp link or the dashboard.
 
-### V0.2 Phase 2A — Guided payment recording
-First guided **write** workflow over WhatsApp: "record payment" → party → amount → date → preview → YES/NO. Built on a new generic `PendingOperation` confirm-gate (30-min TTL, reusable for every future write type) and the existing FIFO payment allocator. Deliberately narrower than the original design: unknown parties are confirmed before creation (never silently auto-created), and the flow is keyword-triggered rather than agent-tool-callable. A structured review caught and fixed 10 issues, two serious (an unbounded date input could crash the whole webhook request; only one conversation step recognized "cancel," so users could get stuck mid-flow).
-
-### V0.2 Phase 2B — Inventory, FAQ, guided order creation
-Prompted by an n8n reference flow the user wanted matched (WhatsApp → AI agent with inventory/FAQ/order tools). Confirmed up front that order creation stays a guided workflow + confirm (same shape as 2A), not a direct AI tool-call — consistent with the "writes are workflows" principle.
-- Real `stock_quantity` tracking added to `Product` (previously name/price only), decremented on order creation, allowed to go negative with a flagged warning (physical counts can lag digital ones).
-- Per-company FAQ table + admin CRUD, read by the agent via a new `get_faqs` tool.
-- `list_products` renamed/enriched to `get_inventory`.
-- New guided flow `order_flow.py` (dealer → repeatable product/quantity loop → preview → confirm) + `writes/orders.py::create_order`, mirroring the Phase 2A payment flow exactly.
-- First-ever `PATCH` endpoints in the admin API (products, FAQ).
-- 419 tests passing at the end of this phase.
-
-### Latest commit — onboarding fix (2026-07-06)
-The guided WhatsApp onboarding only ever asked for a product's *name*, leaving every onboarded product at `stock_quantity = 0` — silently breaking Phase 2B's inventory tracking for every real signup. Fixed by adding a `product_awaiting_quantity` onboarding state between name and the next product/done.
-
-### Live production check (2026-07-06)
-Confirmed the deployed backend (`https://opsgenie.onrender.com`) is reachable and reflects real usage: 2 real companies existed from the user's own end-to-end test of the public onboarding wizard, proving the self-serve signup → WhatsApp guided setup flow genuinely works. Both were deleted at the user's request afterward — production currently has 0 companies.
-
-### Website bug-fix pass (2026-07-06)
-Live-tested the deployed site + WhatsApp agent on a real phone and fixed 6 issues: free-text AI assistant falling back to the canned menu on short queries (strengthened system prompt + added diagnostic logging), missing Back button on onboarding step 1, a resubmit-with-same-number flow that looked identical to a fresh signup (added a banner), plus verified two reported "bugs" that turned out not to be bugs (data was in fact being saved; duplicate numbers are structurally blocked by a DB unique constraint).
+### Whole-codebase audit pass — `def0c1c` (2026-07-17)
+Verified enum↔DB parity (all 6 enum types), single migration head, config↔`.env.example` parity, no anti-patterns, tz-aware math. Fixed 3 real bugs (each with a regression test):
+1. **Order creation crashed for any non-Latin-1 name** — fpdf2's core font raises on Odia/Hindi/Telugu (common for our distributors' dealer/product names); the PDF call was unguarded and 500'd the webhook before commit, wedging the order on Meta's retry loop. Now non-blocking + PDF sanitizes/renders.
+2. **`_format_quantity` corrupted whole-number quantities** (`Decimal("50")` → `"5"`); now strips only fractional zeros.
+3. **`notify_briefing_failed` didn't dedup** (founder spammed ~4×/day during a send outage); now once-per-day like its siblings.
 
 ---
 
-## LLM usage: which provider, and where tokens actually get spent
+## Current system inventory
 
-**Provider chain** (multi-provider failover, not one fixed model — configured in `.env`):
-- **Primary: Groq** — `llama-3.3-70b-versatile` ("reliable tool-caller")
-- **Fallback 1: Gemini** — `gemini-2.5-flash`
-- **Fallback 2: OpenRouter** — `openai/gpt-oss-120b:free`
-- **Fallback 3: Anthropic (Claude)** — `claude-haiku-4-5`
+**Models (17 tables):** company, dealer, supplier, product, invoice, invoice_item, payment, business_event, activity_timeline, morning_briefing, import_log, notification_log, conversation_turn, pending_operation, faq, daily_business_snapshot, cash_snapshot _(modeled but unused — per SPEC, outstanding is always computed from invoices+payments)_.
 
-If the primary fails or rate-limits, `generate_with_fallback()` (`app/services/llm/factory.py`) automatically tries the next provider in order. Same chain is used for both token-consuming flows below.
+**Core services:** snapshot · party_outstanding · recommendations · priority_actions · briefing · llm/* (6 providers + factory) · assistant + agent/* (read tools, runner, money_guard) · command_router · query_menu · instant_reports · followup · notifications · scheduler · daily_snapshot · evening_brief · importer/* · workflows/* (payment, order, product, gst) · writes/* (payments, orders, pending_operation, update_gst) · whatsapp_client · invoice_pdf · invoice_delivery · company_export · onboarding_flow · activation · gst · money_format · sales_impact_parser.
 
-**Only two places in the codebase spend LLM tokens** — everything else (menu replies, guided payment/order workflows, notifications, onboarding, admin CRUD, scheduler ticks) is pure deterministic Python with zero token cost:
+**API surface:** `/webhooks/whatsapp`, `/onboard`, public marketing site, `/health`, signed `/export`, `X-API-Key` admin API (companies, dealers, suppliers, products, invoices, payments, imports, cashflow, briefing, followup, daily_snapshot, scheduler, faq, export), and the session-authed `/dashboard/*` portal.
 
-1. **Morning briefing narration** — `app/services/briefing.py:generate_briefing()` calls `generate_with_fallback()`. Triggered from:
-   - `app/core/scheduler.py:130` — the daily APScheduler tick, auto-generating each company's briefing at their configured hour.
-   - `app/api/admin/briefing.py:73` — `POST /admin/companies/{id}/briefing`, the founder manually requesting/regenerating one.
-   - What it does: takes the already-computed `BusinessSnapshot` (cash, dealers, recommendations — all pure Python) and asks the LLM to narrate it into readable text. One LLM call per briefing.
-
-2. **WhatsApp free-form Q&A assistant** — `app/services/assistant.py:answer_question()` → `app/services/agent/runner.py` → `provider.run_tool_loop()`. Triggered from:
-   - `app/api/webhooks/whatsapp.py:441` — any inbound message that doesn't match the numbered menu (1-4), isn't a workflow keyword ("record payment", "new order"), and isn't a reply inside an active guided workflow — i.e. genuine free text like "how much does Ram owe?"
-   - What it does: runs the tool-calling loop, which may issue multiple LLM calls per user message (one per read-tool call it decides to make — inventory, cashflow, dealer outstanding, etc.) before producing a final answer. The money-guard then checks the reply before sending.
+**Deployment:** Render web service (API + scheduler) + Neon Postgres (persistent) + Vercel static marketing site. Local dev uses a separate Docker Postgres.
 
 ---
 
-## Current state (as of 2026-07-06)
+## What remains to do
 
-- **~430+ tests passing** (419 as of Phase 2B, plus a few more added in the latest onboarding fix), ruff-clean, real Postgres in every test (no mocking).
-- **Deployed and live**: Render (API + scheduler + WhatsApp webhook) + Vercel (static marketing site) + Neon (Postgres).
-- **Real WhatsApp integration verified working end-to-end** on the user's own phone, both for the numbered menu and the self-serve onboarding wizard.
-- **Production database currently empty** (0 companies) — the 2 test signups were deleted after verification.
-- **Local dev database** has 6000+ accumulated rows from the test suite (tests never clean up after themselves, by long-standing convention) plus the real AP BIOCARE pilot dataset used as the standing reconciliation check (Siddha Mahaveer Agencies' outstanding balance must equal ₹3,19,828.00 after any change touching invoice/payment logic).
-- **Welcome WhatsApp template** is still the generic Meta `hello_world` stand-in — the real branded template is pending Meta's approval.
-- **No payment gateway** — "subscribing" is a manual `subscription_active` flag flip, by design for the pilot phase.
-- **Pricing page shows ₹999/month but activation is currently free** ("Coming soon" payment) — an intentional pilot-phase choice, not a bug, but means unlimited free signups today.
+### Deployment / ops (verify & finish)
+- [ ] **Confirm production is redeployed** with the latest `master` (through `def0c1c`) and that Alembic migrations have been run on the Neon prod DB (it's a manual/one-shot step; local DB is at head).
+- [ ] **Set production env vars** correctly — notably `PUBLIC_BASE_URL` (local `.env` currently points to `http://localhost:8000`; prod must be the real Render URL for export/onboarding links to work).
+- [ ] **Always-on scheduler**: APScheduler runs inside the web process, so on a spin-down free tier, ticks only fire while awake. For a real always-on daily 8am push, use an always-on instance or a dedicated worker (or drive `POST /admin/scheduler/tick` from an external cron).
+- [ ] **CI**: tests currently run only locally against a shared dev DB (with accumulated fixture rows, never cleaned). No CI pipeline or isolated test DB yet.
 
----
+### Meta / WhatsApp approvals (external, can't verify from repo)
+- [ ] Confirm the **`opsgenie_welcome`** template is Meta-approved (now set in `.env`; was a `hello_world` stub earlier).
+- [ ] Confirm the **`invoice_document`** template (document header) is Meta-approved so dealer PDF delivery works end-to-end (now set in `.env`; delivery is fail-open, so an unapproved template just skips silently).
 
-## What's not built yet / open items
+### V0.3 features not yet built
+- [ ] **Marketing broadcast** to the dealer network.
+- [ ] **Business analytics / trend reporting** beyond today + month-to-date (e.g. week-over-week, dealer trends).
+- [ ] **Inventory alerts** derived from sales data (low-stock nudges) — stock is tracked now, alerts are not.
 
-- **Real distributor pilot hasn't formally started** — the infrastructure is proven end-to-end with the user's own test numbers, but no actual external distributor has been onboarded yet.
-- **Payment gateway** for real subscription billing (Stripe/Razorpay or similar) — deliberately deferred.
-- **Branded WhatsApp welcome template** — waiting on Meta approval.
-- **Deploying Phase 2B (inventory/FAQ/orders) to production** — built and tested locally only; the migration hasn't been run against the live Render/Neon database yet.
-- **Guided invoice creation** (multi-line-item, beyond the simple order flow) — `PendingOperation` infrastructure is designed to support it but it hasn't been built.
-- **Employee/role-based permissions** — the read/write tool split was designed with this in mind but no second role exists yet.
-- **`CashSnapshot`/`ActivityTimeline` tables** — modeled early on, still partially or fully unused.
-- **`data_completeness_score`** in the business snapshot is still a stub (needs daily-import-cadence tracking).
-- **Scheduler runs inside the web process** — fine at pilot scale, but a free-tier host spinning down when idle means ticks only fire while the process is awake; would need an always-on instance or dedicated worker for a real always-on pilot.
-- **Payment idempotency** is still just `(party, date, amount)` — could in theory drop a genuine same-day/same-amount duplicate payment (flagged, not yet hardened).
+### Known gaps / tech debt (deliberately deferred, pilot-acceptable)
+- [ ] **Payment idempotency** keys on `(party, date, amount)` — a genuine same-day, same-amount duplicate payment can still be dropped as a "re-import".
+- [ ] **No payment gateway** — "buying a subscription" = the founder manually activating (intentional for pilot; self-serve accounts are free today despite the ₹999/mo copy on the onboarding page).
+- [ ] **Party de-dup** — `find_or_create_party` matches case-insensitively but two concurrent creates of a brand-new name could race into duplicates (not a concern at serialized pilot scale).
+- [ ] **Scheduler retry re-send** — during the retry hour the retry *send* re-fires each 15-min tick (harmless for a truly-failed send; only a "succeeded-at-Meta-but-timed-out" edge could double-deliver). Founder alerting is now correctly deduped once/day.
 
 ---
 
-## Working principles (how this project gets built)
-
-- **Strict phase discipline**: no skipping ahead, no AI/LLM features before the deterministic business engine is solid and tested.
-- **Validate with real data**: the AP BIOCARE pilot dataset (real invoices/payments for an actual veterinary/agri distributor) is the standing reconciliation check re-run after any change to money logic.
-- **Writes are workflows, not AI capabilities**: every write (payment, order, eventually invoice) is a deterministic guided conversation with an explicit confirm step — the LLM's only job is recognizing intent, never producing or calculating the numbers.
-- **Money always traceable**: a money-guard gate blocks any AI-generated reply containing a figure that isn't verifiably sourced from a real tool/DB call.
-- **Structured review before calling a phase done**: multi-angle background-agent code review (line-by-line, cross-file, reuse, simplification, efficiency, conventions) on every phase, real bugs fixed before moving on.
-- **Commit/push only when explicitly asked** — not batched, not assumed.
+## Working principles (how this project is built)
+- **Phase discipline** — deterministic business engine solid and real-data-validated before any AI; money math never touches the LLM.
+- **Writes are guided workflows**, not AI tool-calls — a confirm gate (`PendingOperation`) re-derives the write fresh at confirm time.
+- **No blended financial metrics** — accrual (margin) and cash-basis (collections/payments) are always reported separately.
+- **Never commit generated output** (Excel/PDF/static site are built at request/deploy time).
+- **Before closing work**: full pytest green + `ruff check` clean + a structured multi-angle review, then re-verify against the real AP BIOCARE reconciliation figure.
