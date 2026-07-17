@@ -315,9 +315,22 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         unit = None if _is(stripped, "skip") else stripped
         scratch["unit"] = unit
         company.onboarding_scratch = scratch
+        company.onboarding_state = OnboardingState.product_awaiting_price
+        name = scratch.get("name", "this product")
+        return f"What's the selling price for {name}? (e.g. 400, or 'skip')"
+
+    if state == OnboardingState.product_awaiting_price:
+        price = None
+        if not _is(stripped, "skip"):
+            try:
+                price = parse_amount(stripped)
+            except ValueError:
+                return "Please send a number, e.g. 400 (or 'skip')."
+        scratch["price"] = str(price) if price is not None else None
+        company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.product_awaiting_purchase_price
         name = scratch.get("name", "this product")
-        return f"What's the purchase price (cost price) for {name}? (e.g. 30, or 'skip')"
+        return f"What's the purchase price (cost price) for {name}? (e.g. 300, or 'skip')"
 
     if state == OnboardingState.product_awaiting_purchase_price:
         purchase_price = None
@@ -325,16 +338,19 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             try:
                 purchase_price = parse_amount(stripped)
             except ValueError:
-                return "Please send a number, e.g. 30 (or 'skip')."
+                return "Please send a number, e.g. 300 (or 'skip')."
         name = scratch.get("name", "Product")
         quantity = Decimal(scratch.get("quantity", "0"))
         unit = scratch.get("unit")
+        price_raw = scratch.get("price")
+        price = Decimal(price_raw) if price_raw is not None else None
         db.add(
             Product(
                 company_id=company.id,
                 name=name,
                 stock_quantity=quantity,
                 unit=unit,
+                selling_price=price,
                 purchase_price=purchase_price,
             )
         )
@@ -455,7 +471,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.receivable_date
         party = scratch.get("party", "them")
-        return f"When do you expect payment from {party}? (e.g. Friday, 15 days)"
+        return f"When do you expect payment from {party}? (e.g. Friday, 15 days, or next week)"
 
     if state == OnboardingState.receivable_date:
         today = business_now(company.timezone).date()
@@ -512,7 +528,8 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         scratch["amount"] = str(amount)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.payable_date
-        return f"When is the payment to {scratch.get('party', 'them')} due? (e.g. Friday, 15 days)"
+        party = scratch.get("party", "them")
+        return f"When is the payment to {party} due? (e.g. Friday, 15 days, or next week)"
 
     if state == OnboardingState.payable_date:
         today = business_now(company.timezone).date()

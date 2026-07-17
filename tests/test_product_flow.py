@@ -81,6 +81,8 @@ async def test_one_by_one_add_then_done_clears_workflow(db: AsyncSession) -> Non
     reply = await _send(db, company, "100")
     assert "unit" in reply.lower()
     reply = await _send(db, company, "kg")
+    assert "selling price" in reply.lower()
+    reply = await _send(db, company, "40")
     assert "purchase price" in reply.lower()
     reply = await _send(db, company, "30")
     assert "Added product: Rice" in reply
@@ -95,6 +97,7 @@ async def test_one_by_one_add_then_done_clears_workflow(db: AsyncSession) -> Non
     assert product.name == "Rice"
     assert product.stock_quantity == Decimal("100")
     assert product.unit == "kg"
+    assert product.selling_price == Decimal("40.00")
     assert product.purchase_price == Decimal("30.00")
 
 

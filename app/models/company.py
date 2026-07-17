@@ -80,6 +80,11 @@ class OnboardingState(enum.StrEnum):
     product_awaiting_name = "product_awaiting_name"
     product_awaiting_quantity = "product_awaiting_quantity"
     product_awaiting_unit = "product_awaiting_unit"
+    # Selling price — asked before purchase price so the one-by-one flow
+    # collects the same fields the bulk flow gets for free from "Rice - 400"
+    # (previously missing entirely, leaving one-by-one products with no
+    # selling_price; see app/services/onboarding_flow.py).
+    product_awaiting_price = "product_awaiting_price"
     product_awaiting_purchase_price = "product_awaiting_purchase_price"
     dealer_awaiting_name = "dealer_awaiting_name"
     dealer_awaiting_phone = "dealer_awaiting_phone"

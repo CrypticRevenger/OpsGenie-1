@@ -71,12 +71,14 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     await _send(db, company, "one by one")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
 
-    # Products: name -> quantity -> unit, then done
+    # Products: name -> quantity -> unit -> price -> purchase price, then done
     await _send(db, company, "Paracetamol")
     assert company.onboarding_state == OnboardingState.product_awaiting_quantity
     await _send(db, company, "150")
     assert company.onboarding_state == OnboardingState.product_awaiting_unit
     await _send(db, company, "strips")
+    assert company.onboarding_state == OnboardingState.product_awaiting_price
+    await _send(db, company, "12")
     assert company.onboarding_state == OnboardingState.product_awaiting_purchase_price
     await _send(db, company, "8")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
@@ -87,6 +89,7 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     assert product.name == "Paracetamol"
     assert product.stock_quantity == Decimal("150")
     assert product.unit == "strips"
+    assert product.selling_price == Decimal("12.00")
     assert product.purchase_price == Decimal("8.00")
 
     # Dealer: name -> phone -> credit
@@ -213,9 +216,11 @@ async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
     assert company.onboarding_state == OnboardingState.product_awaiting_quantity  # stayed
     assert "number" in reply.lower()
 
-    # Skipping quantity defaults to 0, then unit, then purchase price
+    # Skipping quantity defaults to 0, then unit, then price, then purchase price
     await _send(db, company, "skip")
     assert company.onboarding_state == OnboardingState.product_awaiting_unit
+    await _send(db, company, "skip")
+    assert company.onboarding_state == OnboardingState.product_awaiting_price
     await _send(db, company, "skip")
     assert company.onboarding_state == OnboardingState.product_awaiting_purchase_price
     await _send(db, company, "skip")
@@ -224,6 +229,7 @@ async def test_product_quantity_skip_and_bad_input(db: AsyncSession) -> None:
     assert product.name == "Rice"
     assert product.stock_quantity == Decimal("0")
     assert product.unit is None
+    assert product.selling_price is None
     assert product.purchase_price is None
 
 
