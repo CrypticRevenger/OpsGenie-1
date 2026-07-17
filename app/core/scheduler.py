@@ -41,7 +41,11 @@ from app.models.morning_briefing import MorningBriefing
 from app.services.briefing import generate_briefing
 from app.services.evening_brief import send_evening_brief
 from app.services.followup import send_due_today_follow_up
-from app.services.notifications import notify_briefing_failed, run_notification_checks
+from app.services.notifications import (
+    notify_briefing_failed,
+    notify_briefing_generation_failed,
+    run_notification_checks,
+)
 from app.services.snapshot import business_now
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
@@ -176,12 +180,21 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
         if hour == briefing_hour:
             existing = await _latest_briefing_today(db, company, today)
             if existing is None:
-                briefing = await generate_briefing(db, company.id)
-                delivered = await _deliver_briefing(db, company, briefing)
-                await db.commit()
-                diagnostics["actions"]["briefing"] = (
-                    "generated_and_sent" if delivered else "generated_but_send_failed"
-                )
+                try:
+                    briefing = await generate_briefing(db, company.id)
+                except Exception as exc:  # noqa: BLE001 - any provider-chain failure must alert, not crash the pass
+                    logger.exception("Briefing generation failed for company %s", company.id)
+                    await notify_briefing_generation_failed(db, company, local_now)
+                    await db.commit()
+                    diagnostics["actions"]["briefing"] = (
+                        f"generation_failed_founder_alerted ({exc})"
+                    )
+                else:
+                    delivered = await _deliver_briefing(db, company, briefing)
+                    await db.commit()
+                    diagnostics["actions"]["briefing"] = (
+                        "generated_and_sent" if delivered else "generated_but_send_failed"
+                    )
             else:
                 diagnostics["actions"]["briefing"] = (
                     f"already_sent_today (status={existing.delivery_status})"

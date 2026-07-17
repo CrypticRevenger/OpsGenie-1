@@ -144,7 +144,9 @@ class Settings(BaseSettings):
     groq_api_key: str | None = Field(default=None, alias="GROQ_API_KEY")
     groq_model: str = Field(default="llama-3.3-70b-versatile", alias="GROQ_MODEL")
     openrouter_api_key: str | None = Field(default=None, alias="OPENROUTER_API_KEY")
-    openrouter_model: str = Field(default="openai/gpt-oss-120b:free", alias="OPENROUTER_MODEL")
+    openrouter_model: str = Field(
+        default="nvidia/nemotron-3-ultra-550b-a55b:free", alias="OPENROUTER_MODEL"
+    )
 
     # Agentic WhatsApp assistant: max tool-call rounds per message (loop guard),
     # and how many prior dialogue turns to load as multi-turn memory.
