@@ -11,7 +11,7 @@ logic, just broad coverage so a distributor can ask about any of their own data.
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -201,6 +201,91 @@ async def _get_inventory(db: AsyncSession, company: Company) -> dict:
     }
 
 
+def _singularize(name: str) -> str:
+    """Naive plural fold ('chocolates' -> 'chocolate') so a spoken-language quantity
+    question ("2500 milk chocolates") still matches a singular catalogue name
+    ("Milk Chocolate")."""
+    stripped = name.strip().lower()
+    return stripped[:-1] if stripped.endswith("s") and len(stripped) > 1 else stripped
+
+
+async def _find_product(db: AsyncSession, company: Company, name: str) -> Product | None:
+    target = _singularize(name)
+    if not target:
+        return None
+    products = (
+        await db.scalars(select(Product).where(Product.company_id == company.id))
+    ).all()
+    for product in products:
+        candidate = _singularize(product.name)
+        if candidate == target or candidate in target or target in candidate:
+            return product
+    return None
+
+
+async def _calculate_sales_impact(db: AsyncSession, company: Company, items: list[dict]) -> dict:
+    """Deterministic what-if math for 'if I sell/sold N of X' questions —
+    remaining stock, revenue, cost, and profit per product plus totals.
+
+    The LLM must never do this arithmetic itself (money_guard.py discards any
+    reply stating a figure this tool didn't return), so this is the sanctioned
+    path for any question combining a hypothetical/actual quantity with
+    catalogue prices. Cost/profit follow the same "never assume 0-cost"
+    convention as daily_snapshot.py: a product with no purchase_price on file
+    is excluded from cost/profit totals and named in items_missing_cost_data,
+    never silently treated as free.
+    """
+    results = []
+    total_revenue = Decimal("0")
+    total_cost = Decimal("0")
+    total_profit = Decimal("0")
+    missing_cost: list[str] = []
+    for raw in items or []:
+        name = str(raw.get("product_name", "")).strip()
+        try:
+            qty = Decimal(str(raw.get("quantity_sold", "0")))
+        except InvalidOperation:
+            results.append({"product_name": name, "error": "Invalid quantity_sold."})
+            continue
+        product = await _find_product(db, company, name)
+        if product is None:
+            results.append({"product_name": name, "error": f"No product found matching '{name}'."})
+            continue
+        entry: dict = {
+            "product_name": product.name,
+            "quantity_sold": str(qty),
+            "stock_before": str(product.stock_quantity),
+            "stock_remaining": str(product.stock_quantity - qty),
+        }
+        if product.selling_price is not None:
+            revenue = qty * product.selling_price
+            entry["selling_price"] = str(product.selling_price)
+            entry["revenue"] = str(revenue)
+            total_revenue += revenue
+        if product.purchase_price is not None:
+            cost = qty * product.purchase_price
+            entry["purchase_price"] = str(product.purchase_price)
+            entry["cost"] = str(cost)
+            total_cost += cost
+            if product.selling_price is not None:
+                profit = revenue - cost
+                entry["profit"] = str(profit)
+                total_profit += profit
+        else:
+            missing_cost.append(product.name)
+        results.append(entry)
+    return {
+        "items": results,
+        # total_revenue covers every item; total_cost/total_profit only cover
+        # items with purchase_price on file (never assumed 0-cost) —
+        # items_missing_cost_data names what's excluded so the reply can say so.
+        "total_revenue": str(total_revenue),
+        "total_cost": str(total_cost),
+        "total_profit": str(total_profit),
+        "items_missing_cost_data": missing_cost,
+    }
+
+
 async def _get_faqs(db: AsyncSession, company: Company) -> dict:
     faqs = (
         await db.scalars(
@@ -369,6 +454,39 @@ READ_TOOLS: list[AgentTool] = [
         "price. Use for 'what's my stock', 'how much Rice do I have', or any inventory question.",
         no_params(),
         _get_inventory,
+    ),
+    AgentTool(
+        "calculate_sales_impact",
+        "Deterministic what-if math for one or more products: given quantities sold, "
+        "returns remaining stock, revenue, cost, and profit computed from the real "
+        "catalogue prices — never compute this yourself, always call this tool. Use for "
+        "'if I sell/sold N of X (and M of Y), how much is left / what's my profit / "
+        "what's my revenue'.",
+        {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "description": "One entry per product mentioned in the question.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "product_name": {
+                                "type": "string",
+                                "description": "Product name (may be partial).",
+                            },
+                            "quantity_sold": {
+                                "type": "number",
+                                "description": "Units sold/hypothetically sold.",
+                            },
+                        },
+                        "required": ["product_name", "quantity_sold"],
+                    },
+                }
+            },
+            "required": ["items"],
+        },
+        _calculate_sales_impact,
     ),
     AgentTool(
         "get_faqs",

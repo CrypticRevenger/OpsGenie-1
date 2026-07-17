@@ -15,8 +15,12 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 _MONEY_RE = re.compile(
-    r"(?:₹|rs\.?|inr)\s*([\d,]+(?:\.\d+)?)"  # currency marker before
-    r"|([\d,]+(?:\.\d+)?)\s*(?:rupees?|rs\.?|inr)"  # currency marker after
+    # The amount group always starts with a digit (\d[\d,]*, not [\d,]+) —
+    # otherwise "rs" immediately followed by a stray comma (as in the very
+    # common "...dealers, or..." / "...suppliers, ...") matches a bare "," as
+    # a fake amount and gets rejected by reply_has_unverified_money below.
+    r"(?:₹|rs\.?|inr)\s*(\d[\d,]*(?:\.\d+)?)"  # currency marker before
+    r"|(\d[\d,]*(?:\.\d+)?)\s*(?:rupees?|rs\.?|inr)"  # currency marker after
     r"|(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?)"  # comma-grouped (e.g. 5,00,000)
     # bare 5+ digit — the trailing guard excludes only digits/commas (not '.'),
     # so a sentence-ending period after the number ("...987654.") still matches.

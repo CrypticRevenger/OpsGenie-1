@@ -117,6 +117,24 @@ async def test_non_rupee_hallucination_gated(db: AsyncSession, monkeypatch) -> N
 
 
 @pytest.mark.asyncio
+async def test_clarifying_question_mentioning_dealers_or_suppliers_passes(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Regression: 'rs' immediately followed by the comma in "...dealers, or..."
+    / "...suppliers, ..." must not be misread as a bare money amount — these are
+    two of the most common words in this domain, and a genuine clarifying
+    question containing them was being wrongly discarded to the fallback."""
+    company = await _company(db)
+    text = (
+        "Could you please clarify — are you asking about cash, dealers, or "
+        "suppliers?"
+    )
+    _stub_agent(monkeypatch, text=text, tool_outputs=[])
+    reply = await answer_question(db, company, "how much is the total amount?")
+    assert reply == text
+
+
+@pytest.mark.asyncio
 async def test_greeting_with_no_numbers_passes(db: AsyncSession, monkeypatch) -> None:
     company = await _company(db)
     _stub_agent(monkeypatch, text="Hi! How can I help with your business?", tool_outputs=[])
