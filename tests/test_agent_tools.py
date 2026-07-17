@@ -148,6 +148,67 @@ async def test_get_inventory(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_calculate_sales_impact_computes_stock_and_profit(db: AsyncSession) -> None:
+    company = await _seed(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Wheat",
+            unit="kg",
+            selling_price=Decimal("20.00"),
+            purchase_price=Decimal("14.00"),
+            stock_quantity=Decimal("4000"),
+        )
+    )
+    await db.commit()
+
+    # Plural, lowercase phrasing (as a distributor would actually type it).
+    out = await _call(
+        db,
+        company,
+        "calculate_sales_impact",
+        items=[{"product_name": "wheats", "quantity_sold": 3000}],
+    )
+    item = out["items"][0]
+    assert item["product_name"] == "Wheat"
+    assert Decimal(item["stock_remaining"]) == Decimal("1000")
+    assert Decimal(item["revenue"]) == Decimal("60000.00")
+    assert Decimal(item["cost"]) == Decimal("42000.00")
+    assert Decimal(item["profit"]) == Decimal("18000.00")
+    assert Decimal(out["total_profit"]) == Decimal("18000.00")
+    assert out["items_missing_cost_data"] == []
+
+
+@pytest.mark.asyncio
+async def test_calculate_sales_impact_flags_missing_cost_data(db: AsyncSession) -> None:
+    company = await _seed(db)
+    # The seeded "Rice" product has a selling_price but no purchase_price.
+    out = await _call(
+        db,
+        company,
+        "calculate_sales_impact",
+        items=[{"product_name": "rice", "quantity_sold": 10}],
+    )
+    item = out["items"][0]
+    assert Decimal(item["revenue"]) == Decimal("550.00")
+    assert "profit" not in item
+    assert "Rice" in out["items_missing_cost_data"]
+    assert Decimal(out["total_profit"]) == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_calculate_sales_impact_unknown_product(db: AsyncSession) -> None:
+    company = await _seed(db)
+    out = await _call(
+        db,
+        company,
+        "calculate_sales_impact",
+        items=[{"product_name": "durian", "quantity_sold": 5}],
+    )
+    assert "error" in out["items"][0]
+
+
+@pytest.mark.asyncio
 async def test_get_faqs(db: AsyncSession) -> None:
     company = await _seed(db)
     db.add(FAQ(company_id=company.id, question="Delivery days?", answer="Mon-Sat"))
