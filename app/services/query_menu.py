@@ -142,3 +142,17 @@ menu_router.register(
 menu_router.register(
     "4", notification_type="query_menu_dealer_risk", build_reply=build_dealer_risk_report
 )
+# Slash-command aliases for the same four reports — same handlers, just a
+# guessable form so /help's list works without the user memorizing numbers.
+menu_router.register(
+    "/cash", notification_type="query_menu_cash", build_reply=build_cash_position_report
+)
+menu_router.register(
+    "/collections", notification_type="query_menu_collections", build_reply=build_collections_report
+)
+menu_router.register(
+    "/suppliers", notification_type="query_menu_suppliers", build_reply=build_suppliers_report
+)
+menu_router.register(
+    "/dealer_risk", notification_type="query_menu_dealer_risk", build_reply=build_dealer_risk_report
+)

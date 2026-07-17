@@ -72,7 +72,8 @@ def _finish_message() -> str:
         "• How much does Ram owe?\n"
         "• Supplier dues\n"
         "• Dealer risk\n\n"
-        "Or reply 1 Cash · 2 Collections · 3 Suppliers · 4 Dealer Risk anytime."
+        "Or reply 1 Cash · 2 Collections · 3 Suppliers · 4 Dealer Risk anytime.\n\n"
+        "Reply help anytime to see everything I can do."
     )
 
 
