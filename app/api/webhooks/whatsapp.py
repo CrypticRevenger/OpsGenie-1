@@ -155,6 +155,18 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "edit stock": start_update_stock_workflow,
     "restock": start_update_stock_workflow,
     "update quantity": start_update_stock_workflow,
+    # Slash-command shortcuts — same handlers as the phrases above, just a
+    # fixed, guessable form so a user can lean on /help's list instead of
+    # having to phrase the request naturally.
+    "/record_payment": start_payment_workflow,
+    "/create_order": start_order_workflow,
+    "/new_invoice": start_order_workflow,
+    "/add_product": start_add_product_workflow,
+    "/delete_product": start_delete_product_workflow,
+    "/update_product": start_update_product_workflow,
+    "/update_price": start_update_price_workflow,
+    "/update_purchase_price": start_update_purchase_price_workflow,
+    "/update_stock": start_update_stock_workflow,
 }
 
 
@@ -171,6 +183,39 @@ async def _export_link_reply(db: AsyncSession, company: Company) -> str:
     link = generate_export_link(company, base_url=settings.public_base_url)
     ttl = settings.export_link_ttl_minutes
     return f"Your latest Excel export is ready.\nDownload (valid {ttl} min): {link}"
+
+
+_HELP_TEXT = """📖 OpsGenie Help
+
+📊 Quick Reports
+/cash — Cash position (or just reply 1)
+/collections — Collections due this week (or 2)
+/suppliers — Supplier payments due (or 3)
+/dealer_risk — Dealer risk summary (or 4)
+
+📦 Manage Products
+/add_product — add a new item; I'll ask for the name, stock, unit and purchase price one at a time
+/update_stock — e.g. /update_stock, then Rice, then 80
+/update_price — e.g. /update_price, then Rice, then 120
+/update_purchase_price — change what you pay your supplier for an item
+/delete_product — e.g. /delete_product, then Rice
+
+🧾 Orders & Payments
+/create_order — record a sale to a dealer, product by product
+/record_payment — log a payment received from a dealer or paid to a supplier
+
+📤 Your Data
+/export_data — a download link to your full business data as Excel
+/morning_briefing — resend today's briefing
+
+🗣 Anything Else
+Just ask in plain English, e.g. "How much does Ram owe me?" or "What's my cash position?"
+
+Reply /help anytime to see this again."""
+
+
+async def _help_reply(db: AsyncSession, company: Company) -> str:
+    return _HELP_TEXT
 
 
 async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
@@ -217,6 +262,13 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "send my briefing": _morning_briefing_reply,
     "my briefing": _morning_briefing_reply,
     "brief me": _morning_briefing_reply,
+    "/export_data": _export_link_reply,
+    "/morning_briefing": _morning_briefing_reply,
+    "/help": _help_reply,
+    "help": _help_reply,
+    "menu": _help_reply,
+    "commands": _help_reply,
+    "what can you do": _help_reply,
 }
 
 logger = logging.getLogger(__name__)
@@ -597,9 +649,14 @@ async def receive_whatsapp_webhook(
                         notification_type = "follow_up_reply"
                         reply = await handle_follow_up_reply(db, company, text)
                     else:
-                        command = menu_router.match(text)
+                        # .lower() so the /cash-style slash aliases are
+                        # case-insensitive like _WORKFLOW_START_TRIGGERS and
+                        # _INSTANT_COMMANDS below — harmless for the plain
+                        # "1"-"4" digits, which have no case.
+                        command = menu_router.match(text.strip().lower())
                         if command is not None:
-                            # 1-4 stay instant deterministic shortcuts.
+                            # 1-4 (and their /slash aliases) stay instant
+                            # deterministic shortcuts.
                             snapshot = await build_snapshot(db, company.id)
                             result = menu_router.execute(command, snapshot)
                             notification_type, reply = result.notification_type, result.reply

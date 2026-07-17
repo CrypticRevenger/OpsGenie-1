@@ -498,6 +498,174 @@ async def test_morning_briefing_command_reuses_todays_briefing_without_regenerat
     assert existing.sent_at is not None
 
 
+# ── Instant command: /help ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_help_command_replies_with_command_guide(db: AsyncSession, monkeypatch) -> None:
+    """"/help" (and its aliases) must be an instant deterministic reply — not
+    routed to the LLM assistant, which has no fixed answer for "what can this
+    bot do" and would risk inventing commands that don't exist.
+
+    Every /slash_command mentioned in the reply is checked against the real
+    registries (_WORKFLOW_START_TRIGGERS, _INSTANT_COMMANDS, menu_router) so
+    the help text can't silently drift out of sync with what actually works.
+    """
+    import re
+
+    from app.api.webhooks import whatsapp as webhook_module
+    from app.services.query_menu import menu_router
+
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="/help")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    reply = sent[0]
+
+    slash_commands = set(re.findall(r"/[a-z_]+", reply))
+    assert slash_commands, "expected at least one /slash_command in the help text"
+    for command in slash_commands:
+        assert (
+            command in webhook_module._WORKFLOW_START_TRIGGERS
+            or command in webhook_module._INSTANT_COMMANDS
+            or menu_router.match(command) == command
+        ), f"{command} is advertised in /help but isn't a registered command"
+
+
+@pytest.mark.asyncio
+async def test_help_command_aliases_all_reach_the_same_reply(
+    db: AsyncSession, monkeypatch
+) -> None:
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    for alias in ["help", "Help", "menu", "commands", "what can you do"]:
+        phone = _unique_phone()
+        await _make_company(db, phone)
+        bare_sender = phone.removeprefix("+")
+        body = json.dumps(_messages_payload(sender=bare_sender, text=alias)).encode()
+        async with await _anon_client() as client:
+            resp = await client.post(
+                "/webhooks/whatsapp",
+                content=body,
+                headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+            )
+        assert resp.status_code == 200
+
+    assert len(sent) == 5
+    assert len(set(sent)) == 1  # every alias produces the identical help text
+
+
+# ── Slash-command aliases ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "slash_command,phrase",
+    [
+        ("/add_product", "add product"),
+        ("/delete_product", "delete product"),
+        ("/update_product", "update product"),
+        ("/update_price", "update price"),
+        ("/update_purchase_price", "update purchase price"),
+        ("/update_stock", "update stock"),
+        ("/record_payment", "record payment"),
+        ("/create_order", "create order"),
+    ],
+)
+async def test_slash_workflow_trigger_matches_its_phrase_equivalent(
+    db: AsyncSession, monkeypatch, slash_command: str, phrase: str
+) -> None:
+    """Each /slash_command in _WORKFLOW_START_TRIGGERS must start the exact
+    same workflow (same opening question) as its natural-language phrase —
+    it's a registry alias, not a separate code path.
+    """
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async def _reply_for(text: str) -> str:
+        phone = _unique_phone()
+        await _make_company(db, phone)
+        bare_sender = phone.removeprefix("+")
+        body = json.dumps(_messages_payload(sender=bare_sender, text=text)).encode()
+        async with await _anon_client() as client:
+            resp = await client.post(
+                "/webhooks/whatsapp",
+                content=body,
+                headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+            )
+        assert resp.status_code == 200
+        return sent[-1]
+
+    slash_reply = await _reply_for(slash_command)
+    phrase_reply = await _reply_for(phrase)
+    assert slash_reply == phrase_reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "slash_command,digit",
+    [("/cash", "1"), ("/collections", "2"), ("/suppliers", "3"), ("/dealer_risk", "4")],
+)
+async def test_slash_report_alias_matches_its_digit_equivalent(
+    db: AsyncSession, monkeypatch, slash_command: str, digit: str
+) -> None:
+    """Each /slash_command registered on menu_router must return the exact
+    same report as its digit shortcut."""
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async def _reply_for(text: str) -> str:
+        phone = _unique_phone()
+        await _make_company(db, phone)
+        bare_sender = phone.removeprefix("+")
+        body = json.dumps(_messages_payload(sender=bare_sender, text=text)).encode()
+        async with await _anon_client() as client:
+            resp = await client.post(
+                "/webhooks/whatsapp",
+                content=body,
+                headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+            )
+        assert resp.status_code == 200
+        return sent[-1]
+
+    slash_reply = await _reply_for(slash_command)
+    digit_reply = await _reply_for(digit)
+    assert slash_reply == digit_reply
+
+
 @pytest.mark.asyncio
 async def test_unmatched_text_routes_to_llm_assistant(db: AsyncSession, monkeypatch) -> None:
     # Free-form text (not 1-4, no active follow-up, onboarding completed) now
