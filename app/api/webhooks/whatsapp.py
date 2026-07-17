@@ -42,12 +42,12 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.session import get_db
+from app.db.session import async_session_factory, get_db
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
 from app.models.notification_log import NotificationLog
@@ -750,195 +750,228 @@ async def receive_whatsapp_webhook(
             value = change.get("value", {})
 
             for message in value.get("messages", []):
-                sender = _normalize_to_e164(message.get("from", ""))
-                company = await _find_company_by_whatsapp_number(db, sender)
-                if company is None:
-                    logger.warning("WhatsApp message from unknown sender %s — skipping.", sender)
-                    continue
-                existing_inbound = await _find_inbound_event(db, company, message.get("id"))
-                if existing_inbound is not None:
-                    if await _reply_already_sent(db, company, existing_inbound.id):
-                        logger.info(
-                            "WhatsApp message %s already replied to — skipping redelivery.",
-                            message.get("id"),
+                # Meta's webhook delivery is at-least-once and retries
+                # aggressively on a slow response, not just non-2xx — a reply
+                # that takes a few seconds (an LLM call, or "menu"'s 3 sends)
+                # can trigger a retry before this delivery's whatsapp_reply_sent
+                # event commits, and the dedup check below only catches an
+                # ALREADY-sent reply, not one still in flight. This Postgres
+                # advisory lock (same pattern as app/core/scheduler.py's tick
+                # lock) makes a concurrent redelivery of the exact same message
+                # WAIT here instead of racing past that check and sending a
+                # second reply. If the first delivery genuinely crashed rather
+                # than just being slow, its DB connection dies with it and
+                # Postgres releases the lock automatically, so a truly dead
+                # attempt still lets the retry resume normally. Held on a
+                # dedicated `lock_db` connection (never committed) rather than
+                # the shared `db` session — `db`'s own commits below (the
+                # dedup claim, then the final commit) can hand it a *different*
+                # pooled physical connection afterward, which would silently
+                # drop a lock acquired on it.
+                message_id = message.get("id")
+                async with async_session_factory() as lock_db:
+                    if message_id is not None:
+                        await lock_db.scalar(
+                            select(func.pg_advisory_lock(func.hashtext(message_id)))
                         )
-                        continue
-                    # Claimed by an earlier delivery but never got a reply out
-                    # (that attempt crashed mid-processing — e.g. an uncaught
-                    # error, or Render/Neon suspending mid-request). Resume
-                    # using the same inbound event rather than re-inserting,
-                    # so the reply this redelivery produces still correlates
-                    # back to the original message.
-                    inbound_event = existing_inbound
-                    logger.info(
-                        "WhatsApp message %s claimed but never replied to — resuming.",
-                        message.get("id"),
-                    )
-                else:
-                    inbound_event = await _record_message_event(db, company, message)
                     try:
-                        # inbound_event.id is a Python-side default applied at
-                        # flush time — flush now so it's populated before use
-                        # as a correlation_id below. This flush is also the
-                        # atomic dedup claim: uq_business_events_wa_inbound_msg
-                        # rejects a second insert for the same (company_id,
-                        # message_id), so a concurrent redelivery that raced
-                        # past the lookup above gets caught here instead. The
-                        # loser simply skips — if the winner also fails to
-                        # reply, the next Meta redelivery will find this row
-                        # via the branch above and resume, same as any other
-                        # crash-recovery case.
-                        await db.flush()
-                    except IntegrityError:
-                        await db.rollback()
-                        logger.info(
-                            "WhatsApp message %s lost the dedup race — skipping redelivery.",
-                            message.get("id"),
-                        )
-                        continue
-                    # Commit the claim now, not just at the end of this whole
-                    # webhook call — a redelivery arriving seconds later (Meta
-                    # retries several times while a cold instance wakes up)
-                    # needs this row visible/committed immediately, or its own
-                    # INSERT would block on the uncommitted index entry
-                    # instead of failing fast against a committed one.
-                    await db.commit()
-
-                # The agent only responds for companies whose subscription is
-                # active. Onboarded-but-not-yet-activated numbers are logged
-                # (above) but get no reply — the subscription is what "turns on
-                # the agent" for them.
-                if not company.subscription_active:
-                    logger.info(
-                        "Inbound from %s but subscription inactive — logged, not responding.",
-                        sender,
-                    )
-                    continue
-
-                if message.get("type") in ("text", "interactive"):
-                    text = _extract_text_body(message)
-                    command: str | None = None
-                    interactive_batch: list[dict] | None = None
-                    if company.onboarding_state != OnboardingState.completed:
-                        # Guided setup outranks everything else — mid-onboarding
-                        # a "1" is an answer to the current question, not the
-                        # "Cash Position" menu command.
-                        notification_type = "onboarding"
-                        reply = await handle_onboarding_message(db, company, text)
-                    elif company.active_workflow is not None:
-                        # A guided write workflow (Phase 2A) outranks the menu
-                        # and the follow-up for the same reason follow-up
-                        # already did — mid-flow, a bare "10" is the quantity/
-                        # amount answer, not a menu command. Dispatch by the
-                        # workflow's own value (not just its presence) so a
-                        # second workflow type (Phase 2B) can register its own
-                        # handler without this branch needing to change.
-                        workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
-                        if workflow_handler is not None:
-                            notification_type = "write_workflow"
-                            reply = await workflow_handler(db, company, text)
-                        else:
-                            # An active_workflow value nothing registers a
-                            # handler for (shouldn't happen) — never leave the
-                            # company stuck on a workflow this code can't run.
-                            company.active_workflow = None
-                            company.workflow_scratch = None
-                            notification_type = "write_workflow_error"
-                            reply = "Something went wrong. Please try again."
-                    elif company.active_pending_operation_id is not None:
-                        # In-memory pointer check (no query) — mirrors
-                        # pending_follow_up_invoice_id below, so companies
-                        # that never use a guided write workflow pay zero
-                        # extra cost on every message.
-                        pending_op = await get_pending_operation(
-                            db, company.active_pending_operation_id
-                        )
-                        if pending_op is None:
-                            # Pointer stale (shouldn't happen — every deletion
-                            # path clears it in the same transaction).
-                            company.active_pending_operation_id = None
-                            notification_type = "pending_operation_missing"
-                            reply = "Something went wrong with that. Please try again."
-                        elif pending_op.expires_at < datetime.now(UTC):
-                            await db.delete(pending_op)
-                            company.active_pending_operation_id = None
-                            notification_type = "pending_operation_expired"
-                            reply = "That confirmation expired. Please start again."
-                        else:
-                            notification_type = "pending_operation_confirm"
-                            reply = await handle_pending_operation_reply(
-                                db, company, pending_op, text
+                        sender = _normalize_to_e164(message.get("from", ""))
+                        company = await _find_company_by_whatsapp_number(db, sender)
+                        if company is None:
+                            logger.warning(
+                                "WhatsApp message from unknown sender %s — skipping.", sender
                             )
-                    elif company.pending_follow_up_invoice_id is not None:
-                        # A pending follow-up takes priority over the numbered
-                        # menu — "1"/"2"/"3" here answers the follow-up
-                        # question, not "Cash Position".
-                        notification_type = "follow_up_reply"
-                        reply = await handle_follow_up_reply(db, company, text)
-                    elif text.strip().lower() in _MENU_TRIGGERS:
-                        command = text.strip().lower()
-                        notification_type = "interactive_menu"
-                        reply = _MENU_FALLBACK_TEXT
-                        interactive_batch = _MENU_MESSAGES
-                    else:
-                        # .lower() so the /cash-style slash aliases are
-                        # case-insensitive like _WORKFLOW_START_TRIGGERS and
-                        # _INSTANT_COMMANDS below — harmless for the plain
-                        # "1"-"4" digits, which have no case.
-                        command = menu_router.match(text.strip().lower())
-                        if command is not None:
-                            # 1-4 (and their /slash aliases) stay instant
-                            # deterministic shortcuts.
-                            snapshot = await build_snapshot(db, company.id)
-                            result = menu_router.execute(command, snapshot)
-                            notification_type, reply = result.notification_type, result.reply
-                        elif (
-                            starter := _WORKFLOW_START_TRIGGERS.get(text.strip().lower())
-                        ) is not None:
-                            # Deterministic keyword trigger — works without AI,
-                            # per Phase 2A's scope (see module docstring).
-                            command = text.strip().lower()
-                            notification_type = "write_workflow"
-                            reply = starter(company)
-                        elif (
-                            instant := _INSTANT_COMMANDS.get(text.strip().lower())
-                        ) is not None:
-                            command = text.strip().lower()
-                            notification_type = "instant_command"
-                            reply = await instant(db, company)
+                            continue
+                        existing_inbound = await _find_inbound_event(db, company, message.get("id"))
+                        if existing_inbound is not None:
+                            if await _reply_already_sent(db, company, existing_inbound.id):
+                                logger.info(
+                                    "WhatsApp message %s already replied to — skipping redelivery.",
+                                    message.get("id"),
+                                )
+                                continue
+                            # Claimed by an earlier delivery but never got a reply out
+                            # (that attempt crashed mid-processing — e.g. an uncaught
+                            # error, or Render/Neon suspending mid-request). Resume
+                            # using the same inbound event rather than re-inserting,
+                            # so the reply this redelivery produces still correlates
+                            # back to the original message.
+                            inbound_event = existing_inbound
+                            logger.info(
+                                "WhatsApp message %s claimed but never replied to — resuming.",
+                                message.get("id"),
+                            )
                         else:
-                            # Anything else -> the grounded LLM assistant, which
-                            # answers free-form questions from real figures and
-                            # never forwards an unverifiable number.
-                            notification_type = ASSISTANT_NOTIFICATION_TYPE
-                            reply = await answer_question(db, company, text)
-                    if interactive_batch is not None:
-                        # "menu" — several list messages, one per _send_reply_and_log
-                        # call (Meta has no single-message way to exceed 10 rows).
-                        # A redelivery of this inbound message only needs to find
-                        # one whatsapp_reply_sent event to skip re-sending all of
-                        # them — see _reply_already_sent.
-                        for payload in interactive_batch:
-                            await _send_reply_and_log(
-                                db,
-                                company,
+                            inbound_event = await _record_message_event(db, company, message)
+                            try:
+                                # inbound_event.id is a Python-side default applied at
+                                # flush time — flush now so it's populated before use
+                                # as a correlation_id below. This flush is also the
+                                # atomic dedup claim: uq_business_events_wa_inbound_msg
+                                # rejects a second insert for the same (company_id,
+                                # message_id), so a concurrent redelivery that raced
+                                # past the lookup above gets caught here instead. The
+                                # loser simply skips — if the winner also fails to
+                                # reply, the next Meta redelivery will find this row
+                                # via the branch above and resume, same as any other
+                                # crash-recovery case.
+                                await db.flush()
+                            except IntegrityError:
+                                await db.rollback()
+                                logger.info(
+                                    "WhatsApp message %s lost the dedup race — skipping.",
+                                    message.get("id"),
+                                )
+                                continue
+                            # Commit the claim now, not just at the end of this whole
+                            # webhook call — a redelivery arriving seconds later (Meta
+                            # retries several times while a cold instance wakes up)
+                            # needs this row visible/committed immediately, or its own
+                            # INSERT would block on the uncommitted index entry
+                            # instead of failing fast against a committed one.
+                            await db.commit()
+
+                        # The agent only responds for companies whose subscription is
+                        # active. Onboarded-but-not-yet-activated numbers are logged
+                        # (above) but get no reply — the subscription is what "turns on
+                        # the agent" for them.
+                        if not company.subscription_active:
+                            logger.info(
+                                "Inbound from %s but subscription inactive — not responding.",
                                 sender,
-                                notification_type=notification_type,
-                                reply=payload["body"],
-                                command=command,
-                                correlation_id=inbound_event.id,
-                                interactive=payload,
                             )
-                    else:
-                        await _send_reply_and_log(
-                            db,
-                            company,
-                            sender,
-                            notification_type=notification_type,
-                            reply=reply,
-                            command=command,
-                            correlation_id=inbound_event.id,
-                        )
+                            continue
+
+                        if message.get("type") in ("text", "interactive"):
+                            text = _extract_text_body(message)
+                            command: str | None = None
+                            interactive_batch: list[dict] | None = None
+                            if company.onboarding_state != OnboardingState.completed:
+                                # Guided setup outranks everything else — mid-onboarding
+                                # a "1" is an answer to the current question, not the
+                                # "Cash Position" menu command.
+                                notification_type = "onboarding"
+                                reply = await handle_onboarding_message(db, company, text)
+                            elif company.active_workflow is not None:
+                                # A guided write workflow (Phase 2A) outranks the menu
+                                # and the follow-up for the same reason follow-up
+                                # already did — mid-flow, a bare "10" is the quantity/
+                                # amount answer, not a menu command. Dispatch by the
+                                # workflow's own value (not just its presence) so a
+                                # second workflow type (Phase 2B) can register its own
+                                # handler without this branch needing to change.
+                                workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
+                                if workflow_handler is not None:
+                                    notification_type = "write_workflow"
+                                    reply = await workflow_handler(db, company, text)
+                                else:
+                                    # An active_workflow value nothing registers a
+                                    # handler for (shouldn't happen) — never leave the
+                                    # company stuck on a workflow this code can't run.
+                                    company.active_workflow = None
+                                    company.workflow_scratch = None
+                                    notification_type = "write_workflow_error"
+                                    reply = "Something went wrong. Please try again."
+                            elif company.active_pending_operation_id is not None:
+                                # In-memory pointer check (no query) — mirrors
+                                # pending_follow_up_invoice_id below, so companies
+                                # that never use a guided write workflow pay zero
+                                # extra cost on every message.
+                                pending_op = await get_pending_operation(
+                                    db, company.active_pending_operation_id
+                                )
+                                if pending_op is None:
+                                    # Pointer stale (shouldn't happen — every deletion
+                                    # path clears it in the same transaction).
+                                    company.active_pending_operation_id = None
+                                    notification_type = "pending_operation_missing"
+                                    reply = "Something went wrong with that. Please try again."
+                                elif pending_op.expires_at < datetime.now(UTC):
+                                    await db.delete(pending_op)
+                                    company.active_pending_operation_id = None
+                                    notification_type = "pending_operation_expired"
+                                    reply = "That confirmation expired. Please start again."
+                                else:
+                                    notification_type = "pending_operation_confirm"
+                                    reply = await handle_pending_operation_reply(
+                                        db, company, pending_op, text
+                                    )
+                            elif company.pending_follow_up_invoice_id is not None:
+                                # A pending follow-up takes priority over the numbered
+                                # menu — "1"/"2"/"3" here answers the follow-up
+                                # question, not "Cash Position".
+                                notification_type = "follow_up_reply"
+                                reply = await handle_follow_up_reply(db, company, text)
+                            elif text.strip().lower() in _MENU_TRIGGERS:
+                                command = text.strip().lower()
+                                notification_type = "interactive_menu"
+                                reply = _MENU_FALLBACK_TEXT
+                                interactive_batch = _MENU_MESSAGES
+                            else:
+                                # .lower() so the /cash-style slash aliases are
+                                # case-insensitive like _WORKFLOW_START_TRIGGERS and
+                                # _INSTANT_COMMANDS below — harmless for the plain
+                                # "1"-"4" digits, which have no case.
+                                command = menu_router.match(text.strip().lower())
+                                if command is not None:
+                                    # 1-4 (and their /slash aliases) stay instant
+                                    # deterministic shortcuts.
+                                    snapshot = await build_snapshot(db, company.id)
+                                    result = menu_router.execute(command, snapshot)
+                                    notification_type = result.notification_type
+                                    reply = result.reply
+                                elif (
+                                    starter := _WORKFLOW_START_TRIGGERS.get(text.strip().lower())
+                                ) is not None:
+                                    # Deterministic keyword trigger — works without AI,
+                                    # per Phase 2A's scope (see module docstring).
+                                    command = text.strip().lower()
+                                    notification_type = "write_workflow"
+                                    reply = starter(company)
+                                elif (
+                                    instant := _INSTANT_COMMANDS.get(text.strip().lower())
+                                ) is not None:
+                                    command = text.strip().lower()
+                                    notification_type = "instant_command"
+                                    reply = await instant(db, company)
+                                else:
+                                    # Anything else -> the grounded LLM assistant, which
+                                    # answers free-form questions from real figures and
+                                    # never forwards an unverifiable number.
+                                    notification_type = ASSISTANT_NOTIFICATION_TYPE
+                                    reply = await answer_question(db, company, text)
+                            if interactive_batch is not None:
+                                # "menu" — several list messages, one per _send_reply_and_log
+                                # call (Meta has no single-message way to exceed 10 rows).
+                                # A redelivery of this inbound message only needs to find
+                                # one whatsapp_reply_sent event to skip re-sending all of
+                                # them — see _reply_already_sent.
+                                for payload in interactive_batch:
+                                    await _send_reply_and_log(
+                                        db,
+                                        company,
+                                        sender,
+                                        notification_type=notification_type,
+                                        reply=payload["body"],
+                                        command=command,
+                                        correlation_id=inbound_event.id,
+                                        interactive=payload,
+                                    )
+                            else:
+                                await _send_reply_and_log(
+                                    db,
+                                    company,
+                                    sender,
+                                    notification_type=notification_type,
+                                    reply=reply,
+                                    command=command,
+                                    correlation_id=inbound_event.id,
+                                )
+                    finally:
+                        if message_id is not None:
+                            await lock_db.scalar(
+                                select(func.pg_advisory_unlock(func.hashtext(message_id)))
+                            )
 
             for status_entry in value.get("statuses", []):
                 recipient = _normalize_to_e164(status_entry.get("recipient_id", ""))
