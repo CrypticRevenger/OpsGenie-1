@@ -50,15 +50,12 @@ from app.core.config import get_settings
 from app.db.session import async_session_factory, get_db
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
-from app.models.dealer import Dealer
-from app.models.invoice import Invoice
 from app.models.notification_log import NotificationLog
-from app.models.supplier import Supplier
+from app.services import instant_reports
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
-from app.services.money_format import format_inr
 from app.services.onboarding_flow import handle_onboarding_message
 from app.services.query_menu import menu_router
 from app.services.snapshot import build_snapshot, business_now
@@ -470,54 +467,24 @@ async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
     return briefing.generated_text
 
 
-# WhatsApp's text message body caps around 4096 characters — 60 invoice lines
-# comfortably fits with room for the header/footer, generous enough that
-# "and N more" almost never triggers for a real distributor's catalogue.
-_INVOICES_REPLY_CAP = 60
-
-
-async def _invoices_reply(db: AsyncSession, company: Company) -> str:
-    """The full invoice list, deterministically — "Recent Invoices" is a
-    fixed, tappable menu option (not a free-form question), so it must never
-    depend on an LLM call (rate limits, an occasional bad tool-call
-    response, or the money-safety guard rejecting a reply) to show real
-    data that's sitting right there in the database.
-    """
-    total = await db.scalar(
-        select(func.count()).select_from(Invoice).where(Invoice.company_id == company.id)
-    )
-    if not total:
-        return "You don't have any invoices yet."
-
-    stmt = (
-        select(Invoice, Dealer.name, Supplier.name)
-        .outerjoin(Dealer, Invoice.dealer_id == Dealer.id)
-        .outerjoin(Supplier, Invoice.supplier_id == Supplier.id)
-        .where(Invoice.company_id == company.id)
-        .order_by(Invoice.invoice_date.desc(), Invoice.invoice_number)
-        .limit(_INVOICES_REPLY_CAP)
-    )
-    rows = (await db.execute(stmt)).all()
-    lines = [
-        f"{invoice.invoice_number} — {dealer_name or supplier_name or 'unknown party'} — "
-        f"{format_inr(invoice.total_amount)} — {invoice.status.value} — "
-        f"due {invoice.due_date.isoformat()}"
-        for invoice, dealer_name, supplier_name in rows
-    ]
-    remaining = total - len(rows)
-    header = (
-        f"📄 Invoices ({len(rows)} of {total}):" if remaining > 0 else f"📄 Invoices ({len(rows)}):"
-    )
-    footer = (
-        f"\n…and {remaining} more — use 'export data' for the full list." if remaining > 0 else ""
-    )
-    return f"{header}\n" + "\n".join(lines) + footer
-
-
 # Registry: exact-match keyword -> an instant, stateless async reply builder —
 # unlike _WORKFLOW_START_TRIGGERS, these never set active_workflow (there's
 # nothing to advance through, the whole answer is produced in one shot).
 # Checked at the same priority tier, right alongside it.
+#
+# Everything below from "cash"/"cash position" onward answers a *fixed,
+# tappable menu option* under Reports & Overview / Dealers & Suppliers /
+# Inventory & Transactions (see _MENU_MESSAGES) — never a free-form question
+# — so it must never depend on an LLM call succeeding (a rate-limited
+# provider or the money-safety guard rejecting a reply otherwise turns real
+# data sitting right there in the database into "Sorry, I couldn't answer
+# that right now"). See app/services/instant_reports.py for the formatters.
+#
+# Deliberately NOT claiming bare "payments" here: /help documents it as an
+# alias for BOTH "upcoming payments" (owed to suppliers) and "recent
+# payments" (payment history) — a genuine pre-existing ambiguity that only
+# the free-form assistant can resolve from context. Only the unambiguous
+# full phrases are claimed.
 _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] = {
     "export data": _export_link_reply,
     "get my excel": _export_link_reply,
@@ -535,10 +502,42 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "brief me": _morning_briefing_reply,
     "/export_data": _export_link_reply,
     "/morning_briefing": _morning_briefing_reply,
-    "invoices": _invoices_reply,
-    "recent invoices": _invoices_reply,
-    "all invoices": _invoices_reply,
-    "/invoices": _invoices_reply,
+    "cash": instant_reports.cash_position_reply,
+    "cash position": instant_reports.cash_position_reply,
+    "/cash": instant_reports.cash_position_reply,
+    "summary": instant_reports.business_summary_reply,
+    "business summary": instant_reports.business_summary_reply,
+    "priorities": instant_reports.priorities_reply,
+    "what should i do": instant_reports.priorities_reply,
+    "overdue": instant_reports.overdue_dealers_reply,
+    "overdue dealers": instant_reports.overdue_dealers_reply,
+    "/dealer_risk": instant_reports.overdue_dealers_reply,
+    "collections": instant_reports.upcoming_collections_reply,
+    "upcoming collections": instant_reports.upcoming_collections_reply,
+    "/collections": instant_reports.upcoming_collections_reply,
+    "upcoming payments": instant_reports.upcoming_payments_reply,
+    "payments due": instant_reports.upcoming_payments_reply,
+    "/suppliers": instant_reports.upcoming_payments_reply,
+    "dealers": instant_reports.all_dealers_reply,
+    "all dealers": instant_reports.all_dealers_reply,
+    "suppliers": instant_reports.all_suppliers_reply,
+    "all suppliers": instant_reports.all_suppliers_reply,
+    "top debtors": instant_reports.top_debtors_reply,
+    "who owes most": instant_reports.top_debtors_reply,
+    "top creditors": instant_reports.top_creditors_reply,
+    "inventory": instant_reports.inventory_reply,
+    "products": instant_reports.inventory_reply,
+    "stock": instant_reports.inventory_reply,
+    "faq": instant_reports.faqs_reply,
+    "faqs": instant_reports.faqs_reply,
+    "policy": instant_reports.faqs_reply,
+    "invoices": instant_reports.invoices_reply,
+    "recent invoices": instant_reports.invoices_reply,
+    "all invoices": instant_reports.invoices_reply,
+    "/invoices": instant_reports.invoices_reply,
+    "recent payments": instant_reports.payments_reply,
+    "all payments": instant_reports.payments_reply,
+    "all time payments": instant_reports.payments_reply,
     "/help": _help_reply,
     "help": _help_reply,
     "commands": _help_reply,

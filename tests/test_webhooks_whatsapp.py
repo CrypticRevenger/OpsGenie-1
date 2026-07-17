@@ -630,6 +630,60 @@ async def test_invoices_command_no_invoices_yet(db: AsyncSession, monkeypatch) -
     assert "don't have any invoices" in sent[0].lower()
 
 
+@pytest.mark.asyncio
+async def test_report_menu_keywords_never_reach_the_llm_assistant(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Every fixed, tappable menu-report keyword (Reports & Overview /
+    Dealers & Suppliers / Inventory & Transactions rows) must resolve via
+    _INSTANT_COMMANDS, never fall through to the LLM assistant — that's the
+    whole point of making them deterministic (menu row ids match these
+    keywords exactly, see app/api/webhooks/whatsapp.py's _MENU_MESSAGES).
+    """
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("should not reach the LLM assistant")),
+    )
+
+    keywords = [
+        "cash",
+        "summary",
+        "priorities",
+        "overdue",
+        "upcoming collections",
+        "upcoming payments",
+        "all dealers",
+        "all suppliers",
+        "top debtors",
+        "top creditors",
+        "inventory",
+        "faq",
+        "recent payments",
+    ]
+    async with await _anon_client() as client:
+        for keyword in keywords:
+            body = json.dumps(_messages_payload(sender=bare_sender, text=keyword)).encode()
+            resp = await client.post(
+                "/webhooks/whatsapp",
+                content=body,
+                headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+            )
+            assert resp.status_code == 200, keyword
+
+    assert len(sent) == len(keywords)
+
+
 # ── Instant command: /help ──────────────────────────────────────────────────────
 
 
