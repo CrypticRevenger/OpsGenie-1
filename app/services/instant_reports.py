@@ -25,13 +25,18 @@ from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.supplier import Supplier
 from app.services.agent.read_tools import (
+    _calculate_sales_impact,
+    _find_product,
     _get_inventory,
+    _get_party_balance,
     _list_dealers,
     _list_suppliers,
     _list_top_creditors,
     _list_top_debtors,
 )
+from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr, format_signed_inr
+from app.services.onboarding_flow import _format_quantity
 from app.services.priority_actions import get_priority_actions
 from app.services.query_menu import (
     build_cash_position_report,
@@ -39,6 +44,7 @@ from app.services.query_menu import (
     build_dealer_risk_report,
     build_suppliers_report,
 )
+from app.services.sales_impact_parser import parse_sales_impact_query
 from app.services.snapshot import build_snapshot
 
 # WhatsApp's text message body caps around 4096 characters — comfortably
@@ -144,7 +150,8 @@ def _product_line(product: dict) -> str:
         if product["selling_price"] is not None
         else "price not set"
     )
-    return f"{product['name']} — {product['stock_quantity']}{unit_suffix} — {price}"
+    quantity = _format_quantity(Decimal(product["stock_quantity"]))
+    return f"{product['name']} — {quantity}{unit_suffix} — {price}"
 
 
 async def inventory_reply(db: AsyncSession, company: Company) -> str:
@@ -226,3 +233,116 @@ async def payments_reply(db: AsyncSession, company: Company) -> str:
         f"\n…and {remaining} more — use 'export data' for the full list." if remaining > 0 else ""
     )
     return f"{header}\n" + "\n".join(lines) + footer
+
+
+async def party_balance_reply(db: AsyncSession, company: Company, name: str) -> str:
+    """Backs the "balance <name>" prefix command — reuses read_tools.py's
+    own fuzzy dealer/supplier name match so the deterministic and LLM-tool
+    paths can never disagree on who matched.
+    """
+    result = await _get_party_balance(db, company, name)
+    if "error" in result:
+        return result["error"]
+    outstanding = format_inr(Decimal(result["outstanding"]))
+    verb = "owes you" if result["relationship"] == "dealer_owes_you" else "you owe"
+    return f"{result['party']} {verb} {outstanding}."
+
+
+async def stock_item_reply(db: AsyncSession, company: Company, name: str) -> str:
+    """Backs the "stock <item>" prefix command — reuses read_tools.py's own
+    fuzzy/singular-folding product match (the same one calculate_sales_impact
+    uses) so this can never name a different product than the LLM tool would.
+    """
+    product = await _find_product(db, company, name)
+    if product is None:
+        return f"I couldn't find a product matching '{name}'."
+    unit_suffix = f" {product.unit}" if product.unit else ""
+    price = (
+        format_inr(product.selling_price) if product.selling_price is not None else "price not set"
+    )
+    quantity = _format_quantity(product.stock_quantity)
+    return f"{product.name} — {quantity}{unit_suffix} in stock — {price}"
+
+
+async def sales_impact_reply(db: AsyncSession, company: Company, items: list[dict]) -> str:
+    """Backs the deterministic "if I sell N of X" fast-path — same
+    calculate_sales_impact math the LLM tool uses, formatted as a fixed
+    template instead of LLM prose. `items` is already-parsed
+    [{"product_name", "quantity_sold"}, ...] from
+    app/api/webhooks/whatsapp.py's conservative parser; this function does
+    no further NL interpretation, only formatting.
+    """
+    result = await _calculate_sales_impact(db, company, items)
+    lines = []
+    for entry in result["items"]:
+        if "error" in entry:
+            lines.append(f"- {entry['product_name']}: {entry['error']}")
+            continue
+        quantity_sold = _format_quantity(Decimal(entry["quantity_sold"]))
+        bits = [f"{quantity_sold} {entry['product_name']}"]
+        if "revenue" in entry:
+            bits.append(f"revenue {format_inr(Decimal(entry['revenue']))}")
+        if "profit" in entry:
+            bits.append(f"profit {format_inr(Decimal(entry['profit']))}")
+        stock_remaining = _format_quantity(Decimal(entry["stock_remaining"]))
+        bits.append(f"{stock_remaining} left in stock")
+        lines.append("- " + ", ".join(bits))
+
+    footer_bits = [f"Total revenue: {format_inr(Decimal(result['total_revenue']))}"]
+    if Decimal(result["total_profit"]) != 0 or not result["items_missing_cost_data"]:
+        footer_bits.append(f"Total profit: {format_inr(Decimal(result['total_profit']))}")
+    if result["items_missing_cost_data"]:
+        missing = ", ".join(result["items_missing_cost_data"])
+        footer_bits.append(f"(no purchase price on file for {missing} — excluded from profit)")
+
+    return "\n".join(lines) + "\n\n" + "\n".join(footer_bits)
+
+
+async def _resolve_product_name(db: AsyncSession, company: Company, raw_name: str) -> str | None:
+    """Trims trailing words from a parser's raw name guess (e.g. "rice how
+    much" -> "rice how" -> "rice") until read_tools.py's own fuzzy
+    _find_product matches, or gives up. Reusing that exact matcher means
+    this can never resolve a different product than the LLM tool would.
+    """
+    words = raw_name.split()
+    for word_count in range(len(words), 0, -1):
+        candidate = " ".join(words[:word_count])
+        product = await _find_product(db, company, candidate)
+        if product is not None:
+            return product.name
+    return None
+
+
+async def try_deterministic_sales_impact(
+    db: AsyncSession, company: Company, text: str
+) -> str | None:
+    """The deterministic "if I sell N of X" fast-path. Returns None (caller
+    falls back to the LLM + calculate_sales_impact + money_guard path)
+    unless every extracted item resolves to a real catalogue product with a
+    positive quantity — never a partial or best-guess answer, since a wrong
+    but confidently-worded deterministic reply is worse than the existing
+    verified LLM path.
+    """
+    raw_items = parse_sales_impact_query(text)
+    if not raw_items:
+        return None
+
+    resolved: list[dict[str, str]] = []
+    for raw in raw_items:
+        try:
+            # parse_amount quantizes to 2 decimal places, same as every other
+            # quantity in this codebase — a bare Decimal("50") (no decimal
+            # point in its string form) trips _format_quantity's rstrip("0")
+            # into mangling whole numbers ("50" -> "5"); quantized input never
+            # does, since it always has a real ".00" to strip down from.
+            quantity = parse_amount(raw["quantity_sold"])
+        except ValueError:
+            return None
+        if quantity <= 0:
+            return None
+        product_name = await _resolve_product_name(db, company, raw["product_name"])
+        if product_name is None:
+            return None
+        resolved.append({"product_name": product_name, "quantity_sold": str(quantity)})
+
+    return await sales_impact_reply(db, company, resolved)

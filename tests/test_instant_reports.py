@@ -295,3 +295,162 @@ async def test_payments_reply_lists_real_payments(db: AsyncSession) -> None:
     assert "30,000" in reply
     assert "INV-1" in reply
     assert "2026-01-15" in reply
+
+
+# ── party_balance_reply / stock_item_reply ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_party_balance_reply_finds_dealer(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.flush()
+    db.add(
+        Invoice(
+            company_id=company.id,
+            invoice_number="INV-1",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer.id,
+            invoice_date=date(2026, 1, 1),
+            due_date=date(2026, 1, 1),
+            subtotal=Decimal("25000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("25000.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.party_balance_reply(db, company, "ram")
+    assert "Ram Traders" in reply
+    assert "owes you" in reply
+    assert "25,000" in reply
+
+
+@pytest.mark.asyncio
+async def test_party_balance_reply_no_match(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    reply = await instant_reports.party_balance_reply(db, company, "Nobody")
+    assert "no dealer or supplier found" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_stock_item_reply_finds_product(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            unit="kg",
+            selling_price=Decimal("400.00"),
+            stock_quantity=Decimal("200"),
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.stock_item_reply(db, company, "rice")
+    assert "Rice" in reply
+    assert "200 kg" in reply  # not "200.0000" — _format_quantity applied
+    assert "400" in reply
+
+
+@pytest.mark.asyncio
+async def test_stock_item_reply_no_match(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    reply = await instant_reports.stock_item_reply(db, company, "nonexistent")
+    assert "couldn't find" in reply.lower()
+
+
+# ── try_deterministic_sales_impact ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sales_impact_single_item(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            unit="kg",
+            selling_price=Decimal("400.00"),
+            purchase_price=Decimal("300.00"),
+            stock_quantity=Decimal("200"),
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.try_deterministic_sales_impact(
+        db, company, "if I sell 50 kg of rice"
+    )
+    assert reply is not None
+    # Regression check: whole-quantity Decimals must render as "50", not "5"
+    # (_format_quantity's rstrip("0") mangles un-quantized bare Decimals).
+    assert "50 Rice" in reply
+    assert "150 left in stock" in reply
+    assert "revenue" in reply.lower()
+    assert "20,000" in reply
+    assert "profit" in reply.lower()
+    assert "5,000" in reply
+
+
+@pytest.mark.asyncio
+async def test_sales_impact_multi_item_mixed_cost_data(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            unit="kg",
+            selling_price=Decimal("400.00"),
+            purchase_price=Decimal("300.00"),
+            stock_quantity=Decimal("200"),
+        )
+    )
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Dal",
+            unit="kg",
+            selling_price=Decimal("450.00"),
+            stock_quantity=Decimal("100"),
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.try_deterministic_sales_impact(
+        db, company, "if I sell 50 rice and 20 dal, what's my profit?"
+    )
+    assert reply is not None
+    assert "50 Rice" in reply
+    assert "20 Dal" in reply
+    assert "no purchase price on file for Dal" in reply
+
+
+@pytest.mark.asyncio
+async def test_sales_impact_no_trigger_phrase_returns_none(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    result = await instant_reports.try_deterministic_sales_impact(
+        db, company, "what is my cash position"
+    )
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_sales_impact_unresolvable_product_returns_none(db: AsyncSession) -> None:
+    """No catalogue match for the parsed name — must fall back to the LLM
+    path (return None), never claim a fake product exists.
+    """
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id, name="Rice", stock_quantity=Decimal("100"), unit="kg"
+        )
+    )
+    await db.commit()
+
+    result = await instant_reports.try_deterministic_sales_impact(
+        db, company, "if I sell 50 kg of quinoa"
+    )
+    assert result is None
