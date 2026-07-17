@@ -23,11 +23,11 @@ from app.models.dealer import Dealer
 from app.models.faq import FAQ
 from app.models.invoice import Invoice
 from app.models.payment import Payment
+from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.agent.read_tools import (
     _calculate_sales_impact,
     _find_product,
-    _get_inventory,
     _get_party_balance,
     _list_dealers,
     _list_suppliers,
@@ -51,6 +51,10 @@ from app.services.snapshot import build_snapshot
 # fits this many lines with room for a header/footer, generous enough that
 # "and N more" almost never triggers for a real distributor's data.
 _LIST_REPLY_CAP = 60
+# "Recent" views (a quick glance, not the full list) — the "all" variant of
+# the same report uses _LIST_REPLY_CAP instead. Both sort by the same
+# recency field; only the limit differs.
+_RECENT_LIST_CAP = 15
 
 
 async def business_summary_reply(db: AsyncSession, company: Company) -> str:
@@ -143,24 +147,58 @@ async def top_creditors_reply(db: AsyncSession, company: Company) -> str:
     return "💸 Top Creditors\n" + "\n".join(lines)
 
 
-def _product_line(product: dict) -> str:
-    unit_suffix = f" {product['unit']}" if product["unit"] else ""
+def _product_line(product: Product) -> str:
+    unit_suffix = f" {product.unit}" if product.unit else ""
     price = (
-        format_inr(Decimal(product["selling_price"]))
-        if product["selling_price"] is not None
-        else "price not set"
+        format_inr(product.selling_price) if product.selling_price is not None else "price not set"
     )
-    quantity = _format_quantity(Decimal(product["stock_quantity"]))
-    return f"{product['name']} — {quantity}{unit_suffix} — {price}"
+    quantity = _format_quantity(product.stock_quantity)
+    return f"{product.name} — {quantity}{unit_suffix} — {price}"
 
 
-async def inventory_reply(db: AsyncSession, company: Company) -> str:
-    result = await _get_inventory(db, company)
-    products = result["inventory"]
-    if not products:
+async def _inventory_query_reply(
+    db: AsyncSession, company: Company, *, limit: int, label: str
+) -> str:
+    total = await db.scalar(
+        select(func.count()).select_from(Product).where(Product.company_id == company.id)
+    )
+    if not total:
         return "You don't have any products in your catalogue yet."
+
+    stmt = (
+        select(Product)
+        .where(Product.company_id == company.id)
+        # created_at alone can tie: Postgres's now() returns one value per
+        # transaction, so products added in the same bulk-add message share
+        # a timestamp. name is a stable, deterministic tiebreaker — same
+        # "recency field + stable secondary key" shape as invoices below.
+        .order_by(Product.created_at.desc(), Product.name)
+        .limit(limit)
+    )
+    products = (await db.scalars(stmt)).all()
     lines = [_product_line(p) for p in products]
-    return f"📦 Inventory ({len(products)}):\n" + "\n".join(lines)
+    remaining = total - len(products)
+    header = (
+        f"📦 {label} ({len(products)} of {total}):"
+        if remaining > 0
+        else f"📦 {label} ({len(products)}):"
+    )
+    footer = (
+        f"\n…and {remaining} more — reply 'all inventory' for the full list."
+        if remaining > 0
+        else ""
+    )
+    return f"{header}\n" + "\n".join(lines) + footer
+
+
+async def recent_inventory_reply(db: AsyncSession, company: Company) -> str:
+    return await _inventory_query_reply(
+        db, company, limit=_RECENT_LIST_CAP, label="Recent Inventory"
+    )
+
+
+async def all_inventory_reply(db: AsyncSession, company: Company) -> str:
+    return await _inventory_query_reply(db, company, limit=_LIST_REPLY_CAP, label="All Inventory")
 
 
 async def faqs_reply(db: AsyncSession, company: Company) -> str:
@@ -173,7 +211,9 @@ async def faqs_reply(db: AsyncSession, company: Company) -> str:
     return f"❓ FAQs ({len(faqs)}):\n\n" + "\n\n".join(lines)
 
 
-async def invoices_reply(db: AsyncSession, company: Company) -> str:
+async def _invoices_query_reply(
+    db: AsyncSession, company: Company, *, limit: int, label: str
+) -> str:
     total = await db.scalar(
         select(func.count()).select_from(Invoice).where(Invoice.company_id == company.id)
     )
@@ -186,7 +226,7 @@ async def invoices_reply(db: AsyncSession, company: Company) -> str:
         .outerjoin(Supplier, Invoice.supplier_id == Supplier.id)
         .where(Invoice.company_id == company.id)
         .order_by(Invoice.invoice_date.desc(), Invoice.invoice_number)
-        .limit(_LIST_REPLY_CAP)
+        .limit(limit)
     )
     rows = (await db.execute(stmt)).all()
     lines = [
@@ -197,15 +237,29 @@ async def invoices_reply(db: AsyncSession, company: Company) -> str:
     ]
     remaining = total - len(rows)
     header = (
-        f"📄 Invoices ({len(rows)} of {total}):" if remaining > 0 else f"📄 Invoices ({len(rows)}):"
+        f"📄 {label} ({len(rows)} of {total}):" if remaining > 0 else f"📄 {label} ({len(rows)}):"
     )
     footer = (
-        f"\n…and {remaining} more — use 'export data' for the full list." if remaining > 0 else ""
+        f"\n…and {remaining} more — reply 'all invoices' for the full list."
+        if remaining > 0
+        else ""
     )
     return f"{header}\n" + "\n".join(lines) + footer
 
 
-async def payments_reply(db: AsyncSession, company: Company) -> str:
+async def recent_invoices_reply(db: AsyncSession, company: Company) -> str:
+    return await _invoices_query_reply(
+        db, company, limit=_RECENT_LIST_CAP, label="Recent Invoices"
+    )
+
+
+async def all_invoices_reply(db: AsyncSession, company: Company) -> str:
+    return await _invoices_query_reply(db, company, limit=_LIST_REPLY_CAP, label="All Invoices")
+
+
+async def _payments_query_reply(
+    db: AsyncSession, company: Company, *, limit: int, label: str
+) -> str:
     total = await db.scalar(
         select(func.count()).select_from(Payment).where(Payment.company_id == company.id)
     )
@@ -216,8 +270,11 @@ async def payments_reply(db: AsyncSession, company: Company) -> str:
         select(Payment, Invoice.invoice_number, Invoice.direction)
         .join(Invoice, Payment.invoice_id == Invoice.id)
         .where(Payment.company_id == company.id)
-        .order_by(Payment.payment_date.desc())
-        .limit(_LIST_REPLY_CAP)
+        # payment_date is a plain date (user-supplied — "today", a CSV
+        # import date), so same-day payments tie constantly; created_at
+        # (server-assigned) breaks the tie deterministically.
+        .order_by(Payment.payment_date.desc(), Payment.created_at.desc())
+        .limit(limit)
     )
     rows = (await db.execute(stmt)).all()
     lines = [
@@ -227,12 +284,24 @@ async def payments_reply(db: AsyncSession, company: Company) -> str:
     ]
     remaining = total - len(rows)
     header = (
-        f"💵 Payments ({len(rows)} of {total}):" if remaining > 0 else f"💵 Payments ({len(rows)}):"
+        f"💵 {label} ({len(rows)} of {total}):" if remaining > 0 else f"💵 {label} ({len(rows)}):"
     )
     footer = (
-        f"\n…and {remaining} more — use 'export data' for the full list." if remaining > 0 else ""
+        f"\n…and {remaining} more — reply 'all payments' for the full list."
+        if remaining > 0
+        else ""
     )
     return f"{header}\n" + "\n".join(lines) + footer
+
+
+async def recent_payments_reply(db: AsyncSession, company: Company) -> str:
+    return await _payments_query_reply(
+        db, company, limit=_RECENT_LIST_CAP, label="Recent Payments"
+    )
+
+
+async def all_payments_reply(db: AsyncSession, company: Company) -> str:
+    return await _payments_query_reply(db, company, limit=_LIST_REPLY_CAP, label="All Payments")
 
 
 async def party_balance_reply(db: AsyncSession, company: Company, name: str) -> str:

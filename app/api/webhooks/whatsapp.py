@@ -220,12 +220,15 @@ _HELP_TEXT = """*OpsGenie Help*
 • payments / upcoming payments — owed to suppliers in the next 7 days (or reply 3 / /suppliers)
 
 *Inventory*
-• inventory / products / stock — full product catalogue (stock qty, selling price)
+• inventory / products / stock — latest products added (stock qty, selling price)
+• all inventory — every product, not just recent
 • stock <product> — check a specific item, e.g. stock Rice
 
 *Transactions*
 • invoices / recent invoices — latest invoices (number, party, total, status, dates)
+• all invoices — every invoice, not just recent
 • payments / recent payments — latest payments recorded
+• all payments / all time payments — every payment, not just recent
 • faq / policy — your saved business policy answers (delivery days, returns, minimum order)
 
 *Manage Products* (guided, one question at a time)
@@ -345,8 +348,8 @@ _MENU_MESSAGES: list[dict] = [
                 "rows": [
                     {
                         "id": "inventory",
-                        "title": "Inventory",
-                        "description": "Stock quantity & selling price",
+                        "title": "Recent Inventory",
+                        "description": "Latest products added, stock & price",
                     },
                     {
                         "id": "invoices",
@@ -434,6 +437,26 @@ _MENU_MESSAGES: list[dict] = [
                         "id": "/morning_briefing",
                         "title": "Morning Briefing",
                         "description": "Resend today's briefing",
+                    },
+                ],
+            },
+            {
+                "title": "Full Lists",
+                "rows": [
+                    {
+                        "id": "all inventory",
+                        "title": "All Inventory",
+                        "description": "Every product, not just recent",
+                    },
+                    {
+                        "id": "all invoices",
+                        "title": "All Invoices",
+                        "description": "Every invoice, not just recent",
+                    },
+                    {
+                        "id": "all payments",
+                        "title": "All Payments",
+                        "description": "Every payment, not just recent",
                     },
                 ],
             },
@@ -552,19 +575,21 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "top debtors": instant_reports.top_debtors_reply,
     "who owes most": instant_reports.top_debtors_reply,
     "top creditors": instant_reports.top_creditors_reply,
-    "inventory": instant_reports.inventory_reply,
-    "products": instant_reports.inventory_reply,
-    "stock": instant_reports.inventory_reply,
+    "inventory": instant_reports.recent_inventory_reply,
+    "products": instant_reports.recent_inventory_reply,
+    "stock": instant_reports.recent_inventory_reply,
+    "recent inventory": instant_reports.recent_inventory_reply,
+    "all inventory": instant_reports.all_inventory_reply,
     "faq": instant_reports.faqs_reply,
     "faqs": instant_reports.faqs_reply,
     "policy": instant_reports.faqs_reply,
-    "invoices": instant_reports.invoices_reply,
-    "recent invoices": instant_reports.invoices_reply,
-    "all invoices": instant_reports.invoices_reply,
-    "/invoices": instant_reports.invoices_reply,
-    "recent payments": instant_reports.payments_reply,
-    "all payments": instant_reports.payments_reply,
-    "all time payments": instant_reports.payments_reply,
+    "invoices": instant_reports.recent_invoices_reply,
+    "recent invoices": instant_reports.recent_invoices_reply,
+    "/invoices": instant_reports.recent_invoices_reply,
+    "all invoices": instant_reports.all_invoices_reply,
+    "recent payments": instant_reports.recent_payments_reply,
+    "all payments": instant_reports.all_payments_reply,
+    "all time payments": instant_reports.all_payments_reply,
     "/help": _help_reply,
     "help": _help_reply,
     "commands": _help_reply,
