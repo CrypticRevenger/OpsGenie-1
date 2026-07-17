@@ -15,6 +15,7 @@ from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
     WhatsAppSendResult,
+    send_interactive_list_message,
     send_template_message,
     send_text_message,
 )
@@ -208,3 +209,57 @@ async def test_send_template_message_raises_when_not_configured(monkeypatch):
 
     with pytest.raises(WhatsAppNotConfiguredError):
         await send_template_message("+919999999999", "welcome", "en_US")
+
+
+# ── send_interactive_list_message (tappable "menu" command) ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_interactive_list_message_success(monkeypatch):
+    captured = {}
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"messages": [{"id": "wamid.LIST1"}]}
+
+    async def _fake_post(self, url, json, headers):
+        captured["payload"] = json
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    class _Settings:
+        whatsapp_token = "fake-token"
+        whatsapp_phone_number_id = "123456"
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    sections = [{"title": "Reports", "rows": [{"id": "cash", "title": "Cash Position"}]}]
+    result = await send_interactive_list_message(
+        "+919999999999", body="Pick one", button_text="Choose", sections=sections
+    )
+    assert isinstance(result, WhatsAppSendResult)
+    assert result.message_id == "wamid.LIST1"
+    payload = captured["payload"]
+    assert payload["type"] == "interactive"
+    assert payload["interactive"]["type"] == "list"
+    assert payload["interactive"]["body"]["text"] == "Pick one"
+    assert payload["interactive"]["action"]["button"] == "Choose"
+    assert payload["interactive"]["action"]["sections"] == sections
+
+
+@pytest.mark.asyncio
+async def test_send_interactive_list_message_raises_when_not_configured(monkeypatch):
+    class _Settings:
+        whatsapp_token = None
+        whatsapp_phone_number_id = None
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    with pytest.raises(WhatsAppNotConfiguredError):
+        await send_interactive_list_message(
+            "+919999999999", body="Pick one", button_text="Choose", sections=[]
+        )

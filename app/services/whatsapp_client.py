@@ -9,6 +9,9 @@ Message shapes:
 - send_text_message: free-form text, only deliverable inside the 24h customer-
   service window (the user messaged first). Used for menu replies, follow-ups,
   notifications.
+- send_interactive_list_message: a tappable list of up to 10 options, same 24h
+  window as text. Used for the "menu" quick-launch command so a distributor
+  can tap "Cash Position" instead of typing "cash".
 - send_template_message: a Meta-approved template, the only thing deliverable
   to a number that hasn't messaged first. Used for the onboarding welcome and
   (V0.2, with a document header) sending an invoice PDF to a dealer, who has
@@ -94,6 +97,35 @@ async def _post_message(payload: dict, to: str) -> WhatsAppSendResult:
 async def send_text_message(to: str, body: str) -> WhatsAppSendResult:
     return await _post_message(
         {"messaging_product": "whatsapp", "type": "text", "text": {"body": body}}, to
+    )
+
+
+async def send_interactive_list_message(
+    to: str,
+    *,
+    body: str,
+    button_text: str,
+    sections: list[dict],
+) -> WhatsAppSendResult:
+    """A tappable list message — Meta caps this at 10 rows total across all
+    `sections` (each a {"title": str, "rows": [{"id", "title", "description"}]}
+    dict). Tapping a row delivers an inbound `type: interactive` message whose
+    `list_reply.id` the webhook reads exactly like typed text (see
+    app/api/webhooks/whatsapp.py's _extract_text_body), so every row's `id`
+    must be a string one of the existing command registries/keywords already
+    understands.
+    """
+    return await _post_message(
+        {
+            "messaging_product": "whatsapp",
+            "type": "interactive",
+            "interactive": {
+                "type": "list",
+                "body": {"text": body},
+                "action": {"button": button_text, "sections": sections},
+            },
+        },
+        to,
     )
 
 

@@ -62,6 +62,7 @@ from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
     WhatsAppSendResult,
+    send_interactive_list_message,
     send_text_message,
 )
 from app.services.workflows.order_flow import (
@@ -194,7 +195,7 @@ _HELP_TEXT = """📖 OpsGenie Help
 /dealer_risk — Dealer risk summary (or 4)
 
 📦 Manage Products
-/add_product — add a new item; I'll ask for the name, stock, unit and purchase price one at a time
+/add_product — add a new item; I'll ask for name, stock, unit, selling price and purchase price
 /update_stock — e.g. /update_stock, then Rice, then 80
 /update_price — e.g. /update_price, then Rice, then 120
 /update_purchase_price — change what you pay your supplier for an item
@@ -211,11 +212,67 @@ _HELP_TEXT = """📖 OpsGenie Help
 🗣 Anything Else
 Just ask in plain English, e.g. "How much does Ram owe me?" or "What's my cash position?"
 
-Reply /help anytime to see this again."""
+Reply /help anytime to see this again, or reply menu for a tappable list."""
 
 
 async def _help_reply(db: AsyncSession, company: Company) -> str:
     return _HELP_TEXT
+
+
+# "menu" sends a tappable WhatsApp list instead of plain text — a curated top
+# 10 (Meta's cap on rows per list message), not the full /help catalogue.
+# Row ids are read back exactly like typed text (see _extract_text_body), so
+# each one is either an existing /slash_command or a bare keyword the
+# free-form assistant (app/services/assistant.py) already understands.
+_MENU_TRIGGERS = ("menu", "/menu")
+_MENU_FALLBACK_TEXT = "Tap an option below, or reply /help for the full list."
+_MENU_LIST_SECTIONS = [
+    {
+        "title": "Quick Reports",
+        "rows": [
+            {"id": "cash", "title": "Cash Position", "description": "Current cash & 7-day in/out"},
+            {"id": "summary", "title": "Business Summary", "description": "Overall snapshot"},
+            {"id": "priorities", "title": "Priorities", "description": "What should I do today"},
+            {"id": "/dealer_risk", "title": "Dealer Risk", "description": "Overdue dealers, risk"},
+        ],
+    },
+    {
+        "title": "Money Flow",
+        "rows": [
+            {
+                "id": "overdue",
+                "title": "Overdue Dealers",
+                "description": "Late payments, risk level",
+            },
+            {
+                "id": "collections",
+                "title": "Collections Due",
+                "description": "Expected in next 7 days",
+            },
+            {"id": "payments", "title": "Payments Due", "description": "Owed to suppliers, 7 days"},
+        ],
+    },
+    {
+        "title": "Quick Actions",
+        "rows": [
+            {
+                "id": "/add_product",
+                "title": "Add Product",
+                "description": "Add a new catalogue item",
+            },
+            {
+                "id": "/record_payment",
+                "title": "Record Payment",
+                "description": "Log a payment received/paid",
+            },
+            {
+                "id": "/export_data",
+                "title": "Export Data",
+                "description": "Download your Excel data",
+            },
+        ],
+    },
+]
 
 
 async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
@@ -266,7 +323,6 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "/morning_briefing": _morning_briefing_reply,
     "/help": _help_reply,
     "help": _help_reply,
-    "menu": _help_reply,
     "commands": _help_reply,
     "what can you do": _help_reply,
 }
@@ -293,13 +349,24 @@ def _verify_signature(raw_body: bytes, signature_header: str | None, app_secret:
 
 
 def _extract_text_body(message: dict) -> str:
-    """Only 'text' messages have a unified body field. Other types (image,
-    audio, document, button, interactive, location) are logged with `type`
-    set and an empty body — parsing their specific shapes is out of scope
-    until a later phase needs to act on them.
+    """'text' messages have a unified body field. 'interactive' messages (a
+    tapped list row or reply button) carry no body text at all — Meta puts
+    the tapped option's `id` under interactive.list_reply/button_reply
+    instead — so it's surfaced here too, and read exactly like typed text by
+    every downstream command registry (menu_router, _WORKFLOW_START_TRIGGERS,
+    _INSTANT_COMMANDS): a tapped "/add_product" row behaves identically to a
+    distributor typing "/add_product" by hand. Other types (image, audio,
+    document, location) are logged with `type` set and an empty body —
+    parsing their specific shapes is out of scope until a later phase needs
+    to act on them.
     """
     if message.get("type") == "text":
         return message.get("text", {}).get("body", "")
+    if message.get("type") == "interactive":
+        interactive = message.get("interactive", {})
+        reply = interactive.get("button_reply") or interactive.get("list_reply")
+        if reply:
+            return reply.get("id", "")
     return ""
 
 
@@ -439,16 +506,25 @@ async def _send_reply_and_log(
     reply: str,
     command: str | None,
     correlation_id: uuid.UUID,
+    interactive: dict | None = None,
 ) -> None:
     """Send `reply` over WhatsApp (best-effort — a failed or unconfigured send
     is logged, never raised, so the inbound webhook still 200s to Meta) and
     durably record the attempt: a NotificationLog row keyed by Meta's message
     id, plus a whatsapp_reply_sent BusinessEvent carrying `correlation_id`
     back to the inbound message that triggered this reply.
+
+    `interactive`, if given, is sent instead of plain text (a tappable list —
+    see send_interactive_list_message); `reply` is still stored in the
+    NotificationLog/trace either way, so the audit trail stays human-readable
+    regardless of which message type Meta actually delivered.
     """
     send_result: WhatsAppSendResult | None
     try:
-        send_result = await send_text_message(recipient, reply)
+        if interactive is not None:
+            send_result = await send_interactive_list_message(recipient, **interactive)
+        else:
+            send_result = await send_text_message(recipient, reply)
     except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
         logger.warning("WhatsApp reply to %s not sent: %s", recipient, exc)
         send_result = None
@@ -589,9 +665,10 @@ async def receive_whatsapp_webhook(
                     )
                     continue
 
-                if message.get("type") == "text":
+                if message.get("type") in ("text", "interactive"):
                     text = _extract_text_body(message)
                     command: str | None = None
+                    interactive: dict | None = None
                     if company.onboarding_state != OnboardingState.completed:
                         # Guided setup outranks everything else — mid-onboarding
                         # a "1" is an answer to the current question, not the
@@ -648,6 +725,15 @@ async def receive_whatsapp_webhook(
                         # question, not "Cash Position".
                         notification_type = "follow_up_reply"
                         reply = await handle_follow_up_reply(db, company, text)
+                    elif text.strip().lower() in _MENU_TRIGGERS:
+                        command = text.strip().lower()
+                        notification_type = "interactive_menu"
+                        reply = _MENU_FALLBACK_TEXT
+                        interactive = {
+                            "body": "What would you like to check?",
+                            "button_text": "Choose an option",
+                            "sections": _MENU_LIST_SECTIONS,
+                        }
                     else:
                         # .lower() so the /cash-style slash aliases are
                         # case-insensitive like _WORKFLOW_START_TRIGGERS and
@@ -688,6 +774,7 @@ async def receive_whatsapp_webhook(
                         reply=reply,
                         command=command,
                         correlation_id=inbound_event.id,
+                        interactive=interactive,
                     )
 
             for status_entry in value.get("statuses", []):
