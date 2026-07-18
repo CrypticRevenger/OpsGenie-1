@@ -26,6 +26,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import Locale, resolve_locale, t
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.pending_operation import PendingOperationType
@@ -59,10 +60,12 @@ def start_order_workflow(company: Company) -> str:
     """
     company.active_workflow = "create_order"
     company.workflow_scratch = {"step": "awaiting_dealer"}
-    return "Who is this order for? (dealer name)"
+    return t("order.start", resolve_locale(company))
 
 
-def _preview_and_finalize(scratch: dict, company_gst_rate: Decimal) -> tuple[str, dict]:
+def _preview_and_finalize(
+    scratch: dict, company_gst_rate: Decimal, loc: Locale
+) -> tuple[str, dict]:
     """Builds the confirmation preview text and the PendingOperation payload
     from the collected raw items — never a precomputed total on its own, but
     a preview naturally has to show one; execute-time re-derives everything
@@ -92,23 +95,33 @@ def _preview_and_finalize(scratch: dict, company_gst_rate: Decimal) -> tuple[str
         gst_amount += line_gst_amount
         line_rates.add(line_gst_rate)
         lines.append(
-            f"- {quantity} x {item['product_name']} @ {format_inr(price)} "
-            f"= {format_inr(line_total)}"
+            t(
+                "order.line",
+                loc,
+                quantity=quantity,
+                product=item["product_name"],
+                price=format_inr(price),
+                total=format_inr(line_total),
+            )
         )
 
     total = subtotal + gst_amount
-    total_lines = [f"Subtotal: {format_inr(subtotal)}"]
+    total_lines = [t("order.subtotal", loc, amount=format_inr(subtotal))]
     if gst_amount > 0:
         rate_label = f" ({next(iter(line_rates))}%)" if len(line_rates) == 1 else ""
-        total_lines.append(f"GST{rate_label}: {format_inr(gst_amount)}")
-    total_lines.append(f"Total: {format_inr(total)}")
+        total_lines.append(
+            t("order.gst", loc, rate_label=rate_label, amount=format_inr(gst_amount))
+        )
+    total_lines.append(t("order.total", loc, amount=format_inr(total)))
 
     preview = (
-        f"Confirm order for {dealer_name}:\n"
+        t("order.preview_header", loc, dealer=dealer_name)
+        + "\n"
         + "\n".join(lines)
         + "\n"
         + "\n".join(total_lines)
-        + "\nReply YES to create, NO to cancel."
+        + "\n"
+        + t("order.preview_footer", loc)
     )
     payload = {"dealer_name": dealer_name, "items": items}
     return preview, payload
@@ -119,53 +132,54 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
     state/rows — the caller (the webhook) commits.
     """
     stripped = text.strip()
+    loc = resolve_locale(company)
 
     if _is(stripped, "cancel", "stop"):
         company.active_workflow = None
         company.workflow_scratch = None
-        return "OK, cancelled."
+        return t("workflow.cancelled", loc)
 
     scratch = dict(company.workflow_scratch or {})
     step = scratch.get("step")
 
     if step == "awaiting_dealer":
         if not stripped:
-            return "Please tell me the dealer's name."
+            return t("order.need_dealer", loc)
         dealer = await _match_dealer(db, company.id, stripped)
         if dealer is not None:
             scratch["dealer_name"] = dealer.name
             scratch["items"] = []
             scratch["step"] = "awaiting_product"
             company.workflow_scratch = scratch
-            return f"Order for {dealer.name}. What product?"
+            return t("order.dealer_found", loc, dealer=dealer.name)
         scratch["dealer_name"] = stripped
         scratch["step"] = "awaiting_new_dealer_confirm"
         company.workflow_scratch = scratch
-        return f"I don't have '{stripped}' on file as a dealer. Add them as a new dealer? yes/no"
+        return t("order.add_new_dealer", loc, dealer=stripped)
 
     if step == "awaiting_new_dealer_confirm":
         if _is(stripped, "no", "n"):
             company.active_workflow = None
             company.workflow_scratch = None
-            return "OK, cancelled."
+            return t("workflow.cancelled", loc)
         if not _is(stripped, "yes", "y"):
-            return "Please reply yes or no."
+            return t("workflow.yes_no", loc)
         scratch["items"] = []
         scratch["step"] = "awaiting_product"
         company.workflow_scratch = scratch
-        return f"Got it, {scratch['dealer_name']} will be added as a new dealer. What product?"
+        return t("order.new_dealer_added", loc, dealer=scratch["dealer_name"])
 
     if step == "awaiting_product":
         if _is(stripped, "done"):
             if not scratch.get("items"):
-                return "Add at least one product first, or 'cancel'."
-            preview, payload = _preview_and_finalize(scratch, company.gst_rate)
+                return t("order.need_one_product", loc)
+            preview, payload = _preview_and_finalize(scratch, company.gst_rate, loc)
             await create_pending_operation(db, company, PendingOperationType.create_order, payload)
             company.active_workflow = None
             company.workflow_scratch = None
             return preview
         if not stripped:
-            return "Please tell me the product name, or 'done' if you're finished."
+            return t("order.need_product", loc)
         product = await _match_product(db, company.id, stripped)
         if product is not None and product.selling_price is not None:
             scratch["current_product"] = {
@@ -176,7 +190,7 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
             scratch["step"] = "awaiting_quantity"
             company.workflow_scratch = scratch
             unit = product.unit or "units"
-            return f"How many {unit} of {product.name}?"
+            return t("order.quantity_ask", loc, unit=unit, product=product.name)
         if product is not None:
             # On file but no price recorded yet (common for products the
             # guided onboarding conversation created with a name only).
@@ -187,46 +201,46 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
             }
             scratch["step"] = "awaiting_price"
             company.workflow_scratch = scratch
-            return f"What's the selling price for {product.name}?"
+            return t("order.price_ask", loc, product=product.name)
         scratch["current_product"] = {"name": stripped, "price": None}
         scratch["step"] = "awaiting_new_product_confirm"
         company.workflow_scratch = scratch
-        return f"I don't have '{stripped}' in your catalogue. Add it? yes/no"
+        return t("order.add_new_product", loc, product=stripped)
 
     if step == "awaiting_new_product_confirm":
         if _is(stripped, "no", "n"):
             scratch["current_product"] = None
             scratch["step"] = "awaiting_product"
             company.workflow_scratch = scratch
-            return "OK. What product? (or 'done')"
+            return t("order.new_product_declined", loc)
         if not _is(stripped, "yes", "y"):
-            return "Please reply yes or no."
+            return t("workflow.yes_no", loc)
         scratch["step"] = "awaiting_price"
         company.workflow_scratch = scratch
         name = scratch["current_product"]["name"]
-        return f"What's the selling price for {name}?"
+        return t("order.price_ask", loc, product=name)
 
     if step == "awaiting_price":
         try:
             price = parse_amount(stripped)
         except ValueError:
-            return "Please send a price, e.g. 55."
+            return t("order.price_invalid", loc)
         if price <= 0:
-            return "Please send a price greater than zero."
+            return t("order.price_positive", loc)
         current = dict(scratch["current_product"])
         current["price"] = str(price)
         scratch["current_product"] = current
         scratch["step"] = "awaiting_quantity"
         company.workflow_scratch = scratch
-        return f"How many units of {current['name']}?"
+        return t("order.quantity_ask", loc, unit="units", product=current["name"])
 
     if step == "awaiting_quantity":
         try:
             quantity = parse_amount(stripped)
         except ValueError:
-            return "Please send a quantity, e.g. 10."
+            return t("order.quantity_invalid", loc)
         if quantity <= 0:
-            return "Please send a quantity greater than zero."
+            return t("order.quantity_positive", loc)
         current = scratch["current_product"]
         items = list(scratch.get("items", []))
         items.append(
@@ -241,10 +255,10 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         scratch["current_product"] = None
         scratch["step"] = "awaiting_product"
         company.workflow_scratch = scratch
-        return f"Added {quantity} x {current['name']}. Add another product, or reply 'done'."
+        return t("order.item_added", loc, quantity=quantity, product=current["name"])
 
     # Unreachable in practice (every step above is exhaustive for this flow),
     # but never leave a company stuck on a workflow step this code can't run.
     company.active_workflow = None
     company.workflow_scratch = None
-    return "Something went wrong with that. Please start again by saying 'new order'."
+    return t("workflow.error_restart", loc, trigger="new order")

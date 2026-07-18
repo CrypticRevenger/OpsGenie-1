@@ -382,4 +382,194 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "ପ୍ରତ୍ୟେକ ଇନଭଏସ୍, କେବଳ ନୂଆ ନୁହେଁ",
     "menu.row.all_payments.title": "ସମସ୍ତ ପେମେଣ୍ଟ",
     "menu.row.all_payments.desc": "ପ୍ରତ୍ୟେକ ପେମେଣ୍ଟ, କେବଳ ନୂଆ ନୁହେଁ",
+    # ── Workflows (shared) ─────────────────────────────────────────────────
+    "workflow.cancelled": "OK, cancel କରିଦେଲି।",
+    "workflow.yes_no": "ଦୟାକରି yes କିମ୍ବା no reply କରନ୍ତୁ।",
+    "workflow.error_restart": (
+        "କିଛି ଭୁଲ୍ ହୋଇଗଲା। ଦୟାକରି ପୁଣି '{trigger}' କହି ଆରମ୍ଭ କରନ୍ତୁ।"
+    ),
+    "workflow.kind_dealer": "dealer",
+    "workflow.kind_supplier": "supplier",
+    # ── Record payment ─────────────────────────────────────────────────────
+    "payment.start": "କିଏ ଆପଣଙ୍କୁ pay କଲା, କିମ୍ବା ଆପଣ କାହାକୁ pay କଲେ? (party ନାମ)",
+    "payment.need_party": "ଦୟାକରି party ନାମ କୁହନ୍ତୁ।",
+    "payment.amount_receivable": "ସେମାନେ ଆପଣଙ୍କୁ କେତେ pay କଲେ? (ଯେମିତି 25000)",
+    "payment.amount_payable": "ଆପଣ ସେମାନଙ୍କୁ କେତେ pay କଲେ? (ଯେମିତି 25000)",
+    "payment.disambiguation": (
+        "'{name}' dealer ଓ supplier ଦୁଇ ସହ match କରେ। "
+        "Reply 1 ଯଦି ସେ dealer (ସେମାନେ ଆପଣଙ୍କୁ pay କଲେ), "
+        "କିମ୍ବା 2 ଯଦି supplier (ଆପଣ ସେମାନଙ୍କୁ pay କଲେ)।"
+    ),
+    "payment.dealer_or_supplier_invalid": (
+        "ଦୟାକରି dealer ପାଇଁ 1 କିମ୍ବା supplier ପାଇଁ 2 reply କରନ୍ତୁ।"
+    ),
+    "payment.invoice_selection_invalid": (
+        "ଦୟାକରି 1 ରୁ {count} ମଧ୍ୟରେ number reply କରନ୍ତୁ, କିମ୍ବା 'all'।"
+    ),
+    "payment.open_invoices": (
+        "{party} ର {count} open invoices ଅଛି:\n{listing}\n"
+        "ଗୋଟିଏ number reply କରନ୍ତୁ, କିମ୍ବା 'all' ସବୁ ଉପରେ apply କରିବାକୁ (ପୁରୁଣା ଆଗେ)।"
+    ),
+    "payment.open_invoice_line": (
+        "{index}. {number} — {total} total, {outstanding} ବାକି, due {due}"
+    ),
+    "payment.new_party_type": (
+        "ମୋ ପାଖରେ '{name}' ନାହିଁ। ସେ dealer (customer) କି supplier "
+        "(ଯାହାଠାରୁ ଆପଣ କିଣନ୍ତି)? Reply 1 Dealer କିମ୍ବା 2 Supplier।"
+    ),
+    "payment.new_party_type_invalid": "ଦୟାକରି 1 Dealer କିମ୍ବା 2 Supplier reply କରନ୍ତୁ।",
+    "payment.add_new_party": "'{name}' କୁ ନୂଆ {kind} add କରିବେ? yes/no",
+    "payment.no_open_invoice": (
+        "ମୁଁ କେବଳ existing invoice ବିରୁଦ୍ଧରେ payment record କରିପାରିବି, ଓ {party} ର "
+        "{kind} ହିସାବରେ କୌଣସି open invoice ନାହିଁ। ପ୍ରଥମେ ସେମାନଙ୍କ ପାଇଁ invoice ତିଆରି "
+        "କରନ୍ତୁ, ତାପରେ 'record payment' ପୁଣି କୁହନ୍ତୁ।"
+    ),
+    "payment.got_it_no_invoice": "ଠିକ୍ ଅଛି। {message}",
+    "payment.amount_invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 25000।",
+    "payment.amount_positive": "ଦୟାକରି zero ଠାରୁ ଅଧିକ amount ପଠାନ୍ତୁ।",
+    "payment.date_ask": (
+        "ଏହା କେବେ pay ହେଲା? Reply 'today', 'yesterday', '3 days ago', କିମ୍ବା skip ଆଜି ପାଇଁ।"
+    ),
+    "payment.date_invalid": (
+        "କ୍ଷମା କରନ୍ତୁ, ସେ date ବୁଝି ହେଲା ନାହିଁ। Try 'today', 'yesterday', '3 days ago'।"
+    ),
+    "payment.verb_from": "ଠାରୁ",
+    "payment.verb_to": "କୁ",
+    "payment.target_invoice": " invoice {number} ବିରୁଦ୍ଧରେ",
+    "payment.preview": (
+        "Confirm: {amount} {party}{target} {verb} {date} ରେ।\n"
+        "Reply YES record କରିବାକୁ, NO cancel କରିବାକୁ।"
+    ),
+    # ── Create order ───────────────────────────────────────────────────────
+    "order.start": "ଏ order କାହା ପାଇଁ? (dealer ନାମ)",
+    "order.need_dealer": "ଦୟାକରି dealer ନାମ କୁହନ୍ତୁ।",
+    "order.dealer_found": "{dealer} ପାଇଁ order। କେଉଁ product?",
+    "order.add_new_dealer": (
+        "ମୋ ପାଖରେ '{dealer}' dealer ହିସାବରେ ନାହିଁ। ସେମାନଙ୍କୁ ନୂଆ dealer add କରିବେ? yes/no"
+    ),
+    "order.new_dealer_added": "ଠିକ୍ ଅଛି, {dealer} କୁ ନୂଆ dealer add ହେବ। କେଉଁ product?",
+    "order.need_one_product": "ପ୍ରଥମେ ଅନ୍ତତଃ ଗୋଟିଏ product add କରନ୍ତୁ, କିମ୍ବା 'cancel'।",
+    "order.need_product": "ଦୟାକରି product ନାମ କୁହନ୍ତୁ, କିମ୍ବା 'done' ଯଦି ସରିଗଲା।",
+    "order.quantity_ask": "{product} ର କେତେ {unit}?",
+    "order.price_ask": "{product} ର selling price କେତେ?",
+    "order.add_new_product": "ମୋ ପାଖରେ '{product}' catalogue ରେ ନାହିଁ। Add କରିବେ? yes/no",
+    "order.new_product_declined": "ଠିକ୍ ଅଛି। କେଉଁ product? (କିମ୍ବା 'done')",
+    "order.price_invalid": "ଦୟାକରି ଗୋଟିଏ price ପଠାନ୍ତୁ, ଯେମିତି 55।",
+    "order.price_positive": "ଦୟାକରି zero ଠାରୁ ଅଧିକ price ପଠାନ୍ତୁ।",
+    "order.quantity_invalid": "ଦୟାକରି ଗୋଟିଏ quantity ପଠାନ୍ତୁ, ଯେମିତି 10।",
+    "order.quantity_positive": "ଦୟାକରି zero ଠାରୁ ଅଧିକ quantity ପଠାନ୍ତୁ।",
+    "order.item_added": (
+        "{quantity} x {product} add ହେଲା। ଆଉ product add କରନ୍ତୁ, କିମ୍ବା 'done' reply କରନ୍ତୁ।"
+    ),
+    "order.line": "- {quantity} x {product} @ {price} = {total}",
+    "order.subtotal": "Subtotal: {amount}",
+    "order.gst": "GST{rate_label}: {amount}",
+    "order.total": "Total: {amount}",
+    "order.preview_header": "{dealer} ପାଇଁ order confirm କରନ୍ତୁ:",
+    "order.preview_footer": "Reply YES ତିଆରି କରିବାକୁ, NO cancel କରିବାକୁ।",
+    # ── Update GST ─────────────────────────────────────────────────────────
+    "gst.scope_prompt": (
+        "ସମସ୍ତ products (company default) ର GST update କରନ୍ତୁ, କିମ୍ବା ଗୋଟିଏ product ର? "
+        "Reply 'all' କିମ୍ବା product ନାମ।"
+    ),
+    "gst.rate_ask_all": "{target} ପାଇଁ ନୂଆ default GST rate କେତେ? (0-100, କିମ୍ବା 'cancel')",
+    "gst.rate_ask_product": (
+        "{target} ପାଇଁ ନୂଆ GST rate କେତେ? (0-100, 'clear' override ହଟାଇ company default "
+        "use କରିବାକୁ, କିମ୍ବା 'cancel')"
+    ),
+    "gst.not_found": (
+        "'{name}' ନାମ ର product ମିଳିଲା ନାହିଁ। Reply 'all', ଅନ୍ୟ product ନାମ, କିମ୍ବା 'cancel'।"
+    ),
+    "gst.rate_invalid": "ଦୟାକରି 0 ରୁ 100 ମଧ୍ୟରେ number ପଠାନ୍ତୁ, ଯେମିତି 18।",
+    "gst.all_products": "ସମସ୍ତ products",
+    "gst.no_override": "କୌଣସି override ନାହିଁ (company default use କରନ୍ତୁ)",
+    "gst.rate_pct": "{rate}%",
+    "gst.preview": "{target} ର GST {rate_text} set କରନ୍ତୁ। Reply YES confirm, NO cancel।",
+    # ── Product ────────────────────────────────────────────────────────────
+    "product.mode_prompt": (
+        "ଚାଲନ୍ତୁ products add କରନ୍ତୁ। Reply 'one by one' ଗୋଟିଏ ଗୋଟିଏ, କିମ୍ବା 'bulk' ସବୁ ଏକାଠି "
+        "ପୂରା details ସହ (ଯେମିତି Rice, 300, 400, kg, 100, 5)। ଯେକୌଣସି ସମୟରେ 'done' ରୋକିବାକୁ।"
+    ),
+    "product.no_products_added": "OK, କୌଣସି product add ହେଲା ନାହିଁ।",
+    "product.all_done": "Products add କରିବା ସରିଗଲା।",
+    "product.name_or_done": "Product ନାମ ପଠାନ୍ତୁ (ଯେମିତି Rice), କିମ୍ବା 'done' ରୋକିବାକୁ।",
+    "product.mode_invalid": (
+        "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା 'done' ରୋକିବାକୁ।"
+    ),
+    "product.not_found_retry": (
+        "'{name}' ନାମ ର product ମିଳିଲା ନାହିଁ। Spelling check କରି ପୁଣି try କରନ୍ତୁ, କିମ୍ବା 'cancel'।"
+    ),
+    "product.disambiguation": (
+        "'{name}' ନାମ ର {count} products ମିଳିଲା:\n{listing}\n"
+        "{action} କରିବାକୁ number reply କରନ୍ତୁ, କିମ୍ବା 'cancel'।"
+    ),
+    "product.disambiguation_invalid": (
+        "ଦୟାକରି 1 ରୁ {count} ମଧ୍ୟରେ number reply କରନ୍ତୁ, କିମ୍ବା 'cancel'।"
+    ),
+    "product.candidate_line": "{index}. {description}",
+    "product.candidate_desc": "{name} ({details})",
+    "product.candidate_stock": "{stock} stock ରେ",
+    "product.gone": (
+        "ସେ product ଏବେ available ନାହିଁ। ଦୟାକରି ପୁଣି '{trigger}' କହି ଆରମ୍ଭ କରନ୍ତୁ।"
+    ),
+    "product.delete_name_prompt": "କେଉଁ product delete କରିବାକୁ? ନାମ ପଠାନ୍ତୁ, କିମ୍ବା 'cancel'।",
+    "product.delete_confirm": (
+        "{description} delete କରିବେ? ଏହା undo ହେବ ନାହିଁ। Reply YES delete, NO cancel।"
+    ),
+    "product.delete_no": "OK, delete ହେଲା ନାହିଁ।",
+    "product.delete_confirm_invalid": "ଦୟାକରି YES delete ପାଇଁ, କିମ୍ବା NO cancel ପାଇଁ reply କରନ୍ତୁ।",
+    "product.delete_already_gone": "{name} ଆଗରୁ ହଟାଯାଇଥିଲା।",
+    "product.deleted": "{name} delete ହେଲା।",
+    "product.field_prompt": (
+        "କଣ update କରିବାକୁ — price, purchase price, କିମ୍ବା stock? "
+        "Reply 'price', 'purchase price', କିମ୍ବା 'stock'।"
+    ),
+    "product.action_update": "update",
+    "product.action_delete": "delete",
+    "product.label_price": "price",
+    "product.label_purchase": "purchase price",
+    "product.label_stock": "stock",
+    "product.update_name_prompt": (
+        "କେଉଁ product ର {label} update କରିବାକୁ? ନାମ ପଠାନ୍ତୁ, କିମ୍ବା 'cancel'।"
+    ),
+    "product.current_price": (
+        "{name} ର ଏବେ price {current}। ନୂଆ price କେତେ ହେବ? (ଯେମିତି 450)"
+    ),
+    "product.current_purchase": (
+        "{name} ର ଏବେ purchase price {current}। "
+        "ନୂଆ purchase price କେତେ ହେବ? (ଯେମିତି 300)"
+    ),
+    "product.current_stock": (
+        "{name} ର ଏବେ stock {current}। ନୂଆ stock କେତେ ହେବ? (ଯେମିତି 100)"
+    ),
+    "product.value_invalid": "ଦୟାକରି ଗୋଟିଏ number ପଠାନ୍ତୁ, ଯେମିତି 450।",
+    "product.value_nonneg": "ଦୟାକରି zero କିମ୍ବା ତାଠାରୁ ଅଧିକ number ପଠାନ୍ତୁ।",
+    "product.gone_value": "ସେ product ଏବେ available ନାହିଁ।",
+    "product.not_set": "set ନାହିଁ",
+    "product.updated_price": "{name} ର price {new} କଲା (ଆଗେ {old} ଥିଲା)।",
+    "product.updated_purchase": "{name} ର purchase price {new} କଲା (ଆଗେ {old} ଥିଲା)।",
+    "product.updated_stock": "{name} ର stock {new} କଲା (ଆଗେ {old} ଥିଲା)।",
+    # ── Pending-operation results ──────────────────────────────────────────
+    "pending.reply_yes_no": "Reply YES confirm କରିବାକୁ କିମ୍ବା NO cancel କରିବାକୁ।",
+    "pending.payment_failed": "ସେ payment record ହେଲା ନାହିଁ: {error}। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
+    "pending.payment_success": (
+        "✅ {amount} {party} {verb} record ହେଲା।\n"
+        "Invoices update ହେଲା: {invoices}\n"
+        "ବାକି outstanding: {outstanding}"
+    ),
+    "pending.order_failed": "ସେ order ତିଆରି ହେଲା ନାହିଁ: {error}। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
+    "pending.order_line": "- {quantity} x {product} = {total}",
+    "pending.order_stock_warning": "\n⚠️ ଏବେ stock negative: {products}",
+    "pending.order_pdf_sent": "\nPDF {dealer} କୁ ପଠାଗଲା।",
+    "pending.order_pdf_not_sent": (
+        "\n(PDF {dealer} କୁ ପଠାଗଲା ନାହିଁ — phone ନାହିଁ କିମ୍ବା WhatsApp delivery ଏବେ set ନାହିଁ।)"
+    ),
+    "pending.order_success": (
+        "✅ Order {number} {dealer} ପାଇଁ ତିଆରି ହେଲା।\n{lines}\n"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+    ),
+    "pending.gst_failed": "GST update ହେଲା ନାହିଁ: {error}। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
+    "pending.gst_success": "✅ {target} ର GST {rate} set ହେଲା।",
+    "pending.gst_rate_default": "company default",
+    "pending.unknown": "ସେ confirmation ରେ କିଛି ଭୁଲ୍ ହୋଇଗଲା। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
 }

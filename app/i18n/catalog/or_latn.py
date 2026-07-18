@@ -394,4 +394,200 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "Pratyeka invoice, kebala natun nuhe",
     "menu.row.all_payments.title": "Sabu Payments",
     "menu.row.all_payments.desc": "Pratyeka payment, kebala natun nuhe",
+    # ── Workflows (shared) ─────────────────────────────────────────────────
+    "workflow.cancelled": "OK, cancel karidela.",
+    "workflow.yes_no": "Daya kari yes kimba no reply karantu.",
+    "workflow.error_restart": (
+        "Kichi bhul heigala. Daya kari puni '{trigger}' kahi arambha karantu."
+    ),
+    "workflow.kind_dealer": "dealer",
+    "workflow.kind_supplier": "supplier",
+    # ── Record payment ─────────────────────────────────────────────────────
+    "payment.start": "Kie apananku pay kala, kimba apana kahaku pay kale? (party naam)",
+    "payment.need_party": "Daya kari party naam kuhantu.",
+    "payment.amount_receivable": "Semane apananku kete pay kale? (jaise 25000)",
+    "payment.amount_payable": "Apana semananku kete pay kale? (jaise 25000)",
+    "payment.disambiguation": (
+        "'{name}' dealer au supplier dui saha match kare. "
+        "Reply 1 jadi se dealer (semane apananku pay kale), "
+        "kimba 2 jadi supplier (apana semananku pay kale)."
+    ),
+    "payment.dealer_or_supplier_invalid": (
+        "Daya kari dealer paain 1 kimba supplier paain 2 reply karantu."
+    ),
+    "payment.invoice_selection_invalid": (
+        "Daya kari 1 ru {count} madhyare number reply karantu, kimba 'all'."
+    ),
+    "payment.open_invoices": (
+        "{party} ra {count} open invoices achi:\n{listing}\n"
+        "Gotie number reply karantu, kimba 'all' sabu upare apply karibaku (purana aage)."
+    ),
+    "payment.open_invoice_line": (
+        "{index}. {number} — {total} total, {outstanding} baki, due {due}"
+    ),
+    "payment.new_party_type": (
+        "Mo pakhare '{name}' nahin. Se dealer (customer) ki supplier "
+        "(jahathu apana kinanti)? Reply 1 Dealer kimba 2 Supplier."
+    ),
+    "payment.new_party_type_invalid": "Daya kari 1 Dealer kimba 2 Supplier reply karantu.",
+    "payment.add_new_party": "'{name}' ku natun {kind} add karibe? yes/no",
+    "payment.no_open_invoice": (
+        "Mun kebala existing invoice birudhare payment record kari paribi, au {party} ra "
+        "{kind} hisabare kono open invoice nahin. Prathame semananka paain invoice tiari "
+        "karantu, tapare 'record payment' puni kuhantu."
+    ),
+    "payment.got_it_no_invoice": "Thik achi. {message}",
+    "payment.amount_invalid": "Daya kari gotie amount pathantu, jaise 25000.",
+    "payment.amount_positive": "Daya kari zero tharu adhika amount pathantu.",
+    "payment.date_ask": (
+        "Eha kebe pay hela? Reply 'today', 'yesterday', '3 days ago', kimba skip aji paain."
+    ),
+    "payment.date_invalid": (
+        "Kshama karantu, se date bujhi heli nahin. Try 'today', 'yesterday', '3 days ago'."
+    ),
+    "payment.verb_from": "thu",
+    "payment.verb_to": "ku",
+    "payment.target_invoice": " invoice {number} birudhare",
+    "payment.preview": (
+        "Confirm: {amount} {party}{target} {verb} {date} re.\n"
+        "Reply YES record karibaku, NO cancel karibaku."
+    ),
+    # ── Create order ───────────────────────────────────────────────────────
+    "order.start": "E order kaha paain? (dealer naam)",
+    "order.need_dealer": "Daya kari dealer naam kuhantu.",
+    "order.dealer_found": "{dealer} paain order. Kaun product?",
+    "order.add_new_dealer": (
+        "Mo pakhare '{dealer}' dealer hisabare nahin. Semananku natun dealer add karibe? yes/no"
+    ),
+    "order.new_dealer_added": "Thik achi, {dealer} ku natun dealer add heba. Kaun product?",
+    "order.need_one_product": "Prathame anteast gotie product add karantu, kimba 'cancel'.",
+    "order.need_product": "Daya kari product naam kuhantu, kimba 'done' jadi sarigala.",
+    "order.quantity_ask": "{product} ra kete {unit}?",
+    "order.price_ask": "{product} ra selling price kete?",
+    "order.add_new_product": "Mo pakhare '{product}' catalogue re nahin. Add karibe? yes/no",
+    "order.new_product_declined": "Thik achi. Kaun product? (kimba 'done')",
+    "order.price_invalid": "Daya kari gotie price pathantu, jaise 55.",
+    "order.price_positive": "Daya kari zero tharu adhika price pathantu.",
+    "order.quantity_invalid": "Daya kari gotie quantity pathantu, jaise 10.",
+    "order.quantity_positive": "Daya kari zero tharu adhika quantity pathantu.",
+    "order.item_added": (
+        "{quantity} x {product} add hela. Au product add karantu, kimba 'done' reply karantu."
+    ),
+    "order.line": "- {quantity} x {product} @ {price} = {total}",
+    "order.subtotal": "Subtotal: {amount}",
+    "order.gst": "GST{rate_label}: {amount}",
+    "order.total": "Total: {amount}",
+    "order.preview_header": "{dealer} paain order confirm karantu:",
+    "order.preview_footer": "Reply YES tiari karibaku, NO cancel karibaku.",
+    # ── Update GST ─────────────────────────────────────────────────────────
+    "gst.scope_prompt": (
+        "Sabu products (company default) ra GST update karantu, kimba gotie product ra? "
+        "Reply 'all' kimba product naam."
+    ),
+    "gst.rate_ask_all": "{target} paain natun default GST rate kete? (0-100, kimba 'cancel')",
+    "gst.rate_ask_product": (
+        "{target} paain natun GST rate kete? (0-100, 'clear' override hatai company default "
+        "use karibaku, kimba 'cancel')"
+    ),
+    "gst.not_found": (
+        "'{name}' naam ra product milila nahin. Reply 'all', anya product naam, kimba 'cancel'."
+    ),
+    "gst.rate_invalid": "Daya kari 0 ru 100 madhyare number pathantu, jaise 18.",
+    "gst.all_products": "sabu products",
+    "gst.no_override": "kono override nahin (company default use karantu)",
+    "gst.rate_pct": "{rate}%",
+    "gst.preview": "{target} ra GST {rate_text} set karantu. Reply YES confirm, NO cancel.",
+    # ── Product ────────────────────────────────────────────────────────────
+    "product.mode_prompt": (
+        "Chaluntu products add karantu. Reply 'one by one' gotie gotie, kimba 'bulk' sabu ekathi "
+        "puura details saha (jaise Rice, 300, 400, kg, 100, 5). Kebe bi 'done' rokibaku."
+    ),
+    "product.no_products_added": "OK, kono product add heli nahin.",
+    "product.all_done": "Products add kariba sarigala.",
+    "product.name_or_done": "Product naam pathantu (jaise Rice), kimba 'done' rokibaku.",
+    "product.mode_invalid": (
+        "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba 'done' rokibaku."
+    ),
+    "product.not_found_retry": (
+        "'{name}' naam ra product milila nahin. "
+        "Spelling check kari puni try karantu, kimba 'cancel'."
+    ),
+    "product.disambiguation": (
+        "'{name}' naam ra {count} products milila:\n{listing}\n"
+        "{action} karibaku number reply karantu, kimba 'cancel'."
+    ),
+    "product.disambiguation_invalid": (
+        "Daya kari 1 ru {count} madhyare number reply karantu, kimba 'cancel'."
+    ),
+    "product.candidate_line": "{index}. {description}",
+    "product.candidate_desc": "{name} ({details})",
+    "product.candidate_stock": "{stock} stock re",
+    "product.gone": (
+        "Se product ebe available nahin. Daya kari puni '{trigger}' kahi arambha karantu."
+    ),
+    "product.delete_name_prompt": "Kaun product delete karibaku? Naam pathantu, kimba 'cancel'.",
+    "product.delete_confirm": (
+        "{description} delete karibe? Eha undo heba nahin. Reply YES delete, NO cancel."
+    ),
+    "product.delete_no": "OK, delete heli nahin.",
+    "product.delete_confirm_invalid": (
+        "Daya kari YES delete paain, kimba NO cancel paain reply karantu."
+    ),
+    "product.delete_already_gone": "{name} agaru hatai deithila.",
+    "product.deleted": "{name} delete hela.",
+    "product.field_prompt": (
+        "Kana update karibaku — price, purchase price, kimba stock? "
+        "Reply 'price', 'purchase price', kimba 'stock'."
+    ),
+    "product.action_update": "update",
+    "product.action_delete": "delete",
+    "product.label_price": "price",
+    "product.label_purchase": "purchase price",
+    "product.label_stock": "stock",
+    "product.update_name_prompt": (
+        "Kaun product ra {label} update karibaku? Naam pathantu, kimba 'cancel'."
+    ),
+    "product.current_price": (
+        "{name} ra ebe price {current}. Natun price kete heba? (jaise 450)"
+    ),
+    "product.current_purchase": (
+        "{name} ra ebe purchase price {current}. "
+        "Natun purchase price kete heba? (jaise 300)"
+    ),
+    "product.current_stock": (
+        "{name} ra ebe stock {current}. Natun stock kete heba? (jaise 100)"
+    ),
+    "product.value_invalid": "Daya kari gotie number pathantu, jaise 450.",
+    "product.value_nonneg": "Daya kari zero kimba tharu adhika number pathantu.",
+    "product.gone_value": "Se product ebe available nahin.",
+    "product.not_set": "set nahin",
+    "product.updated_price": "{name} ra price {new} kala (aage {old} thila).",
+    "product.updated_purchase": "{name} ra purchase price {new} kala (aage {old} thila).",
+    "product.updated_stock": "{name} ra stock {new} kala (aage {old} thila).",
+    # ── Pending-operation results ──────────────────────────────────────────
+    "pending.reply_yes_no": "Reply YES confirm karibaku kimba NO cancel karibaku.",
+    "pending.payment_failed": (
+        "Se payment record heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.payment_success": (
+        "✅ {amount} {party} {verb} record hela.\n"
+        "Invoices update hela: {invoices}\n"
+        "Baki outstanding: {outstanding}"
+    ),
+    "pending.order_failed": "Se order tiari heli nahin: {error}. Daya kari puni arambha karantu.",
+    "pending.order_line": "- {quantity} x {product} = {total}",
+    "pending.order_stock_warning": "\n⚠️ Ebe stock negative: {products}",
+    "pending.order_pdf_sent": "\nPDF {dealer} ku pathana hela.",
+    "pending.order_pdf_not_sent": (
+        "\n(PDF {dealer} ku pathana heli nahin — "
+        "phone nahin kimba WhatsApp delivery ebe set nahin.)"
+    ),
+    "pending.order_success": (
+        "✅ Order {number} {dealer} paain tiari hela.\n{lines}\n"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+    ),
+    "pending.gst_failed": "GST update heli nahin: {error}. Daya kari puni arambha karantu.",
+    "pending.gst_success": "✅ {target} ra GST {rate} set hela.",
+    "pending.gst_rate_default": "company default",
+    "pending.unknown": "Se confirmation re kichi bhul heigala. Daya kari puni arambha karantu.",
 }

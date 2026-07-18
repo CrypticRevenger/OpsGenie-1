@@ -45,6 +45,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import Locale, resolve_locale, t
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.pending_operation import PendingOperationType
@@ -63,9 +64,9 @@ _DAYS_AGO_PATTERN = re.compile(r"^(\d+)\s*days?\s*ago$")
 _MAX_DAYS_AGO = 3650  # ~10 years
 
 
-def _amount_prompt(direction: str) -> str:
-    verb = "did they pay you" if direction == "receivable" else "did you pay them"
-    return f"How much {verb}? (e.g. 25000)"
+def _amount_prompt(direction: str, loc: Locale) -> str:
+    key = "payment.amount_receivable" if direction == "receivable" else "payment.amount_payable"
+    return t(key, loc)
 
 
 def _parse_past_date(text: str, today: date) -> date | None:
@@ -118,13 +119,13 @@ async def _find_supplier(db: AsyncSession, company_id: uuid.UUID, name: str) -> 
     )
 
 
-def _no_open_invoice_message(party_name: str, direction: str) -> str:
-    kind = "dealer" if direction == "receivable" else "supplier"
-    return (
-        f"I can only record a payment against an existing invoice, though, and "
-        f"{party_name} doesn't have an open one as a {kind}. Create an invoice for "
-        "them first, then say 'record payment' again."
-    )
+def _kind_word(direction: str, loc: Locale) -> str:
+    key = "workflow.kind_dealer" if direction == "receivable" else "workflow.kind_supplier"
+    return t(key, loc)
+
+
+def _no_open_invoice_message(party_name: str, direction: str, loc: Locale) -> str:
+    return t("payment.no_open_invoice", loc, party=party_name, kind=_kind_word(direction, loc))
 
 
 async def _proceed_after_direction(
@@ -137,6 +138,7 @@ async def _proceed_after_direction(
     allocated to whichever invoice sorted first, which could apply a payment
     to the wrong one when a party has more than one open invoice).
     """
+    loc = resolve_locale(company)
     direction = scratch["direction"]
     party_name = scratch["party_name"]
     invoices_with_outstanding = await open_invoices_with_outstanding(
@@ -145,7 +147,7 @@ async def _proceed_after_direction(
     if not invoices_with_outstanding:
         company.active_workflow = None
         company.workflow_scratch = None
-        return _no_open_invoice_message(party_name, direction)
+        return _no_open_invoice_message(party_name, direction, loc)
 
     if len(invoices_with_outstanding) == 1:
         invoice, _outstanding = invoices_with_outstanding[0]
@@ -153,7 +155,7 @@ async def _proceed_after_direction(
         scratch["invoice_number"] = invoice.invoice_number
         scratch["step"] = "awaiting_amount"
         company.workflow_scratch = scratch
-        return _amount_prompt(direction)
+        return _amount_prompt(direction, loc)
 
     scratch["invoice_choices"] = [
         [str(invoice.id), invoice.invoice_number]
@@ -162,13 +164,23 @@ async def _proceed_after_direction(
     scratch["step"] = "awaiting_invoice_selection"
     company.workflow_scratch = scratch
     listing = "\n".join(
-        f"{i}. {invoice.invoice_number} — {format_inr(invoice.total_amount)} total, "
-        f"{format_inr(outstanding)} outstanding, due {invoice.due_date.isoformat()}"
+        t(
+            "payment.open_invoice_line",
+            loc,
+            index=i,
+            number=invoice.invoice_number,
+            total=format_inr(invoice.total_amount),
+            outstanding=format_inr(outstanding),
+            due=invoice.due_date.isoformat(),
+        )
         for i, (invoice, outstanding) in enumerate(invoices_with_outstanding, start=1)
     )
-    return (
-        f"{party_name} has {len(invoices_with_outstanding)} open invoices:\n{listing}\n"
-        "Reply with a number, or 'all' to apply across all of them (oldest first)."
+    return t(
+        "payment.open_invoices",
+        loc,
+        party=party_name,
+        count=len(invoices_with_outstanding),
+        listing=listing,
     )
 
 
@@ -180,7 +192,7 @@ def start_payment_workflow(company: Company) -> str:
     """
     company.active_workflow = "record_payment"
     company.workflow_scratch = {"step": "awaiting_party"}
-    return "Who paid you, or who did you pay? (party name)"
+    return t("payment.start", resolve_locale(company))
 
 
 async def handle_payment_workflow_message(db: AsyncSession, company: Company, text: str) -> str:
@@ -188,18 +200,19 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
     state/rows — the caller (the webhook) commits.
     """
     stripped = text.strip()
+    loc = resolve_locale(company)
 
     if _is(stripped, "cancel", "stop"):
         company.active_workflow = None
         company.workflow_scratch = None
-        return "OK, cancelled."
+        return t("workflow.cancelled", loc)
 
     scratch = dict(company.workflow_scratch or {})
     step = scratch.get("step")
 
     if step == "awaiting_party":
         if not stripped:
-            return "Please tell me the party's name."
+            return t("payment.need_party", loc)
         dealer = await _find_dealer(db, company.id, stripped)
         supplier = await _find_supplier(db, company.id, stripped)
         scratch["party_name"] = stripped
@@ -214,22 +227,15 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
             scratch["supplier_id"] = str(supplier.id)
             scratch["step"] = "awaiting_disambiguation"
             company.workflow_scratch = scratch
-            return (
-                f"'{stripped}' matches both a dealer and a supplier on file. "
-                "Reply 1 if they're the dealer (they paid you), "
-                "or 2 if they're the supplier (you paid them)."
-            )
+            return t("payment.disambiguation", loc, name=stripped)
         scratch["step"] = "awaiting_new_party_type"
         company.workflow_scratch = scratch
-        return (
-            f"I don't have '{stripped}' on file. Are they a dealer (customer) "
-            "or a supplier (you buy from)? Reply 1 Dealer or 2 Supplier."
-        )
+        return t("payment.new_party_type", loc, name=stripped)
 
     if step == "awaiting_disambiguation":
         direction = _parse_dealer_or_supplier_choice(stripped)
         if direction is None:
-            return "Please reply 1 for dealer or 2 for supplier."
+            return t("payment.dealer_or_supplier_invalid", loc)
         scratch["direction"] = direction
         party_id_raw = scratch["dealer_id"] if direction == "receivable" else scratch["supplier_id"]
         return await _proceed_after_direction(db, company, scratch, uuid.UUID(party_id_raw))
@@ -240,38 +246,42 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
             scratch["invoice_number"] = None
             scratch["step"] = "awaiting_amount"
             company.workflow_scratch = scratch
-            return _amount_prompt(scratch["direction"])
+            return _amount_prompt(scratch["direction"], loc)
         choices = scratch.get("invoice_choices", [])
         try:
             index = int(stripped)
         except ValueError:
             index = -1
         if not (1 <= index <= len(choices)):
-            return f"Please reply with a number from 1 to {len(choices)}, or 'all'."
+            return t("payment.invoice_selection_invalid", loc, count=len(choices))
         invoice_id, invoice_number = choices[index - 1]
         scratch["invoice_id"] = invoice_id
         scratch["invoice_number"] = invoice_number
         scratch["step"] = "awaiting_amount"
         company.workflow_scratch = scratch
-        return _amount_prompt(scratch["direction"])
+        return _amount_prompt(scratch["direction"], loc)
 
     if step == "awaiting_new_party_type":
         direction = _parse_dealer_or_supplier_choice(stripped)
         if direction is None:
-            return "Please reply 1 Dealer or 2 Supplier."
+            return t("payment.new_party_type_invalid", loc)
         scratch["pending_direction"] = direction
         scratch["step"] = "awaiting_new_party_confirm"
         company.workflow_scratch = scratch
-        kind = "dealer" if direction == "receivable" else "supplier"
-        return f"Add '{scratch['party_name']}' as a new {kind}? yes/no"
+        return t(
+            "payment.add_new_party",
+            loc,
+            name=scratch["party_name"],
+            kind=_kind_word(direction, loc),
+        )
 
     if step == "awaiting_new_party_confirm":
         if _is(stripped, "no", "n"):
             company.active_workflow = None
             company.workflow_scratch = None
-            return "OK, cancelled."
+            return t("workflow.cancelled", loc)
         if not _is(stripped, "yes", "y"):
-            return "Please reply yes or no."
+            return t("workflow.yes_no", loc)
         # A brand-new party has no invoice on file — recording a payment
         # against them can never succeed (allocate_payment_fifo requires an
         # open invoice), so say so now instead of asking amount/date toward
@@ -283,36 +293,46 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
         direction = scratch["pending_direction"]
         company.active_workflow = None
         company.workflow_scratch = None
-        return f"Got it. {_no_open_invoice_message(party_name, direction)}"
+        return t(
+            "payment.got_it_no_invoice",
+            loc,
+            message=_no_open_invoice_message(party_name, direction, loc),
+        )
 
     if step == "awaiting_amount":
         try:
             amount = parse_amount(stripped)
         except ValueError:
-            return "Please send an amount, e.g. 25000."
+            return t("payment.amount_invalid", loc)
         if amount <= 0:
-            return "Please send an amount greater than zero."
+            return t("payment.amount_positive", loc)
         scratch["amount"] = str(amount)
         scratch["step"] = "awaiting_date"
         company.workflow_scratch = scratch
-        return "When was this paid? Reply 'today', 'yesterday', '3 days ago', or skip for today."
+        return t("payment.date_ask", loc)
 
     if step == "awaiting_date":
         today = business_now(company.timezone).date()
         payment_date = _parse_past_date(stripped, today)
         if payment_date is None:
-            return "Sorry, I didn't get that date. Try 'today', 'yesterday', '3 days ago'."
+            return t("payment.date_invalid", loc)
 
         direction = scratch["direction"]
         party_name = scratch["party_name"]
         amount = Decimal(scratch["amount"])
         invoice_number = scratch.get("invoice_number")
-        verb = "from" if direction == "receivable" else "to"
-        target = f" against invoice {invoice_number}" if invoice_number else ""
-        preview = (
-            f"Confirm: {format_inr(amount)} {verb} {party_name}{target} "
-            f"on {payment_date.isoformat()}.\n"
-            "Reply YES to record, NO to cancel."
+        verb = (
+            t("payment.verb_from", loc) if direction == "receivable" else t("payment.verb_to", loc)
+        )
+        target = t("payment.target_invoice", loc, number=invoice_number) if invoice_number else ""
+        preview = t(
+            "payment.preview",
+            loc,
+            amount=format_inr(amount),
+            verb=verb,
+            party=party_name,
+            target=target,
+            date=payment_date.isoformat(),
         )
         await create_pending_operation(
             db,
@@ -334,4 +354,4 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
     # but never leave a company stuck in an unknown workflow step.
     company.active_workflow = None
     company.workflow_scratch = None
-    return "Something went wrong with that. Please start again by saying 'record payment'."
+    return t("workflow.error_restart", loc, trigger="record payment")
