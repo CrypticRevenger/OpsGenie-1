@@ -102,6 +102,9 @@ class OnboardingState(enum.StrEnum):
     payable_amount = "payable_amount"
     payable_date = "payable_date"
     awaiting_language = "awaiting_language"
+    # Second language step — only reached for Hindi/Odia — asks native script
+    # vs Romanized. English skips it. See app/services/onboarding_flow.py.
+    awaiting_script = "awaiting_script"
     awaiting_briefing_hour = "awaiting_briefing_hour"
     completed = "completed"
     # Asked right after business type, before any product is collected —

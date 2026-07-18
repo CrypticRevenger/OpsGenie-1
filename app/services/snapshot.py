@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import DEFAULT_LOCALE, Locale, resolve_locale
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.import_log import ImportLog
@@ -101,6 +102,12 @@ class Snapshot:
     # already fetched here. Defaulted so existing test fixtures that build a
     # Snapshot without it don't break.
     business_name: str = "Your Company"
+    # The company's resolved display locale (language × script). Threaded here
+    # alongside business_name for the same reason: the pure report builders in
+    # query_menu.py localize their own labels via i18n.t() without a DB
+    # round-trip. Defaulted to English so existing Snapshot(...) test fixtures
+    # stay valid and unchanged (English behavior).
+    locale: Locale = DEFAULT_LOCALE
 
 
 def is_cash_sufficient(cash_available: Decimal, amount: Decimal) -> bool:
@@ -349,4 +356,5 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
         data_completeness_score=None,
         confidence_score=_confidence_score(freshness_hours),
         business_name=company.business_name,
+        locale=resolve_locale(company),
     )

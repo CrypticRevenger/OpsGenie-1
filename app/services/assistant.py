@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.conversation_turn import ConversationTurn
 from app.services.agent.base import ToolContext
@@ -95,7 +96,8 @@ async def _generate_reply(db: AsyncSession, company: Company, text: str) -> str:
         ctx = ToolContext(db=db, company=company, tools={t.name: t for t in READ_TOOLS})
         result = await run_agent(
             system_prompt=_SYSTEM_PROMPT.format(
-                owner=company.owner_name, language=company.preferred_language
+                owner=company.owner_name,
+                language=resolve_locale(company).narration_instruction,
             ),
             messages=[*history, {"role": "user", "content": text}],
             ctx=ctx,
@@ -110,7 +112,7 @@ async def _generate_reply(db: AsyncSession, company: Company, text: str) -> str:
                 company.id,
                 text,
             )
-            return _SAFE_FALLBACK
+            return t("errors.assistant_fallback", resolve_locale(company))
         if reply_has_unverified_money(result.text, result.tool_outputs):
             logger.warning(
                 "Assistant (%s) reply for company %s stated an unverified amount — using "
@@ -121,11 +123,11 @@ async def _generate_reply(db: AsyncSession, company: Company, text: str) -> str:
                 result.text,
                 result.tool_outputs,
             )
-            return _SAFE_FALLBACK
+            return t("errors.assistant_fallback", resolve_locale(company))
         return result.text
     except Exception as exc:  # noqa: BLE001 - never raise into the webhook
         logger.warning("Assistant failed for company %s, message %r: %s", company.id, text, exc)
-        return _SAFE_FALLBACK
+        return t("errors.assistant_fallback", resolve_locale(company))
 
 
 async def answer_question(db: AsyncSession, company: Company, text: str) -> str:

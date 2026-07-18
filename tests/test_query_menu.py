@@ -111,6 +111,38 @@ def test_cash_position_report_shortage():
     assert "No shortage" not in report
 
 
+def test_cash_position_report_localized_per_locale():
+    """The cash report renders in the company's locale (snapshot.locale) while
+    the ₹ amounts stay byte-identical across every locale — they're
+    interpolated via money_format, never translated. This is the money-safety
+    guarantee for the localized report path: wording changes, numbers don't.
+    """
+    from app.i18n import SUPPORTED_LOCALES, resolve_locale
+
+    reports: dict[str, str] = {}
+    for code in SUPPORTED_LOCALES:
+        snapshot = _base_snapshot(
+            cash_available_today=Decimal("184000.00"),
+            expected_collections_7d_total=Decimal("320000.00"),
+            expected_payments_7d_total=Decimal("245000.00"),
+            net_cash_position=Decimal("259000.00"),
+            cash_deficit=False,
+            locale=resolve_locale(code),
+        )
+        report = build_cash_position_report(snapshot)
+        # Every amount appears verbatim regardless of locale.
+        for amount in ("₹1,84,000", "₹3,20,000", "₹2,45,000", "+₹2,59,000"):
+            assert amount in report, f"{amount} missing from {code} report"
+        reports[code] = report
+
+    # English is unchanged; each non-English locale is actually localized.
+    assert "Cash Position" in reports["en"]
+    assert "Available now:" in reports["en"]
+    for code in SUPPORTED_LOCALES:
+        if code != "en":
+            assert reports[code] != reports["en"], f"{code} report was not localized"
+
+
 # ── Reply 2: Collections ─────────────────────────────────────────────────────
 
 
@@ -240,6 +272,50 @@ def test_dealer_risk_report_no_overdue_dealers():
     snapshot = _base_snapshot(overdue_dealers=[])
     report = build_dealer_risk_report(snapshot)
     assert "No overdue dealers right now." in report
+
+
+# ── Localization across all 5 locales (money/names interpolated, not translated)
+
+
+def test_all_reports_localized_but_preserve_data_across_locales():
+    """Collections/Suppliers/Dealer-Risk each render in snapshot.locale, but the
+    ₹ amounts and party names are interpolated identically in every locale — the
+    same money-safety guarantee proven for the cash report, extended to the rest
+    of the numbered reports.
+    """
+    from app.i18n import SUPPORTED_LOCALES, resolve_locale
+
+    def render(code: str) -> tuple[str, str, str]:
+        snapshot = _base_snapshot(
+            expected_collections_7d=[
+                _collection(dealer_name="Kumar Agency", amount=Decimal("18000.00"), due_date=TODAY)
+            ],
+            expected_collections_7d_total=Decimal("18000.00"),
+            expected_payments_7d=[
+                _payment(supplier_name="Amul", amount=Decimal("82000.00"), urgent=True)
+            ],
+            expected_payments_7d_total=Decimal("82000.00"),
+            overdue_dealers=[
+                _dealer(dealer_name="XYZ Traders", risk_level="High", late_payment_count_6mo=3)
+            ],
+            locale=resolve_locale(code),
+        )
+        return (
+            build_collections_report(snapshot),
+            build_suppliers_report(snapshot),
+            build_dealer_risk_report(snapshot),
+        )
+
+    for code in SUPPORTED_LOCALES:
+        collections, suppliers, risk = render(code)
+        assert "Kumar Agency" in collections and "₹18,000" in collections
+        assert "Amul" in suppliers and "₹82,000" in suppliers
+        assert "XYZ Traders" in risk and "₹42,000" in risk
+
+    en_reports = render("en")
+    for code in SUPPORTED_LOCALES:
+        if code != "en":
+            assert render(code) != en_reports, f"{code} reports were not localized"
 
 
 # ── menu_router wiring ───────────────────────────────────────────────────────

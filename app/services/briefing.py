@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import resolve_locale
 from app.models.company import Company
 from app.models.morning_briefing import MorningBriefing
 from app.services.llm import (
@@ -230,7 +231,9 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
     payload = assemble_briefing_payload(snapshot, recommendations)
 
     result = await generate_with_fallback(
-        system_prompt=SYSTEM_PROMPT_TEMPLATE.format(language=company.preferred_language),
+        system_prompt=SYSTEM_PROMPT_TEMPLATE.format(
+            language=resolve_locale(company).narration_instruction
+        ),
         user_content=json.dumps(payload),
     )
     indicator = confidence_indicator(snapshot.confidence_score, snapshot.data_freshness_hours)
