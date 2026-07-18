@@ -29,6 +29,7 @@ from decimal import Decimal
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.pending_operation import PendingOperation, PendingOperationType
 from app.services.invoice_delivery import send_invoice_document
@@ -88,6 +89,7 @@ async def execute_pending_operation(
     outcome (success or a re-validation failure) never leaves a stale
     confirmation a later "YES" could accidentally re-trigger.
     """
+    loc = resolve_locale(company)
     if op.operation_type == PendingOperationType.record_payment:
         payload = op.payload
         payload_invoice_id = payload.get("invoice_id")
@@ -112,16 +114,24 @@ async def execute_pending_operation(
             # degrade to a friendly reply.
             await db.delete(op)
             _clear_active_pending_operation(company)
-            return f"Couldn't record that payment: {exc}. Please start again."
+            return t("pending.payment_failed", loc, error=exc)
 
         await db.delete(op)
         _clear_active_pending_operation(company)
-        verb = "from" if payload["direction"] == "receivable" else "to"
+        verb = (
+            t("payment.verb_from", loc)
+            if payload["direction"] == "receivable"
+            else t("payment.verb_to", loc)
+        )
         invoices = ", ".join(result.invoice_numbers) or "—"
-        return (
-            f"✅ {format_inr(result.amount_allocated)} recorded {verb} {result.party_name}.\n"
-            f"Invoices updated: {invoices}\n"
-            f"Remaining outstanding: {format_inr(result.remaining_outstanding)}"
+        return t(
+            "pending.payment_success",
+            loc,
+            amount=format_inr(result.amount_allocated),
+            verb=verb,
+            party=result.party_name,
+            invoices=invoices,
+            outstanding=format_inr(result.remaining_outstanding),
         )
 
     if op.operation_type == PendingOperationType.create_order:
@@ -140,16 +150,26 @@ async def execute_pending_operation(
             # reply rather than aborting the whole webhook batch's commit.
             await db.delete(op)
             _clear_active_pending_operation(company)
-            return f"Couldn't create that order: {exc}. Please start again."
+            return t("pending.order_failed", loc, error=exc)
 
         await db.delete(op)
         _clear_active_pending_operation(company)
         lines = "\n".join(
-            f"- {line.quantity} x {line.product_name} = {format_inr(line.line_total)}"
+            t(
+                "pending.order_line",
+                loc,
+                quantity=line.quantity,
+                product=line.product_name,
+                total=format_inr(line.line_total),
+            )
             for line in result.lines
         )
         warning = (
-            f"\n⚠️ Stock now negative for: {', '.join(result.negative_stock_warnings)}"
+            t(
+                "pending.order_stock_warning",
+                loc,
+                products=", ".join(result.negative_stock_warnings),
+            )
             if result.negative_stock_warnings
             else ""
         )
@@ -171,17 +191,22 @@ async def execute_pending_operation(
                 result.invoice_number,
             )
         pdf_note = (
-            f"\nPDF sent to {result.dealer_name}."
+            t("pending.order_pdf_sent", loc, dealer=result.dealer_name)
             if pdf_sent
-            else f"\n(PDF not sent to {result.dealer_name} — no phone on file or WhatsApp "
-            "delivery not yet configured.)"
+            else t("pending.order_pdf_not_sent", loc, dealer=result.dealer_name)
         )
 
-        return (
-            f"✅ Order {result.invoice_number} created for {result.dealer_name}.\n{lines}\n"
-            f"Subtotal: {format_inr(result.subtotal)}\n"
-            f"GST: {format_inr(result.gst_amount)}\n"
-            f"Total: {format_inr(result.total_amount)}{warning}{pdf_note}"
+        return t(
+            "pending.order_success",
+            loc,
+            number=result.invoice_number,
+            dealer=result.dealer_name,
+            lines=lines,
+            subtotal=format_inr(result.subtotal),
+            gst=format_inr(result.gst_amount),
+            total=format_inr(result.total_amount),
+            warning=warning,
+            pdf_note=pdf_note,
         )
 
     if op.operation_type == PendingOperationType.update_gst:
@@ -202,19 +227,23 @@ async def execute_pending_operation(
             # rather than aborting the whole webhook batch's commit.
             await db.delete(op)
             _clear_active_pending_operation(company)
-            return f"Couldn't update GST: {exc}. Please start again."
+            return t("pending.gst_failed", loc, error=exc)
 
         await db.delete(op)
         _clear_active_pending_operation(company)
-        rate_text = f"{result.gst_rate}%" if result.gst_rate is not None else "the company default"
-        target = "all products" if result.scope == "all" else result.product_name
-        return f"✅ GST for {target} set to {rate_text}."
+        rate_text = (
+            t("gst.rate_pct", loc, rate=result.gst_rate)
+            if result.gst_rate is not None
+            else t("pending.gst_rate_default", loc)
+        )
+        target = t("gst.all_products", loc) if result.scope == "all" else result.product_name
+        return t("pending.gst_success", loc, target=target, rate=rate_text)
 
     # Unreachable while PendingOperationType has no other members, but never
     # leave a company stuck on a confirmation type this code doesn't know yet.
     await db.delete(op)
     _clear_active_pending_operation(company)
-    return "Something went wrong with that confirmation. Please start again."
+    return t("pending.unknown", loc)
 
 
 async def handle_pending_operation_reply(
@@ -226,5 +255,5 @@ async def handle_pending_operation_reply(
     if stripped in _NO_WORDS:
         await db.delete(op)
         _clear_active_pending_operation(company)
-        return "OK, cancelled."
-    return "Reply YES to confirm or NO to cancel."
+        return t("workflow.cancelled", resolve_locale(company))
+    return t("pending.reply_yes_no", resolve_locale(company))

@@ -395,4 +395,188 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "Every invoice, not just recent",
     "menu.row.all_payments.title": "All Payments",
     "menu.row.all_payments.desc": "Every payment, not just recent",
+    # ── Guided write-workflows (shared) ────────────────────────────────────
+    "workflow.cancelled": "OK, cancelled.",
+    "workflow.yes_no": "Please reply yes or no.",
+    "workflow.error_restart": (
+        "Something went wrong with that. Please start again by saying '{trigger}'."
+    ),
+    "workflow.kind_dealer": "dealer",
+    "workflow.kind_supplier": "supplier",
+    # ── Record payment ─────────────────────────────────────────────────────
+    "payment.start": "Who paid you, or who did you pay? (party name)",
+    "payment.need_party": "Please tell me the party's name.",
+    "payment.amount_receivable": "How much did they pay you? (e.g. 25000)",
+    "payment.amount_payable": "How much did you pay them? (e.g. 25000)",
+    "payment.disambiguation": (
+        "'{name}' matches both a dealer and a supplier on file. "
+        "Reply 1 if they're the dealer (they paid you), "
+        "or 2 if they're the supplier (you paid them)."
+    ),
+    "payment.dealer_or_supplier_invalid": "Please reply 1 for dealer or 2 for supplier.",
+    "payment.invoice_selection_invalid": "Please reply with a number from 1 to {count}, or 'all'.",
+    "payment.open_invoices": (
+        "{party} has {count} open invoices:\n{listing}\n"
+        "Reply with a number, or 'all' to apply across all of them (oldest first)."
+    ),
+    "payment.open_invoice_line": (
+        "{index}. {number} — {total} total, {outstanding} outstanding, due {due}"
+    ),
+    "payment.new_party_type": (
+        "I don't have '{name}' on file. Are they a dealer (customer) or a supplier "
+        "(you buy from)? Reply 1 Dealer or 2 Supplier."
+    ),
+    "payment.new_party_type_invalid": "Please reply 1 Dealer or 2 Supplier.",
+    "payment.add_new_party": "Add '{name}' as a new {kind}? yes/no",
+    "payment.no_open_invoice": (
+        "I can only record a payment against an existing invoice, though, and {party} "
+        "doesn't have an open one as a {kind}. Create an invoice for them first, then "
+        "say 'record payment' again."
+    ),
+    "payment.got_it_no_invoice": "Got it. {message}",
+    "payment.amount_invalid": "Please send an amount, e.g. 25000.",
+    "payment.amount_positive": "Please send an amount greater than zero.",
+    "payment.date_ask": (
+        "When was this paid? Reply 'today', 'yesterday', '3 days ago', or skip for today."
+    ),
+    "payment.date_invalid": (
+        "Sorry, I didn't get that date. Try 'today', 'yesterday', '3 days ago'."
+    ),
+    "payment.verb_from": "from",
+    "payment.verb_to": "to",
+    "payment.target_invoice": " against invoice {number}",
+    "payment.preview": (
+        "Confirm: {amount} {verb} {party}{target} on {date}.\n"
+        "Reply YES to record, NO to cancel."
+    ),
+    # ── Create order ───────────────────────────────────────────────────────
+    "order.start": "Who is this order for? (dealer name)",
+    "order.need_dealer": "Please tell me the dealer's name.",
+    "order.dealer_found": "Order for {dealer}. What product?",
+    "order.add_new_dealer": (
+        "I don't have '{dealer}' on file as a dealer. Add them as a new dealer? yes/no"
+    ),
+    "order.new_dealer_added": "Got it, {dealer} will be added as a new dealer. What product?",
+    "order.need_one_product": "Add at least one product first, or 'cancel'.",
+    "order.need_product": "Please tell me the product name, or 'done' if you're finished.",
+    "order.quantity_ask": "How many {unit} of {product}?",
+    "order.price_ask": "What's the selling price for {product}?",
+    "order.add_new_product": "I don't have '{product}' in your catalogue. Add it? yes/no",
+    "order.new_product_declined": "OK. What product? (or 'done')",
+    "order.price_invalid": "Please send a price, e.g. 55.",
+    "order.price_positive": "Please send a price greater than zero.",
+    "order.quantity_invalid": "Please send a quantity, e.g. 10.",
+    "order.quantity_positive": "Please send a quantity greater than zero.",
+    "order.item_added": "Added {quantity} x {product}. Add another product, or reply 'done'.",
+    "order.line": "- {quantity} x {product} @ {price} = {total}",
+    "order.subtotal": "Subtotal: {amount}",
+    "order.gst": "GST{rate_label}: {amount}",
+    "order.total": "Total: {amount}",
+    "order.preview_header": "Confirm order for {dealer}:",
+    "order.preview_footer": "Reply YES to create, NO to cancel.",
+    # ── Update GST ─────────────────────────────────────────────────────────
+    "gst.scope_prompt": (
+        "Update GST for all products (company default), or one specific product? "
+        "Reply 'all' or the product name."
+    ),
+    "gst.rate_ask_all": "What's the new default GST rate for {target}? (0-100, or 'cancel')",
+    "gst.rate_ask_product": (
+        "What's the new GST rate for {target}? (0-100, 'clear' to remove its override "
+        "and use the company default, or 'cancel')"
+    ),
+    "gst.not_found": (
+        "I couldn't find a product named '{name}'. Reply 'all', another product name, or 'cancel'."
+    ),
+    "gst.rate_invalid": "Please send a number between 0 and 100, e.g. 18.",
+    "gst.all_products": "all products",
+    "gst.no_override": "no override (use the company default)",
+    "gst.rate_pct": "{rate}%",
+    "gst.preview": "Set GST for {target} to {rate_text}. Reply YES to confirm, NO to cancel.",
+    # ── Product: mode / disambiguation / delete / update ───────────────────
+    "product.mode_prompt": (
+        "Let's add products. Reply 'one by one' to add them individually, "
+        "or 'bulk' to send them all at once with full details "
+        "(e.g. Rice, 300, 400, kg, 100, 5). Reply 'done' to stop anytime."
+    ),
+    "product.no_products_added": "OK, no products added.",
+    "product.all_done": "All done adding products.",
+    "product.name_or_done": "Send the product's name (e.g. Rice), or 'done' to stop.",
+    "product.mode_invalid": "Please reply 'one by one' or 'bulk' — or 'done' to stop.",
+    "product.not_found_retry": (
+        "I couldn't find a product named '{name}'. Check the spelling and try again, "
+        "or reply 'cancel'."
+    ),
+    "product.disambiguation": (
+        "Found {count} products named '{name}':\n{listing}\n"
+        "Reply with the number to {action}, or 'cancel'."
+    ),
+    "product.disambiguation_invalid": "Please reply with a number from 1 to {count}, or 'cancel'.",
+    "product.candidate_line": "{index}. {description}",
+    "product.candidate_desc": "{name} ({details})",
+    "product.candidate_stock": "{stock} in stock",
+    "product.gone": (
+        "That product is no longer available. Please start again by saying '{trigger}'."
+    ),
+    "product.delete_name_prompt": (
+        "Which product do you want to delete? Send its name, or 'cancel'."
+    ),
+    "product.delete_confirm": (
+        "Delete {description}? This can't be undone. Reply YES to delete, NO to cancel."
+    ),
+    "product.delete_no": "OK, not deleted.",
+    "product.delete_confirm_invalid": "Please reply YES to delete, or NO to cancel.",
+    "product.delete_already_gone": "{name} was already removed.",
+    "product.deleted": "Deleted {name}.",
+    "product.field_prompt": (
+        "What do you want to update — price, purchase price, or stock? "
+        "Reply 'price', 'purchase price', or 'stock'."
+    ),
+    "product.action_update": "update",
+    "product.action_delete": "delete",
+    "product.label_price": "price",
+    "product.label_purchase": "purchase price",
+    "product.label_stock": "stock",
+    "product.update_name_prompt": (
+        "Which product's {label} do you want to update? Send its name, or 'cancel'."
+    ),
+    "product.current_price": (
+        "{name}'s current price is {current}. What should the new price be? (e.g. 450)"
+    ),
+    "product.current_purchase": (
+        "{name}'s current purchase price is {current}. "
+        "What should the new purchase price be? (e.g. 300)"
+    ),
+    "product.current_stock": (
+        "{name}'s current stock is {current}. What should the new stock be? (e.g. 100)"
+    ),
+    "product.value_invalid": "Please send a number, e.g. 450.",
+    "product.value_nonneg": "Please send a number of zero or more.",
+    "product.gone_value": "That product is no longer available.",
+    "product.not_set": "not set",
+    "product.updated_price": "Updated {name}'s price to {new} (was {old}).",
+    "product.updated_purchase": "Updated {name}'s purchase price to {new} (was {old}).",
+    "product.updated_stock": "Updated {name}'s stock to {new} (was {old}).",
+    # ── Pending-operation confirm/execute results ──────────────────────────
+    "pending.reply_yes_no": "Reply YES to confirm or NO to cancel.",
+    "pending.payment_failed": "Couldn't record that payment: {error}. Please start again.",
+    "pending.payment_success": (
+        "✅ {amount} recorded {verb} {party}.\n"
+        "Invoices updated: {invoices}\n"
+        "Remaining outstanding: {outstanding}"
+    ),
+    "pending.order_failed": "Couldn't create that order: {error}. Please start again.",
+    "pending.order_line": "- {quantity} x {product} = {total}",
+    "pending.order_stock_warning": "\n⚠️ Stock now negative for: {products}",
+    "pending.order_pdf_sent": "\nPDF sent to {dealer}.",
+    "pending.order_pdf_not_sent": (
+        "\n(PDF not sent to {dealer} — no phone on file or WhatsApp delivery not yet configured.)"
+    ),
+    "pending.order_success": (
+        "✅ Order {number} created for {dealer}.\n{lines}\n"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+    ),
+    "pending.gst_failed": "Couldn't update GST: {error}. Please start again.",
+    "pending.gst_success": "✅ GST for {target} set to {rate}.",
+    "pending.gst_rate_default": "the company default",
+    "pending.unknown": "Something went wrong with that confirmation. Please start again.",
 }

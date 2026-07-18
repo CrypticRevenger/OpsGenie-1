@@ -20,6 +20,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import Locale, resolve_locale, t
 from app.models.company import Company
 from app.models.pending_operation import PendingOperationType
 from app.models.product import Product
@@ -28,10 +29,6 @@ from app.services.onboarding_flow import _is
 from app.services.workflows.product_flow import _describe_candidate, _find_products_by_name
 from app.services.writes.pending_operation import create_pending_operation
 
-_SCOPE_PROMPT = (
-    "Update GST for all products (company default), or one specific product? "
-    "Reply 'all' or the product name."
-)
 _CLEAR_WORDS = {"clear", "none", "remove", "unset"}
 
 
@@ -41,16 +38,12 @@ def start_update_gst_workflow(company: Company) -> str:
     """
     company.active_workflow = "update_gst"
     company.workflow_scratch = {"step": "awaiting_scope"}
-    return _SCOPE_PROMPT
+    return t("gst.scope_prompt", resolve_locale(company))
 
 
-def _rate_prompt(scope: str, target: str) -> str:
-    if scope == "all":
-        return f"What's the new default GST rate for {target}? (0-100, or 'cancel')"
-    return (
-        f"What's the new GST rate for {target}? (0-100, 'clear' to remove its override "
-        "and use the company default, or 'cancel')"
-    )
+def _rate_prompt(scope: str, target: str, loc: Locale) -> str:
+    key = "gst.rate_ask_all" if scope == "all" else "gst.rate_ask_product"
+    return t(key, loc, target=target)
 
 
 async def handle_update_gst_workflow_message(db: AsyncSession, company: Company, text: str) -> str:
@@ -58,11 +51,12 @@ async def handle_update_gst_workflow_message(db: AsyncSession, company: Company,
     state/rows — the caller (the webhook) commits.
     """
     stripped = text.strip()
+    loc = resolve_locale(company)
 
     if _is(stripped, "cancel", "stop"):
         company.active_workflow = None
         company.workflow_scratch = None
-        return "OK, cancelled."
+        return t("workflow.cancelled", loc)
 
     scratch = dict(company.workflow_scratch or {})
     step = scratch.get("step")
@@ -71,15 +65,12 @@ async def handle_update_gst_workflow_message(db: AsyncSession, company: Company,
         if _is(stripped, "all"):
             scratch = {"step": "awaiting_rate", "scope": "all"}
             company.workflow_scratch = scratch
-            return _rate_prompt("all", "all products")
+            return _rate_prompt("all", t("gst.all_products", loc), loc)
         if not stripped:
-            return _SCOPE_PROMPT
+            return t("gst.scope_prompt", loc)
         matches = await _find_products_by_name(db, company.id, stripped)
         if not matches:
-            return (
-                f"I couldn't find a product named '{stripped}'. Reply 'all', another "
-                "product name, or 'cancel'."
-            )
+            return t("gst.not_found", loc, name=stripped)
         if len(matches) > 1:
             scratch = {
                 "step": "awaiting_disambiguation",
@@ -87,16 +78,21 @@ async def handle_update_gst_workflow_message(db: AsyncSession, company: Company,
             }
             company.workflow_scratch = scratch
             listing = "\n".join(
-                f"{i}. {_describe_candidate(p)}" for i, p in enumerate(matches, start=1)
+                t("product.candidate_line", loc, index=i, description=_describe_candidate(p, loc))
+                for i, p in enumerate(matches, start=1)
             )
-            return (
-                f"Found {len(matches)} products named '{stripped}':\n{listing}\n"
-                "Reply with the number to update, or 'cancel'."
+            return t(
+                "product.disambiguation",
+                loc,
+                count=len(matches),
+                name=stripped,
+                listing=listing,
+                action=t("product.action_update", loc),
             )
         product = matches[0]
         scratch = {"step": "awaiting_rate", "scope": "product", "product_name": product.name}
         company.workflow_scratch = scratch
-        return _rate_prompt("product", product.name)
+        return _rate_prompt("product", product.name, loc)
 
     if step == "awaiting_disambiguation":
         candidates = scratch.get("candidates", [])
@@ -105,38 +101,32 @@ async def handle_update_gst_workflow_message(db: AsyncSession, company: Company,
         except ValueError:
             index = -1
         if not (1 <= index <= len(candidates)):
-            return f"Please reply with a number from 1 to {len(candidates)}, or 'cancel'."
+            return t("product.disambiguation_invalid", loc, count=len(candidates))
         product = await db.get(Product, uuid.UUID(candidates[index - 1]))
         if product is None:
             # Deleted/moved between listing and choosing (shouldn't happen) —
             # never leave the company stuck on a stale candidate list.
             company.active_workflow = None
             company.workflow_scratch = None
-            return (
-                "That product is no longer available. Please start again by saying "
-                "'update gst'."
-            )
+            return t("product.gone", loc, trigger="update gst")
         scratch = {"step": "awaiting_rate", "scope": "product", "product_name": product.name}
         company.workflow_scratch = scratch
-        return _rate_prompt("product", product.name)
+        return _rate_prompt("product", product.name, loc)
 
     if step == "awaiting_rate":
         scope = scratch.get("scope", "all")
         product_name = scratch.get("product_name")
-        target = "all products" if scope == "all" else product_name
+        target = t("gst.all_products", loc) if scope == "all" else product_name
 
         if scope == "product" and _is(stripped, *_CLEAR_WORDS):
             gst_rate = None
-            rate_text = "no override (use the company default)"
+            rate_text = t("gst.no_override", loc)
         else:
             try:
                 gst_rate = parse_gst_rate(stripped)
             except ValueError:
-                return (
-                    "Please send a number between 0 and 100, e.g. 18.\n\n"
-                    f"{_rate_prompt(scope, target)}"
-                )
-            rate_text = f"{gst_rate}%"
+                return t("gst.rate_invalid", loc) + "\n\n" + _rate_prompt(scope, target, loc)
+            rate_text = t("gst.rate_pct", loc, rate=gst_rate)
 
         payload = {
             "scope": scope,
@@ -146,10 +136,10 @@ async def handle_update_gst_workflow_message(db: AsyncSession, company: Company,
         await create_pending_operation(db, company, PendingOperationType.update_gst, payload)
         company.active_workflow = None
         company.workflow_scratch = None
-        return f"Set GST for {target} to {rate_text}. Reply YES to confirm, NO to cancel."
+        return t("gst.preview", loc, target=target, rate_text=rate_text)
 
     # Unreachable in practice (every step above is exhaustive for this flow),
     # but never leave a company stuck on a workflow step this code can't run.
     company.active_workflow = None
     company.workflow_scratch = None
-    return "Something went wrong with that. Please start again by saying 'update gst'."
+    return t("workflow.error_restart", loc, trigger="update gst")

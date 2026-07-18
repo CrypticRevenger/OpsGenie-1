@@ -379,4 +379,198 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "Har invoice, sirf naye nahi",
     "menu.row.all_payments.title": "Saare Payments",
     "menu.row.all_payments.desc": "Har payment, sirf naye nahi",
+    # ── Workflows (shared) ─────────────────────────────────────────────────
+    "workflow.cancelled": "OK, cancel kar diya.",
+    "workflow.yes_no": "Kripya yes ya no reply karein.",
+    "workflow.error_restart": (
+        "Kuch gadbad ho gayi. Kripya dobara '{trigger}' bolkar shuru karein."
+    ),
+    "workflow.kind_dealer": "dealer",
+    "workflow.kind_supplier": "supplier",
+    # ── Record payment ─────────────────────────────────────────────────────
+    "payment.start": "Kisne aapko pay kiya, ya aapne kisko pay kiya? (party ka naam)",
+    "payment.need_party": "Kripya party ka naam batayein.",
+    "payment.amount_receivable": "Unhone aapko kitna pay kiya? (jaise 25000)",
+    "payment.amount_payable": "Aapne unhe kitna pay kiya? (jaise 25000)",
+    "payment.disambiguation": (
+        "'{name}' dealer aur supplier dono se match karta hai. "
+        "Reply 1 agar wo dealer hain (unhone aapko pay kiya), "
+        "ya 2 agar supplier hain (aapne unhe pay kiya)."
+    ),
+    "payment.dealer_or_supplier_invalid": (
+        "Kripya dealer ke liye 1 ya supplier ke liye 2 reply karein."
+    ),
+    "payment.invoice_selection_invalid": (
+        "Kripya 1 se {count} ke beech number reply karein, ya 'all'."
+    ),
+    "payment.open_invoices": (
+        "{party} ke {count} open invoices hain:\n{listing}\n"
+        "Ek number reply karein, ya 'all' sab par apply karne ke liye (purane pehle)."
+    ),
+    "payment.open_invoice_line": (
+        "{index}. {number} — {total} total, {outstanding} baaki, due {due}"
+    ),
+    "payment.new_party_type": (
+        "Mere paas '{name}' nahi hai. Wo dealer (customer) hain ya supplier "
+        "(jinse aap khareedte hain)? Reply 1 Dealer ya 2 Supplier."
+    ),
+    "payment.new_party_type_invalid": "Kripya 1 Dealer ya 2 Supplier reply karein.",
+    "payment.add_new_party": "'{name}' ko naya {kind} add karein? yes/no",
+    "payment.no_open_invoice": (
+        "Main sirf kisi existing invoice ke against payment record kar sakta hoon, aur {party} "
+        "ka {kind} ke roop me koi open invoice nahi hai. Pehle unke liye invoice banayein, phir "
+        "'record payment' dobara bolein."
+    ),
+    "payment.got_it_no_invoice": "Theek hai. {message}",
+    "payment.amount_invalid": "Kripya ek amount bhejein, jaise 25000.",
+    "payment.amount_positive": "Kripya zero se zyada amount bhejein.",
+    "payment.date_ask": (
+        "Yeh kab pay hua? Reply 'today', 'yesterday', '3 days ago', ya skip aaj ke liye."
+    ),
+    "payment.date_invalid": (
+        "Maaf karein, woh date samajh nahi aayi. Try 'today', 'yesterday', '3 days ago'."
+    ),
+    "payment.verb_from": "se",
+    "payment.verb_to": "ko",
+    "payment.target_invoice": " invoice {number} ke against",
+    "payment.preview": (
+        "Confirm: {amount} {party}{target} {verb} {date} ko.\n"
+        "Reply YES record karne ke liye, NO cancel ke liye."
+    ),
+    # ── Create order ───────────────────────────────────────────────────────
+    "order.start": "Yeh order kiske liye hai? (dealer ka naam)",
+    "order.need_dealer": "Kripya dealer ka naam batayein.",
+    "order.dealer_found": "{dealer} ke liye order. Kaun sa product?",
+    "order.add_new_dealer": (
+        "Mere paas '{dealer}' dealer ke roop me nahi hai. Unhe naya dealer add karein? yes/no"
+    ),
+    "order.new_dealer_added": (
+        "Theek hai, {dealer} ko naya dealer add kiya jayega. Kaun sa product?"
+    ),
+    "order.need_one_product": "Pehle kam se kam ek product add karein, ya 'cancel'.",
+    "order.need_product": "Kripya product ka naam batayein, ya 'done' agar ho gaya.",
+    "order.quantity_ask": "{product} ke kitne {unit}?",
+    "order.price_ask": "{product} ki selling price kya hai?",
+    "order.add_new_product": "Mere paas '{product}' catalogue me nahi hai. Add karein? yes/no",
+    "order.new_product_declined": "Theek hai. Kaun sa product? (ya 'done')",
+    "order.price_invalid": "Kripya ek price bhejein, jaise 55.",
+    "order.price_positive": "Kripya zero se zyada price bhejein.",
+    "order.quantity_invalid": "Kripya ek quantity bhejein, jaise 10.",
+    "order.quantity_positive": "Kripya zero se zyada quantity bhejein.",
+    "order.item_added": (
+        "{quantity} x {product} add kiya. Aur product add karein, ya 'done' reply karein."
+    ),
+    "order.line": "- {quantity} x {product} @ {price} = {total}",
+    "order.subtotal": "Subtotal: {amount}",
+    "order.gst": "GST{rate_label}: {amount}",
+    "order.total": "Total: {amount}",
+    "order.preview_header": "{dealer} ke liye order confirm karein:",
+    "order.preview_footer": "Reply YES banane ke liye, NO cancel ke liye.",
+    # ── Update GST ─────────────────────────────────────────────────────────
+    "gst.scope_prompt": (
+        "Sabhi products (company default) ka GST update karein, ya ek product ka? "
+        "Reply 'all' ya product ka naam."
+    ),
+    "gst.rate_ask_all": "{target} ke liye naya default GST rate kya hai? (0-100, ya 'cancel')",
+    "gst.rate_ask_product": (
+        "{target} ke liye naya GST rate kya hai? (0-100, 'clear' override hatane aur company "
+        "default use karne ke liye, ya 'cancel')"
+    ),
+    "gst.not_found": (
+        "'{name}' naam ka product nahi mila. Reply 'all', doosra product naam, ya 'cancel'."
+    ),
+    "gst.rate_invalid": "Kripya 0 se 100 ke beech number bhejein, jaise 18.",
+    "gst.all_products": "sabhi products",
+    "gst.no_override": "koi override nahi (company default use karein)",
+    "gst.rate_pct": "{rate}%",
+    "gst.preview": "{target} ka GST {rate_text} set karein. Reply YES confirm, NO cancel.",
+    # ── Product: mode / disambiguation / delete / update ───────────────────
+    "product.mode_prompt": (
+        "Chaliye products add karein. Reply 'one by one' ek-ek karke, ya 'bulk' sab ek saath "
+        "poore details ke saath (jaise Rice, 300, 400, kg, 100, 5). Kabhi bhi 'done' rokne ke liye."
+    ),
+    "product.no_products_added": "OK, koi product add nahi kiya.",
+    "product.all_done": "Products add karna ho gaya.",
+    "product.name_or_done": "Product ka naam bhejein (jaise Rice), ya 'done' rokne ke liye.",
+    "product.mode_invalid": "Kripya reply karein 'one by one' ya 'bulk' — ya 'done' rokne ke liye.",
+    "product.not_found_retry": (
+        "'{name}' naam ka product nahi mila. Spelling check karke dobara try karein, ya 'cancel'."
+    ),
+    "product.disambiguation": (
+        "'{name}' naam ke {count} products mile:\n{listing}\n"
+        "{action} karne ke liye number reply karein, ya 'cancel'."
+    ),
+    "product.disambiguation_invalid": (
+        "Kripya 1 se {count} ke beech number reply karein, ya 'cancel'."
+    ),
+    "product.candidate_line": "{index}. {description}",
+    "product.candidate_desc": "{name} ({details})",
+    "product.candidate_stock": "{stock} stock me",
+    "product.gone": (
+        "Woh product ab available nahi hai. Kripya dobara '{trigger}' bolkar shuru karein."
+    ),
+    "product.delete_name_prompt": "Kaun sa product delete karna hai? Naam bhejein, ya 'cancel'.",
+    "product.delete_confirm": (
+        "{description} delete karein? Yeh undo nahi hoga. Reply YES delete, NO cancel."
+    ),
+    "product.delete_no": "OK, delete nahi kiya.",
+    "product.delete_confirm_invalid": (
+        "Kripya YES delete ke liye, ya NO cancel ke liye reply karein."
+    ),
+    "product.delete_already_gone": "{name} pehle hi hata diya gaya tha.",
+    "product.deleted": "{name} delete kiya.",
+    "product.field_prompt": (
+        "Kya update karna hai — price, purchase price, ya stock? "
+        "Reply 'price', 'purchase price', ya 'stock'."
+    ),
+    "product.action_update": "update",
+    "product.action_delete": "delete",
+    "product.label_price": "price",
+    "product.label_purchase": "purchase price",
+    "product.label_stock": "stock",
+    "product.update_name_prompt": (
+        "Kis product ki {label} update karni hai? Naam bhejein, ya 'cancel'."
+    ),
+    "product.current_price": (
+        "{name} ki abhi price {current} hai. Nayi price kya honi chahiye? (jaise 450)"
+    ),
+    "product.current_purchase": (
+        "{name} ki abhi purchase price {current} hai. "
+        "Nayi purchase price kya honi chahiye? (jaise 300)"
+    ),
+    "product.current_stock": (
+        "{name} ka abhi stock {current} hai. Naya stock kya hona chahiye? (jaise 100)"
+    ),
+    "product.value_invalid": "Kripya ek number bhejein, jaise 450.",
+    "product.value_nonneg": "Kripya zero ya usse zyada number bhejein.",
+    "product.gone_value": "Woh product ab available nahi hai.",
+    "product.not_set": "set nahi",
+    "product.updated_price": "{name} ki price {new} ki (pehle {old} thi).",
+    "product.updated_purchase": "{name} ki purchase price {new} ki (pehle {old} thi).",
+    "product.updated_stock": "{name} ka stock {new} kiya (pehle {old} tha).",
+    # ── Pending-operation results ──────────────────────────────────────────
+    "pending.reply_yes_no": "Reply YES confirm karne ke liye ya NO cancel ke liye.",
+    "pending.payment_failed": (
+        "Woh payment record nahi ho paya: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.payment_success": (
+        "✅ {amount} {party} {verb} record kiya.\n"
+        "Invoices update hue: {invoices}\n"
+        "Baaki outstanding: {outstanding}"
+    ),
+    "pending.order_failed": "Woh order nahi ban paya: {error}. Kripya dobara shuru karein.",
+    "pending.order_line": "- {quantity} x {product} = {total}",
+    "pending.order_stock_warning": "\n⚠️ Ab stock negative hai: {products}",
+    "pending.order_pdf_sent": "\nPDF {dealer} ko bheja.",
+    "pending.order_pdf_not_sent": (
+        "\n(PDF {dealer} ko nahi bheja — phone nahi hai ya WhatsApp delivery abhi set nahi hai.)"
+    ),
+    "pending.order_success": (
+        "✅ Order {number} {dealer} ke liye bana.\n{lines}\n"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+    ),
+    "pending.gst_failed": "GST update nahi ho paya: {error}. Kripya dobara shuru karein.",
+    "pending.gst_success": "✅ {target} ka GST {rate} set kiya.",
+    "pending.gst_rate_default": "company default",
+    "pending.unknown": "Us confirmation me kuch gadbad ho gayi. Kripya dobara shuru karein.",
 }
