@@ -47,6 +47,7 @@ from typing import Literal
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import Locale, resolve_locale, t
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, FollowUpState
@@ -131,15 +132,15 @@ async def _invoice_paid_amount(db: AsyncSession, invoice_id: uuid.UUID) -> Decim
     return Decimal(paid)
 
 
-def _follow_up_message(invoice: Invoice, dealer_name: str, outstanding: Decimal) -> str:
-    return (
-        "📋 Payment Follow-Up\n\n"
-        f"{invoice.invoice_number} — {dealer_name} — {format_inr(outstanding)}\n"
-        "Due date: today\n\n"
-        "Has payment been received?\n"
-        "1. Yes — full amount\n"
-        "2. Partial payment\n"
-        "3. Not yet received"
+def _follow_up_message(
+    invoice: Invoice, dealer_name: str, outstanding: Decimal, loc: Locale
+) -> str:
+    return t(
+        "followup.message",
+        loc,
+        number=invoice.invoice_number,
+        dealer=dealer_name,
+        amount=format_inr(outstanding),
     )
 
 
@@ -210,7 +211,7 @@ async def send_due_today_follow_up(db: AsyncSession, company_id: uuid.UUID) -> F
         await db.scalar(select(Dealer.name).where(Dealer.id == invoice.dealer_id)) or "the dealer"
     )
     outstanding = invoice.total_amount - await _invoice_paid_amount(db, invoice.id)
-    message = _follow_up_message(invoice, dealer_name, outstanding)
+    message = _follow_up_message(invoice, dealer_name, outstanding, resolve_locale(company))
 
     send_result = None
     try:
@@ -321,17 +322,21 @@ async def _record_payment_and_close(
 
     _clear_pending_follow_up(company)
 
+    loc = resolve_locale(company)
     if remaining <= 0:
-        return (
-            f"{format_inr(amount)} payment recorded from {dealer_name}.\n"
-            f"{invoice.invoice_number} closed.\n"
-            "Outstanding: ₹0.\n"
-            "Cash and tomorrow's briefing updated."
+        return t(
+            "followup.recorded_full",
+            loc,
+            amount=format_inr(amount),
+            dealer=dealer_name,
+            number=invoice.invoice_number,
         )
-    return (
-        f"{format_inr(amount)} partial payment recorded.\n"
-        f"{invoice.invoice_number} — {format_inr(remaining)} still outstanding.\n"
-        "Cash and tomorrow's briefing updated."
+    return t(
+        "followup.recorded_partial",
+        loc,
+        amount=format_inr(amount),
+        number=invoice.invoice_number,
+        remaining=format_inr(remaining),
     )
 
 
@@ -340,6 +345,7 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
     set — before menu_router.match, so a bare "1"/"2"/"3" is interpreted as
     this conversation's answer, never a numbered-menu command.
     """
+    loc = resolve_locale(company)
     invoice = await db.get(Invoice, company.pending_follow_up_invoice_id)
     if invoice is None or invoice.status not in _OPEN_STATUSES:
         # Deleted, or already closed through a different channel (e.g. a
@@ -347,10 +353,7 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
         # the pointer rather than recording a spurious payment against an
         # invoice that's no longer open.
         _clear_pending_follow_up(company)
-        return (
-            "That invoice is no longer available. "
-            "Reply 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk."
-        )
+        return t("followup.invoice_gone", loc, menu_prompt=t("menu.prompt", loc))
 
     dealer_name = (
         await db.scalar(select(Dealer.name).where(Dealer.id == invoice.dealer_id)) or "the dealer"
@@ -370,22 +373,19 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
             )
         if stripped == "2":
             company.pending_follow_up_state = FollowUpState.awaiting_partial_amount
-            return "How much was received?"
+            return t("followup.ask_partial", loc)
         if stripped == "3":
             company.pending_follow_up_state = FollowUpState.awaiting_expected_date
-            return (
-                f"When do you expect payment from {dealer_name}?\n"
-                "Example: Friday, 3 days, next week"
-            )
-        return "I didn't understand that. Reply 1, 2, or 3."
+            return t("followup.ask_expected_date", loc, dealer=dealer_name)
+        return t("followup.confirm_invalid", loc)
 
     if company.pending_follow_up_state == FollowUpState.awaiting_partial_amount:
         try:
             amount = parse_amount(stripped)
         except ValueError:
-            return "I didn't understand that amount. Please send a number, e.g. 25000."
+            return t("followup.amount_invalid", loc)
         if amount <= 0:
-            return "I didn't understand that amount. Please send a number, e.g. 25000."
+            return t("followup.amount_invalid", loc)
         outstanding = invoice.total_amount - await _invoice_paid_amount(db, invoice.id)
         capped_amount = min(amount, outstanding)
         return await _record_payment_and_close(
@@ -401,7 +401,7 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
         today = business_now(company.timezone).date()
         parsed = _parse_relative_date(stripped, today)
         if parsed is None:
-            return "I didn't understand that date.\nExample: Friday, 3 days, next week"
+            return t("followup.date_invalid", loc)
         invoice.expected_payment_date = parsed
         db.add(
             BusinessEvent(
@@ -424,15 +424,15 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
             )
         )
         _clear_pending_follow_up(company)
-        return (
-            f"Noted. {invoice.invoice_number} follow-up scheduled for {stripped}.\n"
-            f"{dealer_name} flagged in tomorrow's briefing."
+        return t(
+            "followup.rescheduled",
+            loc,
+            number=invoice.invoice_number,
+            when=stripped,
+            dealer=dealer_name,
         )
 
     # Unreachable in practice (the three FollowUpState members are exhaustive),
     # but never leave the company stuck if state is somehow unset/unexpected.
     _clear_pending_follow_up(company)
-    return (
-        "Something went wrong with that follow-up. "
-        "Reply 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk."
-    )
+    return t("followup.error", loc, menu_prompt=t("menu.prompt", loc))

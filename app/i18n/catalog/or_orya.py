@@ -572,4 +572,70 @@ MESSAGES: dict[str, str] = {
     "pending.gst_success": "✅ {target} ର GST {rate} set ହେଲା।",
     "pending.gst_rate_default": "company default",
     "pending.unknown": "ସେ confirmation ରେ କିଛି ଭୁଲ୍ ହୋଇଗଲା। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
+    # ── Menu prompt / follow-up / notifications / evening ──────────────────
+    "menu.prompt": "Reply କରନ୍ତୁ 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",
+    "followup.message": (
+        "📋 Payment Follow-Up\n\n"
+        "{number} — {dealer} — {amount}\n"
+        "Due date: ଆଜି\n\n"
+        "Payment ମିଳିଲା କି?\n"
+        "1. ହଁ — ପୂରା amount\n"
+        "2. Partial payment\n"
+        "3. ଏବେ ଯାଏ ନାହିଁ"
+    ),
+    "followup.recorded_full": (
+        "{amount} payment {dealer} ଠାରୁ record ହେଲା।\n"
+        "{number} ବନ୍ଦ ହେଲା।\n"
+        "ବାକି: ₹0।\n"
+        "Cash ଓ କାଲିର briefing update ହେଲା।"
+    ),
+    "followup.recorded_partial": (
+        "{amount} partial payment record ହେଲା।\n"
+        "{number} — {remaining} ଏବେ ବାକି।\n"
+        "Cash ଓ କାଲିର briefing update ହେଲା।"
+    ),
+    "followup.invoice_gone": "ସେ invoice ଏବେ available ନାହିଁ। {menu_prompt}",
+    "followup.ask_partial": "କେତେ ମିଳିଲା?",
+    "followup.ask_expected_date": (
+        "{dealer} ଠାରୁ payment କେବେ expect କରନ୍ତି?\nExample: Friday, 3 days, next week"
+    ),
+    "followup.confirm_invalid": "ବୁଝି ହେଲା ନାହିଁ। Reply 1, 2, କିମ୍ବା 3।",
+    "followup.amount_invalid": (
+        "ସେ amount ବୁଝି ହେଲା ନାହିଁ। ଦୟାକରି ଗୋଟିଏ number ପଠାନ୍ତୁ, ଯେମିତି 25000।"
+    ),
+    "followup.date_invalid": "ସେ date ବୁଝି ହେଲା ନାହିଁ।\nExample: Friday, 3 days, next week",
+    "followup.rescheduled": (
+        "ନୋଟ୍ କରାଗଲା। {number} follow-up {when} ପାଇଁ schedule ହେଲା।\n"
+        "{dealer} କାଲିର briefing ରେ flag ଅଛି।"
+    ),
+    "followup.error": "ସେ follow-up ରେ କିଛି ଭୁଲ୍ ହୋଇଗଲା। {menu_prompt}",
+    "notify.supplier_reminder": (
+        "⏰ Payment Reminder\n\n"
+        "{supplier} ର {amount} payment {when} due ଅଛି।\n"
+        "{cash_line}\n"
+        "Cash position ନ ବଦଳିଲେ କୌଣସି action ଦରକାର ନାହିଁ।"
+    ),
+    "notify.when_today": "ଆଜି",
+    "notify.when_tomorrow": "କାଲି",
+    "notify.cash_line": "ଏବେ available cash: {amount} — {sufficiency}",
+    "notify.cash_sufficient": "ଯଥେଷ୍ଟ ଅଛି।",
+    "notify.cash_insufficient": "କମ ପଡ଼ିପାରେ।",
+    "notify.dealer_alert": (
+        "⚠ Collection Alert\n\n"
+        "{dealer} — {amount} — ଏବେ {days} ଦିନ overdue।\n"
+        "3 ଦିନ ରୁ କୌଣସି follow-up ନାହିଁ।\n"
+        "Suggestion: ନୂଆ order ଦେବା ଆଗେ ଆଜି call କରନ୍ତୁ।"
+    ),
+    "evening.header": "🌙 ସନ୍ଧ୍ୟା Business Summary",
+    "evening.counts": (
+        "Invoices ତିଆରି: {invoices} · WhatsApp ରୁ Orders: {orders} · Payments record: {payments}"
+    ),
+    "evening.sales": "ଆଜିର Sales: {amount}",
+    "evening.margin": "Sales Margin: {amount}",
+    "evening.margin_excluded": " ({items} items, {amount} exclude — cost price ନାହିଁ)",
+    "evening.collections": "Collections: {amount}",
+    "evening.supplier_payments": "Supplier Payments: {amount}",
+    "evening.net_cash": "Net Cash Movement: {amount}",
+    "evening.outstanding": "Outstanding Receivables: {amount}",
+    "evening.priority_header": "Priority Actions:",
 }

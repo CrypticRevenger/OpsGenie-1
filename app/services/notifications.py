@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.i18n import resolve_locale, t
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
@@ -135,16 +136,29 @@ async def check_supplier_payment_reminders(
         ):
             continue
 
-        when = "today" if payment.due_date == today else "tomorrow"
-        sufficient = is_cash_sufficient(snapshot.cash_available_today, payment.amount)
-        cash_line = f"Current cash available: {format_inr(snapshot.cash_available_today)} — " + (
-            "sufficient." if sufficient else "may be insufficient."
+        loc = resolve_locale(company)
+        when = (
+            t("notify.when_today", loc)
+            if payment.due_date == today
+            else t("notify.when_tomorrow", loc)
         )
-        message = (
-            "⏰ Payment Reminder\n\n"
-            f"{payment.supplier_name} payment of {format_inr(payment.amount)} due {when}.\n"
-            f"{cash_line}\n"
-            "No action needed unless cash position has changed."
+        sufficient = is_cash_sufficient(snapshot.cash_available_today, payment.amount)
+        sufficiency = (
+            t("notify.cash_sufficient", loc) if sufficient else t("notify.cash_insufficient", loc)
+        )
+        cash_line = t(
+            "notify.cash_line",
+            loc,
+            amount=format_inr(snapshot.cash_available_today),
+            sufficiency=sufficiency,
+        )
+        message = t(
+            "notify.supplier_reminder",
+            loc,
+            supplier=payment.supplier_name,
+            amount=format_inr(payment.amount),
+            when=when,
+            cash_line=cash_line,
         )
         await _send_and_log(
             db,
@@ -205,12 +219,12 @@ async def check_dealer_overdue_alerts(
         ):
             continue
 
-        message = (
-            "⚠ Collection Alert\n\n"
-            f"{dealer.dealer_name} — {format_inr(dealer.outstanding)} — now "
-            f"{dealer.days_overdue} days overdue.\n"
-            "No follow-up recorded in 3 days.\n"
-            "Suggested: call today before placing new order."
+        message = t(
+            "notify.dealer_alert",
+            resolve_locale(company),
+            dealer=dealer.dealer_name,
+            amount=format_inr(dealer.outstanding),
+            days=dealer.days_overdue,
         )
         await _send_and_log(
             db,

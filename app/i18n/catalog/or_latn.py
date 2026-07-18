@@ -590,4 +590,70 @@ MESSAGES: dict[str, str] = {
     "pending.gst_success": "✅ {target} ra GST {rate} set hela.",
     "pending.gst_rate_default": "company default",
     "pending.unknown": "Se confirmation re kichi bhul heigala. Daya kari puni arambha karantu.",
+    # ── Menu prompt / follow-up / notifications / evening ──────────────────
+    "menu.prompt": "Reply karantu 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",
+    "followup.message": (
+        "📋 Payment Follow-Up\n\n"
+        "{number} — {dealer} — {amount}\n"
+        "Due date: aji\n\n"
+        "Payment milila ki?\n"
+        "1. Han — puura amount\n"
+        "2. Partial payment\n"
+        "3. Ebe janha nahin"
+    ),
+    "followup.recorded_full": (
+        "{amount} payment {dealer} thu record hela.\n"
+        "{number} banda hela.\n"
+        "Baki: ₹0.\n"
+        "Cash au kali ra briefing update hela."
+    ),
+    "followup.recorded_partial": (
+        "{amount} partial payment record hela.\n"
+        "{number} — {remaining} ebe baki.\n"
+        "Cash au kali ra briefing update hela."
+    ),
+    "followup.invoice_gone": "Se invoice ebe available nahin. {menu_prompt}",
+    "followup.ask_partial": "Kete milila?",
+    "followup.ask_expected_date": (
+        "{dealer} thu payment kebe expect karanti?\nExample: Friday, 3 days, next week"
+    ),
+    "followup.confirm_invalid": "Bujhi heli nahin. Reply 1, 2, kimba 3.",
+    "followup.amount_invalid": (
+        "Se amount bujhi heli nahin. Daya kari gotie number pathantu, jaise 25000."
+    ),
+    "followup.date_invalid": "Se date bujhi heli nahin.\nExample: Friday, 3 days, next week",
+    "followup.rescheduled": (
+        "Note karagala. {number} follow-up {when} paain schedule hela.\n"
+        "{dealer} kali ra briefing re flag achi."
+    ),
+    "followup.error": "Se follow-up re kichi bhul heigala. {menu_prompt}",
+    "notify.supplier_reminder": (
+        "⏰ Payment Reminder\n\n"
+        "{supplier} ra {amount} payment {when} due achi.\n"
+        "{cash_line}\n"
+        "Kono action darkar nahin jabaju cash position na badle."
+    ),
+    "notify.when_today": "aji",
+    "notify.when_tomorrow": "kali",
+    "notify.cash_line": "Ebe available cash: {amount} — {sufficiency}",
+    "notify.cash_sufficient": "jathesta achi.",
+    "notify.cash_insufficient": "kami padipare.",
+    "notify.dealer_alert": (
+        "⚠ Collection Alert\n\n"
+        "{dealer} — {amount} — ebe {days} dina overdue.\n"
+        "3 dina ru kono follow-up nahin.\n"
+        "Suggestion: natun order dei aage aji call karantu."
+    ),
+    "evening.header": "🌙 Sanjha Business Summary",
+    "evening.counts": (
+        "Invoices tiari: {invoices} · WhatsApp ru Orders: {orders} · Payments record: {payments}"
+    ),
+    "evening.sales": "Aji ra Sales: {amount}",
+    "evening.margin": "Sales Margin: {amount}",
+    "evening.margin_excluded": " ({items} items, {amount} exclude — cost price nahin)",
+    "evening.collections": "Collections: {amount}",
+    "evening.supplier_payments": "Supplier Payments: {amount}",
+    "evening.net_cash": "Net Cash Movement: {amount}",
+    "evening.outstanding": "Outstanding Receivables: {amount}",
+    "evening.priority_header": "Priority Actions:",
 }

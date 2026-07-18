@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import resolve_locale
+from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.morning_briefing import MorningBriefing
 from app.services.llm import (
@@ -40,7 +40,6 @@ from app.services.llm import (
     generate_with_fallback,
 )
 from app.services.priority_actions import get_priority_actions
-from app.services.query_menu import MENU_PROMPT
 from app.services.recommendations import _STALE_DATA_THRESHOLD_HOURS, ActionItem
 from app.services.snapshot import Snapshot, build_snapshot, business_now
 
@@ -239,7 +238,7 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
     indicator = confidence_indicator(snapshot.confidence_score, snapshot.data_freshness_hours)
     banner = stale_data_banner(snapshot.data_freshness_hours)
     body = f"{banner}\n\n{result.text}" if banner else result.text
-    generated_text = f"{body}\n\n{indicator}\n\n{MENU_PROMPT}"
+    generated_text = f"{body}\n\n{indicator}\n\n{t('menu.prompt', resolve_locale(company))}"
 
     unverified = find_unverified_amounts(result.text, payload)
     if unverified:

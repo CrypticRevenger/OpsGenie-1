@@ -573,4 +573,70 @@ MESSAGES: dict[str, str] = {
     "pending.gst_success": "✅ {target} ka GST {rate} set kiya.",
     "pending.gst_rate_default": "company default",
     "pending.unknown": "Us confirmation me kuch gadbad ho gayi. Kripya dobara shuru karein.",
+    # ── Menu prompt / follow-up / notifications / evening ──────────────────
+    "menu.prompt": "Reply karein 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",
+    "followup.message": (
+        "📋 Payment Follow-Up\n\n"
+        "{number} — {dealer} — {amount}\n"
+        "Due date: aaj\n\n"
+        "Payment mil gaya?\n"
+        "1. Haan — poora amount\n"
+        "2. Partial payment\n"
+        "3. Abhi tak nahi"
+    ),
+    "followup.recorded_full": (
+        "{amount} payment {dealer} se record kiya.\n"
+        "{number} band ho gaya.\n"
+        "Baaki: ₹0.\n"
+        "Cash aur kal ki briefing update ho gayi."
+    ),
+    "followup.recorded_partial": (
+        "{amount} partial payment record kiya.\n"
+        "{number} — {remaining} abhi baaki.\n"
+        "Cash aur kal ki briefing update ho gayi."
+    ),
+    "followup.invoice_gone": "Woh invoice ab available nahi. {menu_prompt}",
+    "followup.ask_partial": "Kitna mila?",
+    "followup.ask_expected_date": (
+        "{dealer} se payment kab expect karte hain?\nExample: Friday, 3 days, next week"
+    ),
+    "followup.confirm_invalid": "Samajh nahi aaya. Reply 1, 2, ya 3.",
+    "followup.amount_invalid": (
+        "Woh amount samajh nahi aaya. Kripya ek number bhejein, jaise 25000."
+    ),
+    "followup.date_invalid": "Woh date samajh nahi aayi.\nExample: Friday, 3 days, next week",
+    "followup.rescheduled": (
+        "Note kiya. {number} follow-up {when} ke liye schedule kiya.\n"
+        "{dealer} kal ki briefing me flag hai."
+    ),
+    "followup.error": "Us follow-up me kuch gadbad ho gayi. {menu_prompt}",
+    "notify.supplier_reminder": (
+        "⏰ Payment Reminder\n\n"
+        "{supplier} ka {amount} payment {when} due hai.\n"
+        "{cash_line}\n"
+        "Koi action ki zaroorat nahi jab tak cash position na badle."
+    ),
+    "notify.when_today": "aaj",
+    "notify.when_tomorrow": "kal",
+    "notify.cash_line": "Abhi available cash: {amount} — {sufficiency}",
+    "notify.cash_sufficient": "kaafi hai.",
+    "notify.cash_insufficient": "kam pad sakta hai.",
+    "notify.dealer_alert": (
+        "⚠ Collection Alert\n\n"
+        "{dealer} — {amount} — ab {days} din overdue.\n"
+        "3 din se koi follow-up nahi.\n"
+        "Suggestion: naya order dene se pehle aaj call karein."
+    ),
+    "evening.header": "🌙 Shaam ka Business Summary",
+    "evening.counts": (
+        "Invoices bane: {invoices} · WhatsApp se Orders: {orders} · Payments record: {payments}"
+    ),
+    "evening.sales": "Aaj ki Sales: {amount}",
+    "evening.margin": "Sales Margin: {amount}",
+    "evening.margin_excluded": " ({items} items, {amount} exclude — cost price nahi hai)",
+    "evening.collections": "Collections: {amount}",
+    "evening.supplier_payments": "Supplier Payments: {amount}",
+    "evening.net_cash": "Net Cash Movement: {amount}",
+    "evening.outstanding": "Outstanding Receivables: {amount}",
+    "evening.priority_header": "Priority Actions:",
 }
