@@ -21,6 +21,7 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import Locale, resolve_locale, t
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
 from app.models.daily_business_snapshot import DailyBusinessSnapshot
@@ -52,37 +53,48 @@ async def _already_finalized_today(db: AsyncSession, company: Company, business_
     return row is not None
 
 
-def _compose_text(snapshot: DailyBusinessSnapshot, priority_actions: list[ActionItem]) -> str:
+def _compose_text(
+    snapshot: DailyBusinessSnapshot, priority_actions: list[ActionItem], loc: Locale
+) -> str:
     lines = [
-        "🌙 Evening Business Summary",
-        f"Invoices Created: {snapshot.invoices_created} · "
-        f"Orders via WhatsApp: {snapshot.orders_created} · "
-        f"Payments Recorded: {snapshot.payments_recorded}",
+        t("evening.header", loc),
+        t(
+            "evening.counts",
+            loc,
+            invoices=snapshot.invoices_created,
+            orders=snapshot.orders_created,
+            payments=snapshot.payments_recorded,
+        ),
         "",
-        f"Sales Today: {format_inr(snapshot.sales_amount)}",
+        t("evening.sales", loc, amount=format_inr(snapshot.sales_amount)),
     ]
 
-    margin_line = f"Sales Margin: {format_inr(snapshot.sales_margin)}"
+    margin_line = t("evening.margin", loc, amount=format_inr(snapshot.sales_margin))
     if snapshot.items_missing_cost_data > 0:
-        margin_line += (
-            f" ({snapshot.items_missing_cost_data} items, "
-            f"{format_inr(snapshot.revenue_excluded_no_cost_data)} excluded — "
-            "no cost price on file)"
+        margin_line += t(
+            "evening.margin_excluded",
+            loc,
+            items=snapshot.items_missing_cost_data,
+            amount=format_inr(snapshot.revenue_excluded_no_cost_data),
         )
     lines.append(margin_line)
 
     lines.extend(
         [
-            f"Collections: {format_inr(snapshot.collections_amount)}",
-            f"Supplier Payments: {format_inr(snapshot.supplier_payments_amount)}",
-            f"Net Cash Movement: {format_signed_inr(snapshot.net_cash_movement)}",
-            f"Outstanding Receivables: {format_inr(snapshot.outstanding_receivables)}",
+            t("evening.collections", loc, amount=format_inr(snapshot.collections_amount)),
+            t(
+                "evening.supplier_payments",
+                loc,
+                amount=format_inr(snapshot.supplier_payments_amount),
+            ),
+            t("evening.net_cash", loc, amount=format_signed_inr(snapshot.net_cash_movement)),
+            t("evening.outstanding", loc, amount=format_inr(snapshot.outstanding_receivables)),
         ]
     )
 
     if priority_actions:
         lines.append("")
-        lines.append("Priority Actions:")
+        lines.append(t("evening.priority_header", loc))
         for action in priority_actions:
             amount_part = f" ({format_inr(action.amount)})" if action.amount is not None else ""
             lines.append(f"- {action.reason}{amount_part}")
@@ -105,7 +117,7 @@ async def send_evening_brief(db: AsyncSession, company: Company) -> bool:
 
     snapshot = await finalize_daily_snapshot(db, company, today)
     priority_actions = await get_priority_actions(db, company.id)
-    text = _compose_text(snapshot, priority_actions)
+    text = _compose_text(snapshot, priority_actions, resolve_locale(company))
 
     send_result: WhatsAppSendResult | None
     try:

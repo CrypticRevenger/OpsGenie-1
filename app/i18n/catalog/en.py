@@ -579,4 +579,72 @@ MESSAGES: dict[str, str] = {
     "pending.gst_success": "✅ GST for {target} set to {rate}.",
     "pending.gst_rate_default": "the company default",
     "pending.unknown": "Something went wrong with that confirmation. Please start again.",
+    # ── Numbered-menu prompt (shared: follow-up fallback, briefing footer) ──
+    "menu.prompt": "Reply 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",
+    # ── Invoice due-date follow-up conversation (distributor-facing) ───────
+    "followup.message": (
+        "📋 Payment Follow-Up\n\n"
+        "{number} — {dealer} — {amount}\n"
+        "Due date: today\n\n"
+        "Has payment been received?\n"
+        "1. Yes — full amount\n"
+        "2. Partial payment\n"
+        "3. Not yet received"
+    ),
+    "followup.recorded_full": (
+        "{amount} payment recorded from {dealer}.\n"
+        "{number} closed.\n"
+        "Outstanding: ₹0.\n"
+        "Cash and tomorrow's briefing updated."
+    ),
+    "followup.recorded_partial": (
+        "{amount} partial payment recorded.\n"
+        "{number} — {remaining} still outstanding.\n"
+        "Cash and tomorrow's briefing updated."
+    ),
+    "followup.invoice_gone": "That invoice is no longer available. {menu_prompt}",
+    "followup.ask_partial": "How much was received?",
+    "followup.ask_expected_date": (
+        "When do you expect payment from {dealer}?\nExample: Friday, 3 days, next week"
+    ),
+    "followup.confirm_invalid": "I didn't understand that. Reply 1, 2, or 3.",
+    "followup.amount_invalid": "I didn't understand that amount. Please send a number, e.g. 25000.",
+    "followup.date_invalid": "I didn't understand that date.\nExample: Friday, 3 days, next week",
+    "followup.rescheduled": (
+        "Noted. {number} follow-up scheduled for {when}.\n"
+        "{dealer} flagged in tomorrow's briefing."
+    ),
+    "followup.error": "Something went wrong with that follow-up. {menu_prompt}",
+    # ── Proactive notifications (distributor-facing only; founder alerts EN) ─
+    "notify.supplier_reminder": (
+        "⏰ Payment Reminder\n\n"
+        "{supplier} payment of {amount} due {when}.\n"
+        "{cash_line}\n"
+        "No action needed unless cash position has changed."
+    ),
+    "notify.when_today": "today",
+    "notify.when_tomorrow": "tomorrow",
+    "notify.cash_line": "Current cash available: {amount} — {sufficiency}",
+    "notify.cash_sufficient": "sufficient.",
+    "notify.cash_insufficient": "may be insufficient.",
+    "notify.dealer_alert": (
+        "⚠ Collection Alert\n\n"
+        "{dealer} — {amount} — now {days} days overdue.\n"
+        "No follow-up recorded in 3 days.\n"
+        "Suggested: call today before placing new order."
+    ),
+    # ── Evening business summary ───────────────────────────────────────────
+    "evening.header": "🌙 Evening Business Summary",
+    "evening.counts": (
+        "Invoices Created: {invoices} · Orders via WhatsApp: {orders} · "
+        "Payments Recorded: {payments}"
+    ),
+    "evening.sales": "Sales Today: {amount}",
+    "evening.margin": "Sales Margin: {amount}",
+    "evening.margin_excluded": " ({items} items, {amount} excluded — no cost price on file)",
+    "evening.collections": "Collections: {amount}",
+    "evening.supplier_payments": "Supplier Payments: {amount}",
+    "evening.net_cash": "Net Cash Movement: {amount}",
+    "evening.outstanding": "Outstanding Receivables: {amount}",
+    "evening.priority_header": "Priority Actions:",
 }
