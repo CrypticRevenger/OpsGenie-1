@@ -73,7 +73,9 @@ MESSAGES: dict[str, str] = {
         "କ୍ଷମା କରନ୍ତୁ, ମୁଁ ବର୍ତ୍ତମାନ ଏହାର ଉତ୍ତର ଦେଇପାରିଲି ନାହିଁ। ଉତ୍ତର ଦିଅନ୍ତୁ 1 Cash · "
         "2 Collections · 3 Suppliers · 4 Dealer Risk, କିମ୍ବା ପୁଣି ଲେଖନ୍ତୁ।"
     ),
-    "onboarding.language_changed": "✅ ହୋଇଗଲା — ବର୍ତ୍ତମାନଠାରୁ ମୁଁ ଆପଣଙ୍କୁ {language} ରେ ମେସେଜ୍ କରିବି।",
+    "onboarding.language_changed": (
+        "✅ ହୋଇଗଲା — ବର୍ତ୍ତମାନଠାରୁ ମୁଁ ଆପଣଙ୍କୁ {language} ରେ ମେସେଜ୍ କରିବି।"
+    ),
     # ── Cash Position report ───────────────────────────────────────────────
     "reports.cash.header": "💰 ନଗଦ ସ୍ଥିତି",
     "reports.cash.available_now": "ବର୍ତ୍ତମାନ ଉପଲବ୍ଧ: {amount}",
@@ -136,7 +138,9 @@ MESSAGES: dict[str, str] = {
     "reports.inventory.label_all": "ସମସ୍ତ ଇନଭେଣ୍ଟୋରୀ",
     "reports.inventory.header_partial": "📦 {label} ({count} of {total}):",
     "reports.inventory.header_full": "📦 {label} ({count}):",
-    "reports.inventory.more": "\n\n…ଆଉ {remaining} ଅଧିକ — ପୂରା ତାଲିକା ପାଇଁ 'all inventory' ପଠାନ୍ତୁ।",
+    "reports.inventory.more": (
+        "\n\n…ଆଉ {remaining} ଅଧିକ — ପୂରା ତାଲିକା ପାଇଁ 'all inventory' ପଠାନ୍ତୁ।"
+    ),
     "reports.product.price_not_set": "ମୂଲ୍ୟ ସେଟ୍ ନାହିଁ",
     # ── FAQs ───────────────────────────────────────────────────────────────
     "reports.faq.none": "ଆପଣଙ୍କ ପାଖରେ ବର୍ତ୍ତମାନ କୌଣସି ସେଭ୍ ପଲିସି ନାହିଁ।",
@@ -178,9 +182,134 @@ MESSAGES: dict[str, str] = {
     "reports.export.not_configured": (
         "Data export link ବର୍ତ୍ତମାନ setup ନାହିଁ — ନିଜ OpsGenie admin ଙ୍କୁ configure କରାନ୍ତୁ।"
     ),
-    "reports.export.ready": "ଆପଣଙ୍କ latest Excel export ପ୍ରସ୍ତୁତ।\nDownload ({ttl} min valid): {link}",
+    "reports.export.ready": (
+        "ଆପଣଙ୍କ latest Excel export ପ୍ରସ୍ତୁତ।\nDownload ({ttl} min valid): {link}"
+    ),
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    # ── Onboarding ─────────────────────────────────────────────────────────
+    "onboarding.intro": (
+        "👋 OpsGenie କୁ ସ୍ୱାଗତ! ଚାଲନ୍ତୁ ଆପଣଙ୍କ ବ୍ୟବସାୟ ସେଟ୍ ଅପ୍ କରିବା — 5 ମିନିଟ୍ ଲାଗିବ, "
+        "ଏବଂ ଆପଣ ଯେକୌଣସି ସମୟରେ ରୋକି ଜାରି ରଖିପାରିବେ।\n\n"
+        "ପ୍ରଥମେ: ଆପଣ କେଉଁ ପ୍ରକାରର ବ୍ୟବସାୟ ଚଳାନ୍ତି? (ଯେମିତି FMCG Distributor, Pharma Distributor)"
+    ),
+    "onboarding.progress": "✅ Step {step}/{total} ହୋଇଗଲା।",
+    "onboarding.finish": (
+        "🎉 ସେଟ୍ ଅପ୍ ସମ୍ପୂର୍ଣ୍ଣ ହୋଇଗଲା!\n\n"
+        "କାଲି ସକାଳୁ ମୁଁ ଆପଣଙ୍କୁ ପ୍ରତିଦିନ ବ୍ରିଫିଂ ପଠାଇବି। ଆପଣ ମୋତେ କିଛି ବି ପଚାରି ପାରିବେ, ଯେମିତି:\n"
+        "• Cash position\n"
+        "• Ram କୁ କେତେ ଦେବା?\n"
+        "• Supplier dues\n"
+        "• Dealer risk\n\n"
+        "ଯେକୌଣସି ସମୟରେ menu ପଠାନ୍ତୁ option tap କରିବାକୁ, କିମ୍ବା /help ପୂରା ତାଲିକା ଦେଖିବାକୁ।"
+    ),
+    "onboarding.gst.mode_ask": (
+        "ଆପଣଙ୍କ ସବୁ products ର GST rate same କି, କିମ୍ବା product ହିସାବରେ ଅଲଗା? "
+        "Reply କରନ୍ତୁ 'same', 'varies', କିମ୍ବା 'not sure' ପରେ ଠିକ୍ କରିବାକୁ।"
+    ),
+    "onboarding.gst.rate_ask": "ଆପଣଙ୍କ GST rate କେତେ? (ଯେମିତି 5, 12, 18, କିମ୍ବା 0 ଯଦି exempt)",
+    "onboarding.gst.mode_invalid": "ଦୟାକରି reply କରନ୍ତୁ 'same', 'varies', କିମ୍ବା 'not sure'।",
+    "onboarding.gst.rate_invalid": (
+        "ଦୟାକରି 0 ରୁ 100 ମଧ୍ୟରେ number ପଠାନ୍ତୁ, ଯେମିତି 18 (କିମ୍ବା 'not sure' ପରେ ଠିକ୍ କରିବାକୁ)।"
+    ),
+    "onboarding.product.intro": (
+        "ଏବେ ଆପଣଙ୍କ products add କରନ୍ତୁ। Reply 'one by one' ଗୋଟିଏ ଗୋଟିଏ, କିମ୍ବା 'bulk' ସବୁ ଏକାଠି "
+        "ପୂରା details ସହ (ଯେମିତି Rice, 300, 400, kg, 100, 5)। 'done' skip କରିବାକୁ।"
+    ),
+    "onboarding.product.bulk_format": (
+        "ଆପଣଙ୍କ products ଗୋଟିଏ line ରେ ଗୋଟିଏ, ଏହି format ରେ ପଠାନ୍ତୁ:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
+        "ଯେମିତି\n"
+        "Rice, 300, 400, kg, 100, 5\n"
+        "Dal, 320, 450, kg, 50, 12\n"
+        "ଯେଉଁ field set କରିବାକୁ ଚାହାନ୍ତି ନାହିଁ ସେଥିପାଇଁ 'skip' ଲେଖନ୍ତୁ "
+        "(ଯେମିତି Rice, skip, 400, kg, 100, skip)। ସରିଲେ 'done' ପଠାନ୍ତୁ।"
+    ),
+    "onboarding.product.first_name": (
+        "ଆପଣଙ୍କ ପ୍ରଥମ product ର ନାମ ପଠାନ୍ତୁ (ଯେମିତି Rice), କିମ୍ବା 'done' skip କରିବାକୁ।"
+    ),
+    "onboarding.product.mode_invalid": (
+        "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା 'done' products skip କରିବାକୁ।"
+    ),
+    "onboarding.product.bulk_error": "ଏହା ବୁଝି ହେଲା ନାହିଁ: {error}",
+    "onboarding.product.bulk_added": (
+        "{count} product add ହେଲା: {names}। ଆଉ ପଠାନ୍ତୁ, କିମ୍ବା ସରିଲେ 'done' ପଠାନ୍ତୁ।"
+    ),
+    "onboarding.product.quantity_ask": (
+        "ଏବେ ଆପଣଙ୍କ ପାଖରେ କେତେ {name} stock ରେ ଅଛି? (ଯେମିତି 100, କିମ୍ବା 'skip')"
+    ),
+    "onboarding.product.quantity_invalid": (
+        "ଦୟାକରି ଗୋଟିଏ number ପଠାନ୍ତୁ, ଯେମିତି 100 (କିମ୍ବା 'skip')।"
+    ),
+    "onboarding.product.unit": "ଏହା କେଉଁ unit ରେ? (ଯେମିତି kg, pcs, box, litre, କିମ୍ବା 'skip')",
+    "onboarding.product.price_ask": "{name} ର selling price କେତେ? (ଯେମିତି 400, କିମ୍ବା 'skip')",
+    "onboarding.product.price_invalid": "ଦୟାକରି ଗୋଟିଏ number ପଠାନ୍ତୁ, ଯେମିତି 400 (କିମ୍ବା 'skip')।",
+    "onboarding.product.purchase_ask": (
+        "{name} ର purchase price (cost price) କେତେ? (ଯେମିତି 300, କିମ୍ବା 'skip')"
+    ),
+    "onboarding.product.purchase_invalid": (
+        "ଦୟାକରି ଗୋଟିଏ number ପଠାନ୍ତୁ, ଯେମିତି 300 (କିମ୍ବା 'skip')।"
+    ),
+    "onboarding.product.gst_ask": (
+        "{name} ର GST% କେତେ? (ଯେମିତି 5, 12, 18, କିମ୍ବା 'skip' ପରେ ଠିକ୍ କରିବାକୁ)"
+    ),
+    "onboarding.product.gst_invalid": (
+        "ଦୟାକରି 0 ରୁ 100 ମଧ୍ୟରେ number ପଠାନ୍ତୁ, ଯେମିତି 18 (କିମ୍ବା 'skip' ପରେ ଠିକ୍ କରିବାକୁ)।"
+    ),
+    "onboarding.product.added": (
+        "Product add ହେଲା: {name} ({stock} stock ରେ)। ଆଉ ପଠାନ୍ତୁ, କିମ୍ବା 'done'।"
+    ),
+    "onboarding.dealers.intro": (
+        "ଏବେ ଆପଣଙ୍କ dealers (customers) add କରନ୍ତୁ। ପ୍ରଥମ dealer ର ନାମ ପଠାନ୍ତୁ, କିମ୍ବା 'done'।"
+    ),
+    "onboarding.dealer.credit_ask": (
+        "{name} କୁ ଆପଣ କେତେ credit ଦିନ ଦିଅନ୍ତି? (ଯେମିତି 15, କିମ୍ବା 'skip')"
+    ),
+    "onboarding.dealer.added": "Dealer {name} add ହେଲା। ପରବର୍ତ୍ତୀ dealer ର ନାମ, କିମ୍ବା 'done'।",
+    "onboarding.suppliers.intro": (
+        "ଏବେ ଆପଣଙ୍କ suppliers। ପ୍ରଥମ supplier ର ନାମ ପଠାନ୍ତୁ, କିମ୍ବା 'done'।"
+    ),
+    "onboarding.supplier.credit_ask": (
+        "{name} ଆପଣଙ୍କୁ pay କରିବାକୁ କେତେ ଦିନ ଦିଏ? (ଯେମିତି 15/'skip')"
+    ),
+    "onboarding.supplier.added": (
+        "Supplier {name} add ହେଲା। ପରବର୍ତ୍ତୀ supplier ର ନାମ, କିମ୍ବା 'done'।"
+    ),
+    "onboarding.party.phone_ask": "{name} ର phone number? (କିମ୍ବା 'skip')",
+    "onboarding.party.credit_invalid": "ଦୟାକରି ଦିନର number ପଠାନ୍ତୁ, ଯେମିତି 15 (କିମ୍ବା 'skip')।",
+    "onboarding.opening.ask": "ଏବେ ଆପଣଙ୍କ ବ୍ୟବସାୟରେ କେତେ cash ଅଛି? (ଯେମିତି 320000)",
+    "onboarding.opening.invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 320000।",
+    "onboarding.receivable.ask": "କୌଣସି dealer ପାଖରେ ଏବେ ଆପଣଙ୍କ ପଇସା ବାକି ଅଛି କି? (yes/no)",
+    "onboarding.receivable.which": "କେଉଁ dealer ଆପଣଙ୍କୁ ଦେବ? (ନାମ)",
+    "onboarding.receivable.amount_ask": "{party} ଆପଣଙ୍କୁ କେତେ ଦେବ? (ଯେମିତି 42000)",
+    "onboarding.receivable.amount_invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 42000।",
+    "onboarding.receivable.date_ask": (
+        "{party} ଠାରୁ payment କେବେ expect କରନ୍ତି? (ଯେମିତି Friday, 15 days, କିମ୍ବା next week)"
+    ),
+    "onboarding.receivable.recorded": (
+        "{amount} {party} ଠାରୁ record ହେଲା। ଆଉ କୌଣସି dealer ଦେବ? (yes/no)"
+    ),
+    "onboarding.payable.ask": "କୌଣସି supplier payment pending ଅଛି କି? (yes/no)",
+    "onboarding.payable.which": "କେଉଁ supplier କୁ ଆପଣ ଦେବ? (ନାମ)",
+    "onboarding.payable.amount_ask": "ଆପଣ {party} କୁ କେତେ ଦେବ? (ଯେମିତି 82000)",
+    "onboarding.payable.amount_invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 82000।",
+    "onboarding.payable.date_ask": (
+        "{party} କୁ payment କେବେ due? (ଯେମିତି Friday, 15 days, କିମ୍ବା next week)"
+    ),
+    "onboarding.payable.recorded": (
+        "{amount} {party} କୁ record ହେଲା। ଆଉ କୌଣସି supplier pending? (yes/no)"
+    ),
+    "onboarding.yes_no_invalid": "ଦୟାକରି yes କିମ୍ବା no reply କରନ୍ତୁ।",
+    "onboarding.date_invalid": (
+        "କ୍ଷମା କରନ୍ତୁ, ସେ date ବୁଝି ହେଲା ନାହିଁ। Try କରନ୍ତୁ ଯେମିତି Friday, 15 days, କିମ୍ବା next week।"
+    ),
+    "onboarding.briefing.ask": (
+        "ଶେଷ step — ମୁଁ ଆପଣଙ୍କ morning briefing କେବେ ପଠାଇବି? Reply 7, 8, କିମ୍ବା 9।"
+    ),
+    "onboarding.briefing.invalid": "ଦୟାକରି ଗୋଟିଏ ଘଣ୍ଟା reply କରନ୍ତୁ, ଯେମିତି 7, 8, କିମ୍ବା 9।",
+    "onboarding.briefing.range": (
+        "ଦୟାକରି ସକାଳ 5 ରୁ 11 ମଧ୍ୟରେ ଘଣ୍ଟା ବାଛନ୍ତୁ (ଯେମିତି 7, 8, କିମ୍ବା 9)।"
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "ତଳେ ଗୋଟିଏ ବିକଳ୍ପ ଟାପ୍ କରନ୍ତୁ, କିମ୍ବା ପୂରା ତାଲିକା ପାଇଁ /help ପଠାନ୍ତୁ।",
     "menu.msg.reports.body": "ରିପୋର୍ଟ ଓ ସାରାଂଶ — ଗୋଟିଏ ବାଛନ୍ତୁ:",

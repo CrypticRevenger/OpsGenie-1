@@ -22,7 +22,7 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import compose_locale, resolve_locale, t
+from app.i18n import Locale, compose_locale, resolve_locale, t
 from app.i18n.languages import get_locale
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
@@ -77,13 +77,6 @@ def _script_prompt(language: str) -> str:
     )
 
 
-_INTRO = (
-    "👋 Welcome to OpsGenie! Let's set up your business — it takes about 5 minutes, "
-    "and you can stop and continue anytime.\n\n"
-    "First: what kind of business do you run? (e.g. FMCG Distributor, Pharma Distributor)"
-)
-
-
 def start_language_change(company: Company) -> str:
     """Post-onboarding switch: re-enter the same language/script selection for
     an already-completed company (triggered by "change language"). A
@@ -102,30 +95,20 @@ def _after_language_selected(company: Company, scratch: dict) -> str:
     """
     relanguage = scratch.get("relanguage")
     company.onboarding_scratch = None
+    locale = resolve_locale(company)
     if relanguage:
         company.onboarding_state = OnboardingState.completed
-        locale = resolve_locale(company)
         return t("onboarding.language_changed", locale, language=locale.display_name)
     company.onboarding_state = OnboardingState.awaiting_business_type
-    return _INTRO
+    return t("onboarding.intro", locale)
 
 
-def _progress(step: int) -> str:
-    return f"✅ Step {step} of {_TOTAL_STEPS} done."
+def _progress(step: int, loc: Locale) -> str:
+    return t("onboarding.progress", loc, step=step, total=_TOTAL_STEPS)
 
 
-def _finish_message() -> str:
-    return (
-        "🎉 Setup complete!\n\n"
-        "From tomorrow morning I'll send you your daily briefing. You can ask me anything, "
-        "like:\n"
-        "• Cash position\n"
-        "• How much does Ram owe?\n"
-        "• Supplier dues\n"
-        "• Dealer risk\n\n"
-        "Reply menu anytime to tap through your options, or /help to see everything I can do "
-        "as a full list."
-    )
+def _finish_message(loc: Locale) -> str:
+    return t("onboarding.finish", loc)
 
 
 def _is(word: str, *options: str) -> bool:
@@ -236,6 +219,7 @@ def _finalize_one_by_one_product(
     scratch: dict,
     purchase_price: Decimal | None,
     gst_rate: Decimal | None,
+    loc: Locale,
 ) -> str:
     """Creates the Product row from the one-by-one loop's accumulated
     scratch fields — the loop's single terminal point, reached either
@@ -262,30 +246,12 @@ def _finalize_one_by_one_product(
     company.onboarding_scratch = None
     company.onboarding_state = OnboardingState.product_awaiting_name
     unit_suffix = f" {unit}" if unit else ""
-    return (
-        f"Added product: {name} ({_format_quantity(quantity)}{unit_suffix} in stock). "
-        "Send another, or 'done'."
-    )
+    stock = f"{_format_quantity(quantity)}{unit_suffix}"
+    return t("onboarding.product.added", loc, name=name, stock=stock)
 
 
-_UNIT_PROMPT = "What unit is this measured in? (e.g. kg, pcs, box, litre, or 'skip')"
-
-_PRODUCT_INTRO = (
-    f"{_progress(1)}\n\n"
-    "Now let's add your products. Reply 'one by one' to add them individually, "
-    "or 'bulk' to send them all at once with full details "
-    "(e.g. Rice, 300, 400, kg, 100, 5). Reply 'done' to skip."
-)
-
-_BULK_FORMAT_PROMPT = (
-    "Send your products one per line, in this format:\n"
-    "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
-    "e.g.\n"
-    "Rice, 300, 400, kg, 100, 5\n"
-    "Dal, 320, 450, kg, 50, 12\n"
-    "Use 'skip' for any field you don't want to set "
-    "(e.g. Rice, skip, 400, kg, 100, skip). Reply 'done' when finished."
-)
+def _product_intro(loc: Locale) -> str:
+    return f"{_progress(1, loc)}\n\n{t('onboarding.product.intro', loc)}"
 
 
 async def handle_onboarding_message(db: AsyncSession, company: Company, text: str) -> str:
@@ -295,6 +261,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     state = company.onboarding_state
     stripped = text.strip()
     scratch = dict(company.onboarding_scratch or {})
+    # Business-setup prompts below render in the company's chosen locale. The
+    # language/script picker itself stays English (it runs before a locale is
+    # chosen, and shows each option in its own native script).
+    loc = resolve_locale(company)
 
     # ── Kick-off → language first, so the rest is shown in the chosen locale ──
     if state == OnboardingState.not_started:
@@ -332,73 +302,65 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     if state == OnboardingState.awaiting_business_type:
         company.business_type = stripped
         company.onboarding_state = OnboardingState.gst_mode_ask
-        return (
-            "Do all your products have the same GST rate, or does it vary by product? "
-            "Reply 'same', 'varies', or 'not sure' to decide later."
-        )
+        return t("onboarding.gst.mode_ask", loc)
 
     if state == OnboardingState.gst_mode_ask:
         if _is(stripped, "not sure", "skip", "later"):
             company.onboarding_state = OnboardingState.product_awaiting_mode
-            return _PRODUCT_INTRO
+            return _product_intro(loc)
         if _is(stripped, "varies", "vary"):
             company.gst_varies_by_product = True
             company.onboarding_state = OnboardingState.product_awaiting_mode
-            return _PRODUCT_INTRO
+            return _product_intro(loc)
         if _is(stripped, "same"):
             company.onboarding_state = OnboardingState.gst_rate_same
-            return "What's your GST rate? (e.g. 5, 12, 18, or 0 if exempt)"
-        return "Please reply 'same', 'varies', or 'not sure'."
+            return t("onboarding.gst.rate_ask", loc)
+        return t("onboarding.gst.mode_invalid", loc)
 
     if state == OnboardingState.gst_rate_same:
         if _is(stripped, "not sure", "skip", "later"):
             company.onboarding_state = OnboardingState.product_awaiting_mode
-            return _PRODUCT_INTRO
+            return _product_intro(loc)
         try:
             rate = parse_gst_rate(stripped)
         except ValueError:
-            return (
-                "Please send a number between 0 and 100, e.g. 18 "
-                "(or 'not sure' to decide later)."
-            )
+            return t("onboarding.gst.rate_invalid", loc)
         company.gst_rate = rate
         company.gst_varies_by_product = False
         company.onboarding_state = OnboardingState.product_awaiting_mode
-        return _PRODUCT_INTRO
+        return _product_intro(loc)
 
     # ── 2. Products (name -> stock quantity, repeatable, or bulk paste) ──────
     if state == OnboardingState.product_awaiting_mode:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.dealer_awaiting_name
-            return (
-                f"{_progress(2)}\n\n"
-                "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
-            )
+            return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
         mode = _classify_product_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.product_awaiting_bulk
-            return _BULK_FORMAT_PROMPT
+            return t("onboarding.product.bulk_format", loc)
         if mode == "one_by_one":
             company.onboarding_state = OnboardingState.product_awaiting_name
-            return "Send your first product's name (e.g. Rice), or 'done' to skip."
-        return "Please reply 'one by one' or 'bulk' — or 'done' to skip adding products."
+            return t("onboarding.product.first_name", loc)
+        return t("onboarding.product.mode_invalid", loc)
 
     if state == OnboardingState.product_awaiting_bulk:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.dealer_awaiting_name
-            return (
-                f"{_progress(2)}\n\n"
-                "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
-            )
+            return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
         lines = [line for line in stripped.splitlines() if line.strip()]
         if not lines:
-            return _BULK_FORMAT_PROMPT
+            return t("onboarding.product.bulk_format", loc)
         parsed_items = []
         for line in lines:
             try:
                 parsed_items.append(_parse_bulk_line(line))
             except ValueError as exc:
-                return f"Couldn't read that: {exc}\n\n{_BULK_FORMAT_PROMPT}"
+                return (
+                    t("onboarding.product.bulk_error", loc, error=exc)
+                    + "\n\n"
+                    + t("onboarding.product.bulk_format", loc)
+                )
         for item in parsed_items:
             db.add(
                 Product(
@@ -415,21 +377,15 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             _describe_product(item["name"], item["selling_price"], item["unit"])
             for item in parsed_items
         )
-        return (
-            f"Added {len(parsed_items)} product(s): {names}. "
-            "Send more, or reply 'done' when finished."
-        )
+        return t("onboarding.product.bulk_added", loc, count=len(parsed_items), names=names)
 
     if state == OnboardingState.product_awaiting_name:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.dealer_awaiting_name
-            return (
-                f"{_progress(2)}\n\n"
-                "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
-            )
+            return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.product_awaiting_quantity
-        return f"How much {stripped} do you have in stock right now? (e.g. 100, or 'skip')"
+        return t("onboarding.product.quantity_ask", loc, name=stripped)
 
     if state == OnboardingState.product_awaiting_quantity:
         quantity = Decimal("0")
@@ -437,11 +393,11 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             try:
                 quantity = parse_amount(stripped)
             except ValueError:
-                return "Please send a number, e.g. 100 (or 'skip')."
+                return t("onboarding.product.quantity_invalid", loc)
         scratch["quantity"] = str(quantity)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.product_awaiting_unit
-        return _UNIT_PROMPT
+        return t("onboarding.product.unit", loc)
 
     if state == OnboardingState.product_awaiting_unit:
         unit = None if _is(stripped, "skip") else stripped
@@ -449,7 +405,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.product_awaiting_price
         name = scratch.get("name", "this product")
-        return f"What's the selling price for {name}? (e.g. 400, or 'skip')"
+        return t("onboarding.product.price_ask", loc, name=name)
 
     if state == OnboardingState.product_awaiting_price:
         price = None
@@ -457,12 +413,12 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             try:
                 price = parse_amount(stripped)
             except ValueError:
-                return "Please send a number, e.g. 400 (or 'skip')."
+                return t("onboarding.product.price_invalid", loc)
         scratch["price"] = str(price) if price is not None else None
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.product_awaiting_purchase_price
         name = scratch.get("name", "this product")
-        return f"What's the purchase price (cost price) for {name}? (e.g. 300, or 'skip')"
+        return t("onboarding.product.purchase_ask", loc, name=name)
 
     if state == OnboardingState.product_awaiting_purchase_price:
         purchase_price = None
@@ -470,14 +426,14 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             try:
                 purchase_price = parse_amount(stripped)
             except ValueError:
-                return "Please send a number, e.g. 300 (or 'skip')."
+                return t("onboarding.product.purchase_invalid", loc)
         if company.gst_varies_by_product:
             scratch["purchase_price"] = str(purchase_price) if purchase_price is not None else None
             company.onboarding_scratch = scratch
             company.onboarding_state = OnboardingState.product_awaiting_gst_rate
             name = scratch.get("name", "this product")
-            return f"What's the GST% for {name}? (e.g. 5, 12, 18, or 'skip' to decide later)"
-        return _finalize_one_by_one_product(db, company, scratch, purchase_price, None)
+            return t("onboarding.product.gst_ask", loc, name=name)
+        return _finalize_one_by_one_product(db, company, scratch, purchase_price, None, loc)
 
     if state == OnboardingState.product_awaiting_gst_rate:
         gst_rate = None
@@ -485,24 +441,19 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             try:
                 gst_rate = parse_gst_rate(stripped)
             except ValueError:
-                return (
-                    "Please send a number between 0 and 100, e.g. 18 "
-                    "(or 'skip' to decide later)."
-                )
+                return t("onboarding.product.gst_invalid", loc)
         purchase_price_raw = scratch.get("purchase_price")
         purchase_price = Decimal(purchase_price_raw) if purchase_price_raw is not None else None
-        return _finalize_one_by_one_product(db, company, scratch, purchase_price, gst_rate)
+        return _finalize_one_by_one_product(db, company, scratch, purchase_price, gst_rate, loc)
 
     # ── 3. Dealers (name -> phone -> credit days, repeatable) ────────────────
     if state == OnboardingState.dealer_awaiting_name:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.supplier_awaiting_name
-            return (
-                f"{_progress(3)}\n\nNow your suppliers. Send the first supplier's name, or 'done'."
-            )
+            return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.dealer_awaiting_phone
-        return f"Phone number for {stripped}? (or 'skip')"
+        return t("onboarding.party.phone_ask", loc, name=stripped)
 
     if state == OnboardingState.dealer_awaiting_phone:
         if not _is(stripped, "skip"):
@@ -510,7 +461,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.dealer_awaiting_credit
         name = scratch.get("name", "them")
-        return f"How many credit days do you give {name}? (e.g. 15, or 'skip')"
+        return t("onboarding.dealer.credit_ask", loc, name=name)
 
     if state == OnboardingState.dealer_awaiting_credit:
         credit = None
@@ -518,7 +469,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             try:
                 credit = int(stripped)
             except ValueError:
-                return "Please send a number of days, e.g. 15 (or 'skip')."
+                return t("onboarding.party.credit_invalid", loc)
         name = scratch.get("name", "Dealer")
         db.add(
             Dealer(
@@ -530,23 +481,23 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         )
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.dealer_awaiting_name
-        return f"Added dealer {name}. Next dealer's name, or 'done'."
+        return t("onboarding.dealer.added", loc, name=name)
 
     # ── 4. Suppliers (same shape) ────────────────────────────────────────────
     if state == OnboardingState.supplier_awaiting_name:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.awaiting_opening_balance
-            return f"{_progress(4)}\n\nHow much cash is currently in your business? (e.g. 320000)"
+            return f"{_progress(4, loc)}\n\n{t('onboarding.opening.ask', loc)}"
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.supplier_awaiting_phone
-        return f"Phone number for {stripped}? (or 'skip')"
+        return t("onboarding.party.phone_ask", loc, name=stripped)
 
     if state == OnboardingState.supplier_awaiting_phone:
         if not _is(stripped, "skip"):
             scratch["phone"] = stripped
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.supplier_awaiting_credit
-        return f"How many days does {scratch.get('name', 'they')} give you to pay? (e.g. 15/'skip')"
+        return t("onboarding.supplier.credit_ask", loc, name=scratch.get("name", "they"))
 
     if state == OnboardingState.supplier_awaiting_credit:
         credit = None
@@ -566,49 +517,49 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         )
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.supplier_awaiting_name
-        return f"Added supplier {name}. Next supplier's name, or 'done'."
+        return t("onboarding.supplier.added", loc, name=name)
 
     # ── 5. Opening cash ──────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_opening_balance:
         try:
             amount = parse_amount(stripped)
         except ValueError:
-            return "Please send an amount, e.g. 320000."
+            return t("onboarding.opening.invalid", loc)
         company.opening_balance = amount
         company.onboarding_state = OnboardingState.receivable_ask
-        return f"{_progress(5)}\n\nDo any dealers currently owe you money? (yes/no)"
+        return f"{_progress(5, loc)}\n\n{t('onboarding.receivable.ask', loc)}"
 
     # ── 6. Outstanding receivables ───────────────────────────────────────────
     if state == OnboardingState.receivable_ask:
         if _is(stripped, "no", "skip", "done"):
             company.onboarding_state = OnboardingState.payable_ask
-            return f"{_progress(6)}\n\nDo you have any supplier payments pending? (yes/no)"
+            return f"{_progress(6, loc)}\n\n{t('onboarding.payable.ask', loc)}"
         if _is(stripped, "yes"):
             company.onboarding_state = OnboardingState.receivable_dealer
-            return "Which dealer owes you? (name)"
-        return "Please reply yes or no."
+            return t("onboarding.receivable.which", loc)
+        return t("onboarding.yes_no_invalid", loc)
 
     if state == OnboardingState.receivable_dealer:
         company.onboarding_scratch = {"party": stripped}
         company.onboarding_state = OnboardingState.receivable_amount
-        return f"How much does {stripped} owe you? (e.g. 42000)"
+        return t("onboarding.receivable.amount_ask", loc, party=stripped)
 
     if state == OnboardingState.receivable_amount:
         try:
             amount = parse_amount(stripped)
         except ValueError:
-            return "Please send an amount, e.g. 42000."
+            return t("onboarding.receivable.amount_invalid", loc)
         scratch["amount"] = str(amount)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.receivable_date
         party = scratch.get("party", "them")
-        return f"When do you expect payment from {party}? (e.g. Friday, 15 days, or next week)"
+        return t("onboarding.receivable.date_ask", loc, party=party)
 
     if state == OnboardingState.receivable_date:
         today = business_now(company.timezone).date()
         due = _parse_relative_date(stripped, today)
         if due is None:
-            return "Sorry, I didn't get that date. Try e.g. Friday, 15 days, or next week."
+            return t("onboarding.date_invalid", loc)
         party = scratch.get("party", "Dealer")
         amount = Decimal(scratch["amount"])
         dealer = await find_or_create_party(db, company.id, "receivable", party)
@@ -623,42 +574,39 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         )
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.receivable_ask
-        return f"Recorded {format_inr(amount)} from {party}. Any other dealer owe you? (yes/no)"
+        return t("onboarding.receivable.recorded", loc, amount=format_inr(amount), party=party)
 
     # ── 7. Outstanding payables ──────────────────────────────────────────────
     if state == OnboardingState.payable_ask:
         if _is(stripped, "no", "skip", "done"):
             company.onboarding_state = OnboardingState.awaiting_briefing_hour
-            return (
-                f"{_progress(7)}\n\n"
-                "Last step — what time should I send your morning briefing? Reply 7, 8, or 9."
-            )
+            return f"{_progress(7, loc)}\n\n{t('onboarding.briefing.ask', loc)}"
         if _is(stripped, "yes"):
             company.onboarding_state = OnboardingState.payable_supplier
-            return "Which supplier do you owe? (name)"
-        return "Please reply yes or no."
+            return t("onboarding.payable.which", loc)
+        return t("onboarding.yes_no_invalid", loc)
 
     if state == OnboardingState.payable_supplier:
         company.onboarding_scratch = {"party": stripped}
         company.onboarding_state = OnboardingState.payable_amount
-        return f"How much do you owe {stripped}? (e.g. 82000)"
+        return t("onboarding.payable.amount_ask", loc, party=stripped)
 
     if state == OnboardingState.payable_amount:
         try:
             amount = parse_amount(stripped)
         except ValueError:
-            return "Please send an amount, e.g. 82000."
+            return t("onboarding.payable.amount_invalid", loc)
         scratch["amount"] = str(amount)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.payable_date
         party = scratch.get("party", "them")
-        return f"When is the payment to {party} due? (e.g. Friday, 15 days, or next week)"
+        return t("onboarding.payable.date_ask", loc, party=party)
 
     if state == OnboardingState.payable_date:
         today = business_now(company.timezone).date()
         due = _parse_relative_date(stripped, today)
         if due is None:
-            return "Sorry, I didn't get that date. Try e.g. Friday, 15 days, or next week."
+            return t("onboarding.date_invalid", loc)
         party = scratch.get("party", "Supplier")
         amount = Decimal(scratch["amount"])
         supplier = await find_or_create_party(db, company.id, "payable", party)
@@ -673,24 +621,24 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         )
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.payable_ask
-        return f"Recorded {format_inr(amount)} to {party}. Any other supplier pending? (yes/no)"
+        return t("onboarding.payable.recorded", loc, amount=format_inr(amount), party=party)
 
     # ── 8. Briefing time -> done ─────────────────────────────────────────────
     if state == OnboardingState.awaiting_briefing_hour:
         try:
             hour = int(stripped)
         except ValueError:
-            return "Please reply with an hour, e.g. 7, 8, or 9."
+            return t("onboarding.briefing.invalid", loc)
         if not _MIN_BRIEFING_HOUR <= hour <= _MAX_BRIEFING_HOUR:
-            return "Please choose a morning hour between 5 and 11 (e.g. 7, 8, or 9)."
+            return t("onboarding.briefing.range", loc)
         company.briefing_hour = hour
         company.onboarding_state = OnboardingState.completed
-        return _finish_message()
+        return _finish_message(loc)
 
     # Unreachable in practice (completed is routed away before reaching here),
     # but never leave a company stuck in an unknown state.
     company.onboarding_state = OnboardingState.completed
-    return _finish_message()
+    return _finish_message(loc)
 
 
 def _add_opening_invoice(

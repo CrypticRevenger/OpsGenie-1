@@ -136,7 +136,9 @@ MESSAGES: dict[str, str] = {
     "reports.inventory.label_all": "पूरी इन्वेंटरी",
     "reports.inventory.header_partial": "📦 {label} ({count} of {total}):",
     "reports.inventory.header_full": "📦 {label} ({count}):",
-    "reports.inventory.more": "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all inventory' भेजें।",
+    "reports.inventory.more": (
+        "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all inventory' भेजें।"
+    ),
     "reports.product.price_not_set": "कीमत सेट नहीं",
     # ── FAQs ───────────────────────────────────────────────────────────────
     "reports.faq.none": "आपके पास अभी कोई सेव की गई पॉलिसी नहीं।",
@@ -148,7 +150,9 @@ MESSAGES: dict[str, str] = {
     "reports.invoices.label_all": "सभी इनवॉइस",
     "reports.invoices.header_partial": "📄 {label} ({count} of {total}):",
     "reports.invoices.header_full": "📄 {label} ({count}):",
-    "reports.invoices.more": "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all invoices' भेजें।",
+    "reports.invoices.more": (
+        "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all invoices' भेजें।"
+    ),
     "reports.invoices.line": "{number} — {party} — {amount} — {status} — {due}",
     "reports.unknown_party": "अज्ञात party",
     # ── Payments ───────────────────────────────────────────────────────────
@@ -157,7 +161,9 @@ MESSAGES: dict[str, str] = {
     "reports.payments.label_all": "सभी पेमेंट",
     "reports.payments.header_partial": "💵 {label} ({count} of {total}):",
     "reports.payments.header_full": "💵 {label} ({count}):",
-    "reports.payments.more": "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all payments' भेजें।",
+    "reports.payments.more": (
+        "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all payments' भेजें।"
+    ),
     "reports.payments.from": "से",
     "reports.payments.to": "को",
     "reports.payments.line": "{amount} — invoice {number} {direction} — {date}",
@@ -178,9 +184,122 @@ MESSAGES: dict[str, str] = {
     "reports.export.not_configured": (
         "Data export link अभी सेटअप नहीं है — अपने OpsGenie admin से configure करवाएँ।"
     ),
-    "reports.export.ready": "आपका latest Excel export तैयार है।\nDownload ({ttl} min valid): {link}",
+    "reports.export.ready": (
+        "आपका latest Excel export तैयार है।\nDownload ({ttl} min valid): {link}"
+    ),
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    # ── Onboarding ─────────────────────────────────────────────────────────
+    "onboarding.intro": (
+        "👋 OpsGenie में स्वागत है! चलिए आपका बिज़नेस सेट अप करें — 5 मिनट लगेंगे, "
+        "और आप कभी भी रुककर जारी रख सकते हैं।\n\n"
+        "सबसे पहले: आप किस तरह का बिज़नेस चलाते हैं? (जैसे FMCG Distributor, Pharma Distributor)"
+    ),
+    "onboarding.progress": "✅ Step {step}/{total} हो गया।",
+    "onboarding.finish": (
+        "🎉 सेटअप पूरा हो गया!\n\n"
+        "कल सुबह से मैं आपको रोज़ की ब्रीफ़िंग भेजूँगा। आप मुझसे कुछ भी पूछ सकते हैं, जैसे:\n"
+        "• Cash position\n"
+        "• Ram को कितना देना है?\n"
+        "• Supplier dues\n"
+        "• Dealer risk\n\n"
+        "कभी भी menu भेजें options tap करने के लिए, या /help पूरी लिस्ट देखने के लिए।"
+    ),
+    "onboarding.gst.mode_ask": (
+        "क्या आपके सभी products का GST rate same है, या product के हिसाब से अलग? "
+        "Reply करें 'same', 'varies', या 'not sure' बाद में तय करने के लिए।"
+    ),
+    "onboarding.gst.rate_ask": "आपका GST rate क्या है? (जैसे 5, 12, 18, या 0 अगर exempt)",
+    "onboarding.gst.mode_invalid": "कृपया reply करें 'same', 'varies', या 'not sure'।",
+    "onboarding.gst.rate_invalid": (
+        "कृपया 0 से 100 के बीच number भेजें, जैसे 18 (या 'not sure' बाद में तय करने के लिए)।"
+    ),
+    "onboarding.product.intro": (
+        "अब अपने products add करें। Reply 'one by one' एक-एक करके, या 'bulk' सब एक साथ "
+        "पूरे details के साथ (जैसे Rice, 300, 400, kg, 100, 5)। 'done' skip करने के लिए।"
+    ),
+    "onboarding.product.bulk_format": (
+        "अपने products एक line में एक, इस format में भेजें:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
+        "जैसे\n"
+        "Rice, 300, 400, kg, 100, 5\n"
+        "Dal, 320, 450, kg, 50, 12\n"
+        "जो field सेट नहीं करनी उसके लिए 'skip' लिखें "
+        "(जैसे Rice, skip, 400, kg, 100, skip)। हो जाए तो 'done' भेजें।"
+    ),
+    "onboarding.product.first_name": (
+        "अपने पहले product का नाम भेजें (जैसे Rice), या 'done' skip करने के लिए।"
+    ),
+    "onboarding.product.mode_invalid": (
+        "कृपया reply करें 'one by one' या 'bulk' — या 'done' products skip करने के लिए।"
+    ),
+    "onboarding.product.bulk_error": "यह समझ नहीं आया: {error}",
+    "onboarding.product.bulk_added": (
+        "{count} product add किए: {names}। और भेजें, या हो जाए तो 'done' भेजें।"
+    ),
+    "onboarding.product.quantity_ask": (
+        "अभी आपके पास कितना {name} stock में है? (जैसे 100, या 'skip')"
+    ),
+    "onboarding.product.quantity_invalid": "कृपया एक number भेजें, जैसे 100 (या 'skip')।",
+    "onboarding.product.unit": "यह किस unit में है? (जैसे kg, pcs, box, litre, या 'skip')",
+    "onboarding.product.price_ask": "{name} की selling price क्या है? (जैसे 400, या 'skip')",
+    "onboarding.product.price_invalid": "कृपया एक number भेजें, जैसे 400 (या 'skip')।",
+    "onboarding.product.purchase_ask": (
+        "{name} की purchase price (cost price) क्या है? (जैसे 300, या 'skip')"
+    ),
+    "onboarding.product.purchase_invalid": "कृपया एक number भेजें, जैसे 300 (या 'skip')।",
+    "onboarding.product.gst_ask": (
+        "{name} का GST% क्या है? (जैसे 5, 12, 18, या 'skip' बाद में तय करने के लिए)"
+    ),
+    "onboarding.product.gst_invalid": (
+        "कृपया 0 से 100 के बीच number भेजें, जैसे 18 (या 'skip' बाद में तय करने के लिए)।"
+    ),
+    "onboarding.product.added": (
+        "Product add किया: {name} ({stock} stock में)। और भेजें, या 'done'।"
+    ),
+    "onboarding.dealers.intro": (
+        "अब अपने dealers (customers) add करें। पहले dealer का नाम भेजें, या 'done'।"
+    ),
+    "onboarding.dealer.credit_ask": "{name} को आप कितने credit दिन देते हैं? (जैसे 15, या 'skip')",
+    "onboarding.dealer.added": "Dealer {name} add किया। अगले dealer का नाम, या 'done'।",
+    "onboarding.suppliers.intro": "अब आपके suppliers। पहले supplier का नाम भेजें, या 'done'।",
+    "onboarding.supplier.credit_ask": (
+        "{name} आपको pay करने के लिए कितने दिन देता है? (जैसे 15/'skip')"
+    ),
+    "onboarding.supplier.added": "Supplier {name} add किया। अगले supplier का नाम, या 'done'।",
+    "onboarding.party.phone_ask": "{name} का phone number? (या 'skip')",
+    "onboarding.party.credit_invalid": "कृपया दिनों का number भेजें, जैसे 15 (या 'skip')।",
+    "onboarding.opening.ask": "अभी आपके बिज़नेस में कितना cash है? (जैसे 320000)",
+    "onboarding.opening.invalid": "कृपया एक amount भेजें, जैसे 320000।",
+    "onboarding.receivable.ask": "क्या किसी dealer पर अभी आपका पैसा बाकी है? (yes/no)",
+    "onboarding.receivable.which": "कौन सा dealer आपको देना है? (नाम)",
+    "onboarding.receivable.amount_ask": "{party} को आपको कितना देना है? (जैसे 42000)",
+    "onboarding.receivable.amount_invalid": "कृपया एक amount भेजें, जैसे 42000।",
+    "onboarding.receivable.date_ask": (
+        "{party} से payment कब expect करते हैं? (जैसे Friday, 15 days, या next week)"
+    ),
+    "onboarding.receivable.recorded": (
+        "{amount} {party} से record किया। कोई और dealer देना है? (yes/no)"
+    ),
+    "onboarding.payable.ask": "क्या कोई supplier payment pending है? (yes/no)",
+    "onboarding.payable.which": "किस supplier को आप देना है? (नाम)",
+    "onboarding.payable.amount_ask": "आपको {party} को कितना देना है? (जैसे 82000)",
+    "onboarding.payable.amount_invalid": "कृपया एक amount भेजें, जैसे 82000।",
+    "onboarding.payable.date_ask": (
+        "{party} को payment कब due है? (जैसे Friday, 15 days, या next week)"
+    ),
+    "onboarding.payable.recorded": (
+        "{amount} {party} को record किया। कोई और supplier pending? (yes/no)"
+    ),
+    "onboarding.yes_no_invalid": "कृपया yes या no reply करें।",
+    "onboarding.date_invalid": (
+        "माफ़ करें, वह date समझ नहीं आई। Try करें जैसे Friday, 15 days, या next week।"
+    ),
+    "onboarding.briefing.ask": (
+        "आख़िरी step — मैं आपकी morning briefing कब भेजूँ? Reply 7, 8, या 9।"
+    ),
+    "onboarding.briefing.invalid": "कृपया एक घंटा reply करें, जैसे 7, 8, या 9।",
+    "onboarding.briefing.range": "कृपया सुबह 5 से 11 के बीच का घंटा चुनें (जैसे 7, 8, या 9)।",
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "नीचे से एक विकल्प चुनें, या पूरी सूची के लिए /help भेजें।",
     "menu.msg.reports.body": "रिपोर्ट्स और अवलोकन — एक चुनें:",
