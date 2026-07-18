@@ -1,6 +1,6 @@
 # OpsGenie — Project Status
 
-_Last updated: 2026-07-17 (through commit `def0c1c` — whole-codebase audit pass)_
+_Last updated: 2026-07-18 (multilingual phase 1–3 + reports/help/instant-replies localized — commit `ccab3b5`)_
 
 A running record of everything built so far, mapped to the SPEC's version roadmap, plus what's still open. See `SPEC.md` for the original product/technical spec and `docs/api.md` for the API reference. This file is the "what actually happened / what's left" complement to those two.
 
@@ -24,7 +24,7 @@ Built solo, targeting real distributor pilots (not a demo). First real pilot dat
 | **V0.3 — Intelligence & Expansion** | Free-form AI Q&A, inventory alerts, marketing broadcast, analytics/trends | 🚧 Partial — free-form AI Q&A + inventory tracking + daily/MTD analytics done; broadcast & trend reporting not built |
 | **Post-SPEC additions** | Self-serve onboarding + subscription gating, public marketing site (Vercel), password-gated admin dashboard, per-company Excel export, FAQ, per-product GST | ✅ Done (user-driven, beyond original SPEC) |
 
-**System size today:** 17 ORM table models · 32 Alembic migrations (single linear head, DB at head) · 53 test files / **624 tests** (623 pass, 1 real-API test deselected by default) · ruff clean.
+**System size today:** 17 ORM table models · 33 Alembic migrations (single linear head, DB at head) · 54 test files / **661 tests** (659 pass; LLM-network tests skip without a key) · ruff clean. Full suite verified green against the Neon test branch.
 
 ---
 
@@ -113,13 +113,13 @@ Verified enum↔DB parity (all 6 enum types), single migration head, config↔`.
 
 > ⭐ = explicitly requested next / high customer value. Items reference existing code where a foundation already exists to build on.
 
-### ⭐ Multilingual support (Hindi / Odia / Telugu / regional)
-Onboarding already collects a `language` preference, but replies are English-only. To be genuinely multi-lingual for our Berhampur/Odisha (and wider Indian) base:
-- [ ] **Localize the deterministic surfaces** — the menu, `instant_reports.py`, workflow prompts (`workflows/*`, `onboarding_flow.py`), follow-up questions, notification/briefing text, and error messages are all hardcoded English strings. Introduce a message catalog keyed by `company.language` (deterministic text stays deterministic — translated, not LLM-generated).
-- [ ] **Drive LLM narration + assistant replies in the chosen language** (the provider chain already handles this; just pass the language through the system prompt).
-- [ ] **Unicode invoice PDF** — `invoice_pdf.py` currently downgrades non-Latin-1 names to `?` (the `def0c1c` fix). Bundling a Unicode TTF (e.g. Noto Sans / DejaVu with Devanagari + Odia + Telugu glyphs) would render real regional names on invoices. (Deferred earlier to keep deps small — this is the trade-off to revisit for multilingual.)
-- [ ] **Language switch command** ("change language" / भाषा बदलें) so a distributor can switch after onboarding.
-- [ ] **Numerals & date formatting** per locale where appropriate (Indian digit grouping already done in `money_format.py`).
+### ⭐ Multilingual support (Hindi / Odia; language × script, Romanized-first)
+Locale model = **language × script** with Romanized variants as first-class, recommended defaults for Indian WhatsApp (`en`, `hi-Deva`, `hi-Latn`, `or-Orya`, `or-Latn`). New `app/i18n/` package: `Locale` registry + `resolve_locale` + `t()` (English is the source of truth and fallback); 5 hand-authored catalogs (~101 keys each, non-English marked **DRAFT for founder review**), parity + placeholder-safety enforced by `tests/test_i18n.py`. Stored in the existing `companies.preferred_language` (migration `a7f3e21c9b40` normalizes legacy free text → locale codes).
+- [x] **Drive LLM narration + assistant replies in the chosen language** — `assistant.py` / `briefing.py` fed `Locale.narration_instruction` (incl. explicit "Romanized Hindi/Odia, Latin letters" wording).
+- [x] **Language switch command** — `change language` / `change script` / `script` re-enters the same two-step onboarding language/script picker; onboarding now asks language **first**.
+- [~] **Localize the deterministic surfaces** — **done + verified on Neon:** the interactive menu (row ids stay English), all 4 numbered reports (cash/collections/suppliers/dealer-risk via `Snapshot.locale`), the full `instant_reports.py` replies (summary, dealer/supplier lists, top debtors/creditors, inventory, invoices, payments, FAQs, party balance, stock, sales-impact, export link), the help text, and error/fallback text. **Still English (next):** onboarding step prompts (`onboarding_flow.py` — the language picker itself is done), guided write-workflows (`workflows/*`), `pending_operation` confirmations, follow-up questions (`followup.py`), distributor-facing notifications (`notifications.py`), evening brief (`evening_brief.py`), and briefing deterministic scaffolding (`MENU_PROMPT`, stale-data banner).
+- [ ] **Unicode invoice PDF** — `invoice_pdf.py` still downgrades non-Latin-1 names to `?` (the `def0c1c` fix). Bundle an OFL Noto Sans (Latin + Devanagari + Oriya) TTF with `add_font`/`set_fallback_fonts` to render real regional names; keep `_latin1()` as a graceful fallback. (Phase 5 of the multilingual plan.)
+- [x] **Numerals & date formatting** — Indian digit grouping already in `money_format.py`; amounts/dates are interpolated, never translated.
 
 ### ⭐ Reports & downloadable statements — Vyapar / Tally style
 Today there is one all-time Excel workbook (`company_export.py`). Distributors expect **period-scoped, standard accounting reports** they can download:
