@@ -190,6 +190,138 @@ MESSAGES: dict[str, str] = {
     ),
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    # ── Onboarding ─────────────────────────────────────────────────────────
+    "onboarding.intro": (
+        "👋 OpsGenie ku swagat! Chaluntu apanka business set up karantu — 5 minute lagiba, "
+        "au apana kebe bi rukikari continue kari parantu.\n\n"
+        "Prathame: apana kie prakara business chalanti? "
+        "(jaise FMCG Distributor, Pharma Distributor)"
+    ),
+    "onboarding.progress": "✅ Step {step}/{total} heigala.",
+    "onboarding.finish": (
+        "🎉 Setup sarigala!\n\n"
+        "Kali sakalu mun apananku pratidina briefing pathaibi. Apana mote kichi bi puchi parantu, "
+        "jaise:\n"
+        "• Cash position\n"
+        "• Ram ku kete deba?\n"
+        "• Supplier dues\n"
+        "• Dealer risk\n\n"
+        "Kebe bi menu pathantu option tap karibaku, kimba /help puura list dekhibaku."
+    ),
+    "onboarding.gst.mode_ask": (
+        "Apanka sabu products ra GST rate same ki, kimba product hisabare alaga? "
+        "Reply karantu 'same', 'varies', kimba 'not sure' pare thik karibaku."
+    ),
+    "onboarding.gst.rate_ask": "Apanka GST rate kete? (jaise 5, 12, 18, kimba 0 jadi exempt)",
+    "onboarding.gst.mode_invalid": "Daya kari reply karantu 'same', 'varies', kimba 'not sure'.",
+    "onboarding.gst.rate_invalid": (
+        "Daya kari 0 ru 100 madhyare number pathantu, jaise 18 "
+        "(kimba 'not sure' pare thik karibaku)."
+    ),
+    "onboarding.product.intro": (
+        "Ebe apanka products add karantu. Reply 'one by one' gotie gotie, kimba 'bulk' sabu ekathi "
+        "puura details saha (jaise Rice, 300, 400, kg, 100, 5). 'done' skip karibaku."
+    ),
+    "onboarding.product.bulk_format": (
+        "Apanka products gotie line re gotie, ei format re pathantu:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
+        "jaise\n"
+        "Rice, 300, 400, kg, 100, 5\n"
+        "Dal, 320, 450, kg, 50, 12\n"
+        "Je field set karibaku chahanti nahin sethipain 'skip' lekhantu "
+        "(jaise Rice, skip, 400, kg, 100, skip). Sarile 'done' pathantu."
+    ),
+    "onboarding.product.first_name": (
+        "Apanka prathama product ra naam pathantu (jaise Rice), kimba 'done' skip karibaku."
+    ),
+    "onboarding.product.mode_invalid": (
+        "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba 'done' products skip karibaku."
+    ),
+    "onboarding.product.bulk_error": "Eha bujhi hela nahin: {error}",
+    "onboarding.product.bulk_added": (
+        "{count} product add hela: {names}. Au pathantu, kimba sarile 'done' pathantu."
+    ),
+    "onboarding.product.quantity_ask": (
+        "Ebe apanka pakhare kete {name} stock re achi? (jaise 100, kimba 'skip')"
+    ),
+    "onboarding.product.quantity_invalid": (
+        "Daya kari gotie number pathantu, jaise 100 (kimba 'skip')."
+    ),
+    "onboarding.product.unit": "Eha kaun unit re? (jaise kg, pcs, box, litre, kimba 'skip')",
+    "onboarding.product.price_ask": "{name} ra selling price kete? (jaise 400, kimba 'skip')",
+    "onboarding.product.price_invalid": (
+        "Daya kari gotie number pathantu, jaise 400 (kimba 'skip')."
+    ),
+    "onboarding.product.purchase_ask": (
+        "{name} ra purchase price (cost price) kete? (jaise 300, kimba 'skip')"
+    ),
+    "onboarding.product.purchase_invalid": (
+        "Daya kari gotie number pathantu, jaise 300 (kimba 'skip')."
+    ),
+    "onboarding.product.gst_ask": (
+        "{name} ra GST% kete? (jaise 5, 12, 18, kimba 'skip' pare thik karibaku)"
+    ),
+    "onboarding.product.gst_invalid": (
+        "Daya kari 0 ru 100 madhyare number pathantu, jaise 18 (kimba 'skip' pare thik karibaku)."
+    ),
+    "onboarding.product.added": (
+        "Product add hela: {name} ({stock} stock re). Au pathantu, kimba 'done'."
+    ),
+    "onboarding.dealers.intro": (
+        "Ebe apanka dealers (customers) add karantu. "
+        "Prathama dealer ra naam pathantu, kimba 'done'."
+    ),
+    "onboarding.dealer.credit_ask": (
+        "{name} ku apana kete credit dina denti? (jaise 15, kimba 'skip')"
+    ),
+    "onboarding.dealer.added": "Dealer {name} add hela. Parabarti dealer ra naam, kimba 'done'.",
+    "onboarding.suppliers.intro": (
+        "Ebe apanka suppliers. Prathama supplier ra naam pathantu, kimba 'done'."
+    ),
+    "onboarding.supplier.credit_ask": (
+        "{name} apananku pay karibaku kete dina denti? (jaise 15/'skip')"
+    ),
+    "onboarding.supplier.added": (
+        "Supplier {name} add hela. Parabarti supplier ra naam, kimba 'done'."
+    ),
+    "onboarding.party.phone_ask": "{name} ra phone number? (kimba 'skip')",
+    "onboarding.party.credit_invalid": (
+        "Daya kari dina ra number pathantu, jaise 15 (kimba 'skip')."
+    ),
+    "onboarding.opening.ask": "Ebe apanka business re kete cash achi? (jaise 320000)",
+    "onboarding.opening.invalid": "Daya kari gotie amount pathantu, jaise 320000.",
+    "onboarding.receivable.ask": "Kono dealer pakhare ebe apanka paisa baki achi ki? (yes/no)",
+    "onboarding.receivable.which": "Kaun dealer apananku deba? (naam)",
+    "onboarding.receivable.amount_ask": "{party} apananku kete deba? (jaise 42000)",
+    "onboarding.receivable.amount_invalid": "Daya kari gotie amount pathantu, jaise 42000.",
+    "onboarding.receivable.date_ask": (
+        "{party} thu payment kebe expect karanti? (jaise Friday, 15 days, kimba next week)"
+    ),
+    "onboarding.receivable.recorded": (
+        "{amount} {party} thu record hela. Au kono dealer deba? (yes/no)"
+    ),
+    "onboarding.payable.ask": "Kono supplier payment pending achi ki? (yes/no)",
+    "onboarding.payable.which": "Kaun supplier ku apana deba? (naam)",
+    "onboarding.payable.amount_ask": "Apana {party} ku kete deba? (jaise 82000)",
+    "onboarding.payable.amount_invalid": "Daya kari gotie amount pathantu, jaise 82000.",
+    "onboarding.payable.date_ask": (
+        "{party} ku payment kebe due? (jaise Friday, 15 days, kimba next week)"
+    ),
+    "onboarding.payable.recorded": (
+        "{amount} {party} ku record hela. Au kono supplier pending? (yes/no)"
+    ),
+    "onboarding.yes_no_invalid": "Daya kari yes kimba no reply karantu.",
+    "onboarding.date_invalid": (
+        "Kshama karantu, se date bujhi heli nahin. "
+        "Try karantu jaise Friday, 15 days, kimba next week."
+    ),
+    "onboarding.briefing.ask": (
+        "Sesha step — mun apanka morning briefing kebe pathaibi? Reply 7, 8, kimba 9."
+    ),
+    "onboarding.briefing.invalid": "Daya kari gotie ghanta reply karantu, jaise 7, 8, kimba 9.",
+    "onboarding.briefing.range": (
+        "Daya kari sakala 5 ru 11 madhyare ghanta bachantu (jaise 7, 8, kimba 9)."
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "Tale gotie option tap karantu, kimba puura list paain /help pathantu.",
     "menu.msg.reports.body": "Reports & Overview — gotie bachantu:",

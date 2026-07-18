@@ -25,14 +25,13 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.product import Product
 from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import (
-    _BULK_FORMAT_PROMPT,
-    _UNIT_PROMPT,
     _classify_product_mode,
     _describe_product,
     _format_quantity,
@@ -97,6 +96,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
     state/rows — the caller (the webhook) commits.
     """
     stripped = text.strip()
+    loc = resolve_locale(company)
 
     if _is(stripped, "cancel", "stop"):
         company.active_workflow = None
@@ -115,7 +115,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
         if mode == "bulk":
             scratch["step"] = "awaiting_bulk"
             company.workflow_scratch = scratch
-            return _BULK_FORMAT_PROMPT
+            return t("onboarding.product.bulk_format", loc)
         if mode == "one_by_one":
             scratch["step"] = "awaiting_name"
             company.workflow_scratch = scratch
@@ -129,13 +129,17 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
             return "All done adding products."
         lines = [line for line in stripped.splitlines() if line.strip()]
         if not lines:
-            return _BULK_FORMAT_PROMPT
+            return t("onboarding.product.bulk_format", loc)
         parsed_items = []
         for line in lines:
             try:
                 parsed_items.append(_parse_bulk_line(line))
             except ValueError as exc:
-                return f"Couldn't read that: {exc}\n\n{_BULK_FORMAT_PROMPT}"
+                return (
+                    t("onboarding.product.bulk_error", loc, error=exc)
+                    + "\n\n"
+                    + t("onboarding.product.bulk_format", loc)
+                )
         for item in parsed_items:
             db.add(
                 Product(
@@ -177,7 +181,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
         scratch["quantity"] = str(quantity)
         scratch["step"] = "awaiting_unit"
         company.workflow_scratch = scratch
-        return _UNIT_PROMPT
+        return t("onboarding.product.unit", loc)
 
     if step == "awaiting_unit":
         unit = None if _is(stripped, "skip") else stripped

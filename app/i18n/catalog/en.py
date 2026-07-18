@@ -191,6 +191,134 @@ MESSAGES: dict[str, str] = {
     ),
     # ── Help text (single block; command keywords stay English triggers) ───
     "menu.help_text": _HELP_TEXT_EN,
+    # ── Onboarding: guided business setup (shown after language is chosen) ──
+    "onboarding.intro": (
+        "👋 Welcome to OpsGenie! Let's set up your business — it takes about 5 minutes, "
+        "and you can stop and continue anytime.\n\n"
+        "First: what kind of business do you run? (e.g. FMCG Distributor, Pharma Distributor)"
+    ),
+    "onboarding.progress": "✅ Step {step} of {total} done.",
+    "onboarding.finish": (
+        "🎉 Setup complete!\n\n"
+        "From tomorrow morning I'll send you your daily briefing. You can ask me anything, "
+        "like:\n"
+        "• Cash position\n"
+        "• How much does Ram owe?\n"
+        "• Supplier dues\n"
+        "• Dealer risk\n\n"
+        "Reply menu anytime to tap through your options, or /help to see everything I can do "
+        "as a full list."
+    ),
+    # GST setup
+    "onboarding.gst.mode_ask": (
+        "Do all your products have the same GST rate, or does it vary by product? "
+        "Reply 'same', 'varies', or 'not sure' to decide later."
+    ),
+    "onboarding.gst.rate_ask": "What's your GST rate? (e.g. 5, 12, 18, or 0 if exempt)",
+    "onboarding.gst.mode_invalid": "Please reply 'same', 'varies', or 'not sure'.",
+    "onboarding.gst.rate_invalid": (
+        "Please send a number between 0 and 100, e.g. 18 (or 'not sure' to decide later)."
+    ),
+    # Products
+    "onboarding.product.intro": (
+        "Now let's add your products. Reply 'one by one' to add them individually, "
+        "or 'bulk' to send them all at once with full details "
+        "(e.g. Rice, 300, 400, kg, 100, 5). Reply 'done' to skip."
+    ),
+    "onboarding.product.bulk_format": (
+        "Send your products one per line, in this format:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
+        "e.g.\n"
+        "Rice, 300, 400, kg, 100, 5\n"
+        "Dal, 320, 450, kg, 50, 12\n"
+        "Use 'skip' for any field you don't want to set "
+        "(e.g. Rice, skip, 400, kg, 100, skip). Reply 'done' when finished."
+    ),
+    "onboarding.product.first_name": (
+        "Send your first product's name (e.g. Rice), or 'done' to skip."
+    ),
+    "onboarding.product.mode_invalid": (
+        "Please reply 'one by one' or 'bulk' — or 'done' to skip adding products."
+    ),
+    "onboarding.product.bulk_error": "Couldn't read that: {error}",
+    "onboarding.product.bulk_added": (
+        "Added {count} product(s): {names}. Send more, or reply 'done' when finished."
+    ),
+    "onboarding.product.quantity_ask": (
+        "How much {name} do you have in stock right now? (e.g. 100, or 'skip')"
+    ),
+    "onboarding.product.quantity_invalid": "Please send a number, e.g. 100 (or 'skip').",
+    "onboarding.product.unit": (
+        "What unit is this measured in? (e.g. kg, pcs, box, litre, or 'skip')"
+    ),
+    "onboarding.product.price_ask": "What's the selling price for {name}? (e.g. 400, or 'skip')",
+    "onboarding.product.price_invalid": "Please send a number, e.g. 400 (or 'skip').",
+    "onboarding.product.purchase_ask": (
+        "What's the purchase price (cost price) for {name}? (e.g. 300, or 'skip')"
+    ),
+    "onboarding.product.purchase_invalid": "Please send a number, e.g. 300 (or 'skip').",
+    "onboarding.product.gst_ask": (
+        "What's the GST% for {name}? (e.g. 5, 12, 18, or 'skip' to decide later)"
+    ),
+    "onboarding.product.gst_invalid": (
+        "Please send a number between 0 and 100, e.g. 18 (or 'skip' to decide later)."
+    ),
+    "onboarding.product.added": (
+        "Added product: {name} ({stock} in stock). Send another, or 'done'."
+    ),
+    # Dealers
+    "onboarding.dealers.intro": (
+        "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
+    ),
+    "onboarding.dealer.credit_ask": "How many credit days do you give {name}? (e.g. 15, or 'skip')",
+    "onboarding.dealer.added": "Added dealer {name}. Next dealer's name, or 'done'.",
+    # Suppliers
+    "onboarding.suppliers.intro": "Now your suppliers. Send the first supplier's name, or 'done'.",
+    "onboarding.supplier.credit_ask": (
+        "How many days does {name} give you to pay? (e.g. 15/'skip')"
+    ),
+    "onboarding.supplier.added": "Added supplier {name}. Next supplier's name, or 'done'.",
+    # Shared party fields
+    "onboarding.party.phone_ask": "Phone number for {name}? (or 'skip')",
+    "onboarding.party.credit_invalid": "Please send a number of days, e.g. 15 (or 'skip').",
+    # Opening cash
+    "onboarding.opening.ask": "How much cash is currently in your business? (e.g. 320000)",
+    "onboarding.opening.invalid": "Please send an amount, e.g. 320000.",
+    # Receivables
+    "onboarding.receivable.ask": "Do any dealers currently owe you money? (yes/no)",
+    "onboarding.receivable.which": "Which dealer owes you? (name)",
+    "onboarding.receivable.amount_ask": "How much does {party} owe you? (e.g. 42000)",
+    "onboarding.receivable.amount_invalid": "Please send an amount, e.g. 42000.",
+    "onboarding.receivable.date_ask": (
+        "When do you expect payment from {party}? (e.g. Friday, 15 days, or next week)"
+    ),
+    "onboarding.receivable.recorded": (
+        "Recorded {amount} from {party}. Any other dealer owe you? (yes/no)"
+    ),
+    # Payables
+    "onboarding.payable.ask": "Do you have any supplier payments pending? (yes/no)",
+    "onboarding.payable.which": "Which supplier do you owe? (name)",
+    "onboarding.payable.amount_ask": "How much do you owe {party}? (e.g. 82000)",
+    "onboarding.payable.amount_invalid": "Please send an amount, e.g. 82000.",
+    "onboarding.payable.date_ask": (
+        "When is the payment to {party} due? (e.g. Friday, 15 days, or next week)"
+    ),
+    "onboarding.payable.recorded": (
+        "Recorded {amount} to {party}. Any other supplier pending? (yes/no)"
+    ),
+    # Shared
+    "onboarding.yes_no_invalid": "Please reply yes or no.",
+    "onboarding.date_invalid": (
+        "Sorry, I didn't get that date. Try e.g. Friday, 15 days, or next week."
+    ),
+    # Briefing hour
+    "onboarding.briefing.ask": (
+        "Last step — what time should I send your morning briefing? Reply 7, 8, or 9."
+    ),
+    "onboarding.briefing.invalid": "Please reply with an hour, e.g. 7, 8, or 9.",
+    "onboarding.briefing.range": (
+        "Please choose a morning hour between 5 and 11 (e.g. 7, 8, or 9)."
+    ),
     # ── Interactive menu ("menu") ──────────────────────────────────────────
     # The tappable-list plaintext that accompanies the list message, plus the
     # per-message body/button labels, section titles, and row titles +

@@ -191,6 +191,122 @@ MESSAGES: dict[str, str] = {
     ),
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    # ── Onboarding ─────────────────────────────────────────────────────────
+    "onboarding.intro": (
+        "👋 OpsGenie me swagat hai! Chaliye aapka business set up karein — 5 minute lagenge, "
+        "aur aap kabhi bhi ruk kar continue kar sakte hain.\n\n"
+        "Sabse pehle: aap kaisa business chalate hain? (jaise FMCG Distributor, Pharma Distributor)"
+    ),
+    "onboarding.progress": "✅ Step {step}/{total} ho gaya.",
+    "onboarding.finish": (
+        "🎉 Setup pura ho gaya!\n\n"
+        "Kal subah se main aapko roz ki briefing bhejunga. Aap mujhse kuch bhi pooch sakte hain, "
+        "jaise:\n"
+        "• Cash position\n"
+        "• Ram ko kitna dena hai?\n"
+        "• Supplier dues\n"
+        "• Dealer risk\n\n"
+        "Kabhi bhi menu bhejein options tap karne ke liye, ya /help poori list dekhne ke liye."
+    ),
+    "onboarding.gst.mode_ask": (
+        "Kya aapke sabhi products ka GST rate same hai, ya product ke hisab se alag? "
+        "Reply karein 'same', 'varies', ya 'not sure' baad me decide karne ke liye."
+    ),
+    "onboarding.gst.rate_ask": "Aapka GST rate kya hai? (jaise 5, 12, 18, ya 0 agar exempt)",
+    "onboarding.gst.mode_invalid": "Kripya reply karein 'same', 'varies', ya 'not sure'.",
+    "onboarding.gst.rate_invalid": (
+        "Kripya 0 se 100 ke beech number bhejein, jaise 18 (ya 'not sure' baad me decide karein)."
+    ),
+    "onboarding.product.intro": (
+        "Ab apne products add karein. Reply 'one by one' ek-ek karke, ya 'bulk' sab ek saath "
+        "poore details ke saath (jaise Rice, 300, 400, kg, 100, 5). 'done' skip karne ke liye."
+    ),
+    "onboarding.product.bulk_format": (
+        "Apne products ek line me ek, is format me bhejein:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock, GST%\n"
+        "jaise\n"
+        "Rice, 300, 400, kg, 100, 5\n"
+        "Dal, 320, 450, kg, 50, 12\n"
+        "Jo field set nahi karni uske liye 'skip' likhein "
+        "(jaise Rice, skip, 400, kg, 100, skip). Ho jaye to 'done' bhejein."
+    ),
+    "onboarding.product.first_name": (
+        "Apne pehle product ka naam bhejein (jaise Rice), ya 'done' skip karne ke liye."
+    ),
+    "onboarding.product.mode_invalid": (
+        "Kripya reply karein 'one by one' ya 'bulk' — ya 'done' products skip karne ke liye."
+    ),
+    "onboarding.product.bulk_error": "Yeh samajh nahi aaya: {error}",
+    "onboarding.product.bulk_added": (
+        "{count} product add kiye: {names}. Aur bhejein, ya ho jaye to 'done' bhejein."
+    ),
+    "onboarding.product.quantity_ask": (
+        "Abhi aapke paas kitna {name} stock me hai? (jaise 100, ya 'skip')"
+    ),
+    "onboarding.product.quantity_invalid": "Kripya ek number bhejein, jaise 100 (ya 'skip').",
+    "onboarding.product.unit": "Yeh kis unit me hai? (jaise kg, pcs, box, litre, ya 'skip')",
+    "onboarding.product.price_ask": "{name} ki selling price kya hai? (jaise 400, ya 'skip')",
+    "onboarding.product.price_invalid": "Kripya ek number bhejein, jaise 400 (ya 'skip').",
+    "onboarding.product.purchase_ask": (
+        "{name} ki purchase price (cost price) kya hai? (jaise 300, ya 'skip')"
+    ),
+    "onboarding.product.purchase_invalid": "Kripya ek number bhejein, jaise 300 (ya 'skip').",
+    "onboarding.product.gst_ask": (
+        "{name} ka GST% kya hai? (jaise 5, 12, 18, ya 'skip' baad me decide karne ke liye)"
+    ),
+    "onboarding.product.gst_invalid": (
+        "Kripya 0 se 100 ke beech number bhejein, jaise 18 (ya 'skip' baad me decide karein)."
+    ),
+    "onboarding.product.added": (
+        "Product add kiya: {name} ({stock} stock me). Aur bhejein, ya 'done'."
+    ),
+    "onboarding.dealers.intro": (
+        "Ab apne dealers (customers) add karein. Pehle dealer ka naam bhejein, ya 'done'."
+    ),
+    "onboarding.dealer.credit_ask": (
+        "{name} ko aap kitne credit din dete hain? (jaise 15, ya 'skip')"
+    ),
+    "onboarding.dealer.added": "Dealer {name} add kiya. Agle dealer ka naam, ya 'done'.",
+    "onboarding.suppliers.intro": "Ab aapke suppliers. Pehle supplier ka naam bhejein, ya 'done'.",
+    "onboarding.supplier.credit_ask": (
+        "{name} aapko pay karne ke liye kitne din deta hai? (jaise 15/'skip')"
+    ),
+    "onboarding.supplier.added": "Supplier {name} add kiya. Agle supplier ka naam, ya 'done'.",
+    "onboarding.party.phone_ask": "{name} ka phone number? (ya 'skip')",
+    "onboarding.party.credit_invalid": "Kripya dino ka number bhejein, jaise 15 (ya 'skip').",
+    "onboarding.opening.ask": "Abhi aapke business me kitna cash hai? (jaise 320000)",
+    "onboarding.opening.invalid": "Kripya ek amount bhejein, jaise 320000.",
+    "onboarding.receivable.ask": "Kya kisi dealer par abhi aapka paisa baaki hai? (yes/no)",
+    "onboarding.receivable.which": "Kaun sa dealer aapko dena hai? (naam)",
+    "onboarding.receivable.amount_ask": "{party} ko aapko kitna dena hai? (jaise 42000)",
+    "onboarding.receivable.amount_invalid": "Kripya ek amount bhejein, jaise 42000.",
+    "onboarding.receivable.date_ask": (
+        "{party} se payment kab expect karte hain? (jaise Friday, 15 days, ya next week)"
+    ),
+    "onboarding.receivable.recorded": (
+        "{amount} {party} se record kiya. Koi aur dealer dena hai? (yes/no)"
+    ),
+    "onboarding.payable.ask": "Kya koi supplier payment pending hai? (yes/no)",
+    "onboarding.payable.which": "Kis supplier ko aap dena hai? (naam)",
+    "onboarding.payable.amount_ask": "Aapko {party} ko kitna dena hai? (jaise 82000)",
+    "onboarding.payable.amount_invalid": "Kripya ek amount bhejein, jaise 82000.",
+    "onboarding.payable.date_ask": (
+        "{party} ko payment kab due hai? (jaise Friday, 15 days, ya next week)"
+    ),
+    "onboarding.payable.recorded": (
+        "{amount} {party} ko record kiya. Koi aur supplier pending? (yes/no)"
+    ),
+    "onboarding.yes_no_invalid": "Kripya yes ya no reply karein.",
+    "onboarding.date_invalid": (
+        "Maaf karein, woh date samajh nahi aayi. Try karein jaise Friday, 15 days, ya next week."
+    ),
+    "onboarding.briefing.ask": (
+        "Aakhri step — main aapki morning briefing kab bhejun? Reply 7, 8, ya 9."
+    ),
+    "onboarding.briefing.invalid": "Kripya ek ghanta reply karein, jaise 7, 8, ya 9.",
+    "onboarding.briefing.range": (
+        "Kripya subah 5 se 11 ke beech ka ghanta chunein (jaise 7, 8, ya 9)."
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "Neeche se ek option tap karein, ya poori list ke liye /help bhejein.",
     "menu.msg.reports.body": "Reports & Overview — ek chunein:",
