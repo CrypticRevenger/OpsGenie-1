@@ -18,11 +18,20 @@ class CompanyCreate(BaseModel):
     whatsapp_number: str
     email: str | None = None
     business_type: str | None = None
+    # Locale code (en / hi-Deva / hi-Latn / or-Orya / or-Latn). Any name or
+    # code is normalized to a supported code; unknown -> en (never rejected).
     preferred_language: str = "en"
     # IANA timezone that business-day boundaries (overdue, 7-day window) are
     # computed in. Defaults to India since that's the pilot market.
     timezone: str = "Asia/Kolkata"
     opening_balance: Decimal = Decimal("0")
+
+    @field_validator("preferred_language")
+    @classmethod
+    def normalize_locale_code(cls, v: str) -> str:
+        from app.i18n import resolve_locale
+
+        return resolve_locale(v).code
 
     @field_validator("whatsapp_number")
     @classmethod

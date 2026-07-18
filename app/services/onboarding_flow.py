@@ -22,6 +22,8 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import compose_locale, resolve_locale, t
+from app.i18n.languages import get_locale
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
@@ -34,7 +36,10 @@ from app.services.importer.parties import find_or_create_party
 from app.services.money_format import format_inr
 from app.services.snapshot import business_now
 
-_TOTAL_STEPS = 9
+# Language/script is picked *first* (a pre-step), so every question after it is
+# shown in the distributor's chosen locale. The 8 numbered steps below are the
+# business fields; the language pre-step isn't numbered.
+_TOTAL_STEPS = 8
 
 # The briefing hour also gates the notification window (scheduler only runs
 # checks from this hour on), so it's clamped to sane morning hours rather than
@@ -42,14 +47,34 @@ _TOTAL_STEPS = 9
 _MIN_BRIEFING_HOUR = 5
 _MAX_BRIEFING_HOUR = 11
 
-# Preferred language for the agent/briefing (Company.preferred_language). Stored
-# as a human-readable name the LLM prompt reads naturally; free text is accepted
-# for anything beyond the two common choices.
-_LANGUAGES = {"english": "English", "en": "English", "hindi": "Hindi", "hi": "Hindi"}
+# ── Language & script selection (asked first) ────────────────────────────────
+# Step 1 lists the three languages self-explanatorily (each in its own script).
+# Step 2 (Hindi/Odia only) picks native script vs Romanized, showing a sample of
+# each — Romanized is the recommended default since most WhatsApp users here
+# type that way. The composite locale code (en / hi-Deva / hi-Latn / or-Orya /
+# or-Latn) is stored in Company.preferred_language.
+_LANGUAGE_BY_CHOICE = {"1": "en", "2": "hi", "3": "or"}
+_LANGUAGE_BY_WORD = {"english": "en", "hindi": "hi", "odia": "or", "oriya": "or"}
+_NATIVE_WORDS = {"2", "native", "script", "native script"}
+_ROMANIZED_WORDS = {"1", "romanized", "roman", "", "default", "english letters"}
+
+_LANGUAGE_PROMPT = (
+    "👋 Welcome to OpsGenie!\n\n"
+    "First, which language should I message you in?\n"
+    "1. English\n"
+    "2. हिंदी (Hindi)\n"
+    "3. ଓଡ଼ିଆ (Odia)"
+)
 
 
-def _normalize_language(raw: str) -> str:
-    return _LANGUAGES.get(raw.strip().lower(), raw.strip().title() or "English")
+def _script_prompt(language: str) -> str:
+    romanized = get_locale(compose_locale(language, romanized=True))
+    native = get_locale(compose_locale(language, romanized=False))
+    return (
+        "How would you like your messages?\n\n"
+        f"1. Romanized (recommended)\n   {romanized.native_display}\n\n"
+        f"2. Native script\n   {native.native_display}"
+    )
 
 
 _INTRO = (
@@ -57,6 +82,32 @@ _INTRO = (
     "and you can stop and continue anytime.\n\n"
     "First: what kind of business do you run? (e.g. FMCG Distributor, Pharma Distributor)"
 )
+
+
+def start_language_change(company: Company) -> str:
+    """Post-onboarding switch: re-enter the same language/script selection for
+    an already-completed company (triggered by "change language"). A
+    `relanguage` scratch flag tells the selection handlers to return to
+    `completed` with a confirmation instead of continuing into business setup.
+    """
+    company.onboarding_state = OnboardingState.awaiting_language
+    company.onboarding_scratch = {"relanguage": True}
+    return _LANGUAGE_PROMPT
+
+
+def _after_language_selected(company: Company, scratch: dict) -> str:
+    """Shared tail of both selection steps: either finish a post-onboarding
+    language change (back to `completed`, confirm in the new locale) or hand off
+    into the first real onboarding question.
+    """
+    relanguage = scratch.get("relanguage")
+    company.onboarding_scratch = None
+    if relanguage:
+        company.onboarding_state = OnboardingState.completed
+        locale = resolve_locale(company)
+        return t("onboarding.language_changed", locale, language=locale.display_name)
+    company.onboarding_state = OnboardingState.awaiting_business_type
+    return _INTRO
 
 
 def _progress(step: int) -> str:
@@ -245,10 +296,37 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     stripped = text.strip()
     scratch = dict(company.onboarding_scratch or {})
 
-    # ── Kick-off ────────────────────────────────────────────────────────────
+    # ── Kick-off → language first, so the rest is shown in the chosen locale ──
     if state == OnboardingState.not_started:
-        company.onboarding_state = OnboardingState.awaiting_business_type
-        return _INTRO
+        company.onboarding_state = OnboardingState.awaiting_language
+        return _LANGUAGE_PROMPT
+
+    # ── Language (step 1 of 2) ───────────────────────────────────────────────
+    if state == OnboardingState.awaiting_language:
+        choice = stripped.lower()
+        language = _LANGUAGE_BY_CHOICE.get(choice) or _LANGUAGE_BY_WORD.get(choice)
+        if language is None:
+            return "Please reply 1 (English), 2 (Hindi), or 3 (Odia)."
+        if language == "en":
+            company.preferred_language = "en"
+            return _after_language_selected(company, scratch)
+        scratch["onb_language"] = language
+        company.onboarding_scratch = scratch
+        company.onboarding_state = OnboardingState.awaiting_script
+        return _script_prompt(language)
+
+    # ── Script / display style (step 2 of 2, Hindi/Odia only) ────────────────
+    if state == OnboardingState.awaiting_script:
+        language = scratch.get("onb_language", "hi")
+        choice = stripped.lower()
+        if choice in _NATIVE_WORDS:
+            romanized = False
+        elif choice in _ROMANIZED_WORDS:
+            romanized = True  # recommended default (incl. a blank reply)
+        else:
+            return "Please reply 1 (Romanized) or 2 (Native script)."
+        company.preferred_language = compose_locale(language, romanized=romanized)
+        return _after_language_selected(company, scratch)
 
     # ── 1. Business type ─────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_business_type:
@@ -550,23 +628,15 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 7. Outstanding payables ──────────────────────────────────────────────
     if state == OnboardingState.payable_ask:
         if _is(stripped, "no", "skip", "done"):
-            company.onboarding_state = OnboardingState.awaiting_language
+            company.onboarding_state = OnboardingState.awaiting_briefing_hour
             return (
-                f"{_progress(7)}\n\nWhich language should I message you in? Reply English or Hindi."
+                f"{_progress(7)}\n\n"
+                "Last step — what time should I send your morning briefing? Reply 7, 8, or 9."
             )
         if _is(stripped, "yes"):
             company.onboarding_state = OnboardingState.payable_supplier
             return "Which supplier do you owe? (name)"
         return "Please reply yes or no."
-
-    # ── 8. Preferred language ────────────────────────────────────────────────
-    if state == OnboardingState.awaiting_language:
-        company.preferred_language = _normalize_language(stripped)
-        company.onboarding_state = OnboardingState.awaiting_briefing_hour
-        return (
-            f"{_progress(8)}\n\n"
-            "Last step — what time should I send your morning briefing? Reply 7, 8, or 9."
-        )
 
     if state == OnboardingState.payable_supplier:
         company.onboarding_scratch = {"party": stripped}
@@ -605,7 +675,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_state = OnboardingState.payable_ask
         return f"Recorded {format_inr(amount)} to {party}. Any other supplier pending? (yes/no)"
 
-    # ── 9. Briefing time -> done ─────────────────────────────────────────────
+    # ── 8. Briefing time -> done ─────────────────────────────────────────────
     if state == OnboardingState.awaiting_briefing_hour:
         try:
             hour = int(stripped)

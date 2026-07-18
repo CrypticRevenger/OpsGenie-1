@@ -18,6 +18,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.faq import FAQ
@@ -59,16 +60,21 @@ _RECENT_LIST_CAP = 15
 
 async def business_summary_reply(db: AsyncSession, company: Company) -> str:
     s = await build_snapshot(db, company.id)
+    loc = resolve_locale(company)
+    overdue_line = t("reports.summary.overdue_count", loc, count=len(s.overdue_dealers))
+    if s.overdue_dealers:
+        overdue_line += t("reports.summary.overdue_hint", loc)
     lines = [
-        "📊 Business Summary",
+        t("reports.summary.header", loc),
         "",
-        f"Cash available now: {format_inr(s.cash_available_today)}",
-        f"Net cash position (7d): {format_signed_inr(s.net_cash_position)}",
-        f"Expected in (7d): {format_inr(s.expected_collections_7d_total)}",
-        f"Expected out (7d): {format_inr(s.expected_payments_7d_total)}",
-        "Cash shortage expected this week." if s.cash_deficit else "No cash shortage expected.",
-        f"Overdue dealers: {len(s.overdue_dealers)}"
-        + (" — reply 'overdue' for details." if s.overdue_dealers else ""),
+        t("reports.summary.cash_now", loc, amount=format_inr(s.cash_available_today)),
+        t("reports.summary.net_7d", loc, amount=format_signed_inr(s.net_cash_position)),
+        t("reports.summary.expected_in", loc, amount=format_inr(s.expected_collections_7d_total)),
+        t("reports.summary.expected_out", loc, amount=format_inr(s.expected_payments_7d_total)),
+        t("reports.summary.shortage", loc)
+        if s.cash_deficit
+        else t("reports.summary.no_shortage", loc),
+        overdue_line,
     ]
     return "\n".join(lines)
 
@@ -80,10 +86,11 @@ async def cash_position_reply(db: AsyncSession, company: Company) -> str:
 
 async def priorities_reply(db: AsyncSession, company: Company) -> str:
     actions = await get_priority_actions(db, company.id)
+    loc = resolve_locale(company)
     if not actions:
-        return "🎯 Nothing urgent right now — no priority actions."
+        return t("reports.priorities.none", loc)
     lines = [f"{i}. {a.reason}" for i, a in enumerate(actions, start=1)]
-    return "🎯 Priorities\n\n" + "\n\n".join(lines)
+    return t("reports.priorities.header", loc) + "\n\n" + "\n\n".join(lines)
 
 
 async def overdue_dealers_reply(db: AsyncSession, company: Company) -> str:
@@ -101,69 +108,84 @@ async def upcoming_payments_reply(db: AsyncSession, company: Company) -> str:
     return build_suppliers_report(s)
 
 
-def _party_line(name: str, phone: str | None, outstanding: str) -> str:
-    return f"{name} — {phone or 'no phone'} — outstanding {format_inr(Decimal(outstanding))}"
+def _party_line(name: str, phone: str | None, outstanding: str, loc) -> str:
+    return t(
+        "reports.party.line",
+        loc,
+        name=name,
+        phone=phone or t("reports.party.no_phone", loc),
+        amount=format_inr(Decimal(outstanding)),
+    )
 
 
 async def all_dealers_reply(db: AsyncSession, company: Company) -> str:
     result = await _list_dealers(db, company)
     dealers = result["dealers"]
+    loc = resolve_locale(company)
     if not dealers:
-        return "You don't have any dealers on file yet."
-    lines = [_party_line(d["name"], d["phone"], d["outstanding"]) for d in dealers]
-    return f"👥 Dealers ({len(dealers)}):\n\n" + "\n\n".join(lines)
+        return t("reports.dealers.none", loc)
+    lines = [_party_line(d["name"], d["phone"], d["outstanding"], loc) for d in dealers]
+    return t("reports.dealers.header", loc, count=len(dealers)) + "\n\n" + "\n\n".join(lines)
 
 
 async def all_suppliers_reply(db: AsyncSession, company: Company) -> str:
     result = await _list_suppliers(db, company)
     suppliers = result["suppliers"]
+    loc = resolve_locale(company)
     if not suppliers:
-        return "You don't have any suppliers on file yet."
-    lines = [_party_line(s["name"], s["phone"], s["outstanding"]) for s in suppliers]
-    return f"🚚 Suppliers ({len(suppliers)}):\n\n" + "\n\n".join(lines)
+        return t("reports.suppliers_list.none", loc)
+    lines = [_party_line(s["name"], s["phone"], s["outstanding"], loc) for s in suppliers]
+    return (
+        t("reports.suppliers_list.header", loc, count=len(suppliers)) + "\n\n" + "\n\n".join(lines)
+    )
 
 
 async def top_debtors_reply(db: AsyncSession, company: Company) -> str:
     result = await _list_top_debtors(db, company, limit=20)
     dealers = result["dealers_who_owe_you"]
+    loc = resolve_locale(company)
     if not dealers:
-        return "No dealer currently owes you anything."
+        return t("reports.top_debtors.none", loc)
     lines = [
         f"{i}. {d['name']} — {format_inr(Decimal(d['outstanding']))}"
         for i, d in enumerate(dealers, start=1)
     ]
-    return "💰 Top Debtors\n\n" + "\n\n".join(lines)
+    return t("reports.top_debtors.header", loc) + "\n\n" + "\n\n".join(lines)
 
 
 async def top_creditors_reply(db: AsyncSession, company: Company) -> str:
     result = await _list_top_creditors(db, company, limit=20)
     suppliers = result["suppliers_you_owe"]
+    loc = resolve_locale(company)
     if not suppliers:
-        return "You don't currently owe any supplier anything."
+        return t("reports.top_creditors.none", loc)
     lines = [
         f"{i}. {s['name']} — {format_inr(Decimal(s['outstanding']))}"
         for i, s in enumerate(suppliers, start=1)
     ]
-    return "💸 Top Creditors\n\n" + "\n\n".join(lines)
+    return t("reports.top_creditors.header", loc) + "\n\n" + "\n\n".join(lines)
 
 
-def _product_line(product: Product) -> str:
+def _product_line(product: Product, loc) -> str:
     unit_suffix = f" {product.unit}" if product.unit else ""
     price = (
-        format_inr(product.selling_price) if product.selling_price is not None else "price not set"
+        format_inr(product.selling_price)
+        if product.selling_price is not None
+        else t("reports.product.price_not_set", loc)
     )
     quantity = _format_quantity(product.stock_quantity)
     return f"{product.name} — {quantity}{unit_suffix} — {price}"
 
 
 async def _inventory_query_reply(
-    db: AsyncSession, company: Company, *, limit: int, label: str
+    db: AsyncSession, company: Company, *, limit: int, label_key: str
 ) -> str:
+    loc = resolve_locale(company)
     total = await db.scalar(
         select(func.count()).select_from(Product).where(Product.company_id == company.id)
     )
     if not total:
-        return "You don't have any products in your catalogue yet."
+        return t("reports.inventory.none", loc)
 
     stmt = (
         select(Product)
@@ -176,49 +198,50 @@ async def _inventory_query_reply(
         .limit(limit)
     )
     products = (await db.scalars(stmt)).all()
-    lines = [_product_line(p) for p in products]
+    lines = [_product_line(p, loc) for p in products]
     remaining = total - len(products)
+    label = t(label_key, loc)
     header = (
-        f"📦 {label} ({len(products)} of {total}):"
+        t("reports.inventory.header_partial", loc, label=label, count=len(products), total=total)
         if remaining > 0
-        else f"📦 {label} ({len(products)}):"
+        else t("reports.inventory.header_full", loc, label=label, count=len(products))
     )
-    footer = (
-        f"\n\n…and {remaining} more — reply 'all inventory' for the full list."
-        if remaining > 0
-        else ""
-    )
+    footer = t("reports.inventory.more", loc, remaining=remaining) if remaining > 0 else ""
     return f"{header}\n\n" + "\n\n".join(lines) + footer
 
 
 async def recent_inventory_reply(db: AsyncSession, company: Company) -> str:
     return await _inventory_query_reply(
-        db, company, limit=_RECENT_LIST_CAP, label="Recent Inventory"
+        db, company, limit=_RECENT_LIST_CAP, label_key="reports.inventory.label_recent"
     )
 
 
 async def all_inventory_reply(db: AsyncSession, company: Company) -> str:
-    return await _inventory_query_reply(db, company, limit=_LIST_REPLY_CAP, label="All Inventory")
+    return await _inventory_query_reply(
+        db, company, limit=_LIST_REPLY_CAP, label_key="reports.inventory.label_all"
+    )
 
 
 async def faqs_reply(db: AsyncSession, company: Company) -> str:
     faqs = (
         await db.scalars(select(FAQ).where(FAQ.company_id == company.id).order_by(FAQ.created_at))
     ).all()
+    loc = resolve_locale(company)
     if not faqs:
-        return "You don't have any saved policy answers yet."
-    lines = [f"Q: {f.question}\nA: {f.answer}" for f in faqs]
-    return f"❓ FAQs ({len(faqs)}):\n\n" + "\n\n".join(lines)
+        return t("reports.faq.none", loc)
+    lines = [t("reports.faq.qa", loc, question=f.question, answer=f.answer) for f in faqs]
+    return t("reports.faq.header", loc, count=len(faqs)) + "\n\n" + "\n\n".join(lines)
 
 
 async def _invoices_query_reply(
-    db: AsyncSession, company: Company, *, limit: int, label: str
+    db: AsyncSession, company: Company, *, limit: int, label_key: str
 ) -> str:
+    loc = resolve_locale(company)
     total = await db.scalar(
         select(func.count()).select_from(Invoice).where(Invoice.company_id == company.id)
     )
     if not total:
-        return "You don't have any invoices yet."
+        return t("reports.invoices.none", loc)
 
     stmt = (
         select(Invoice, Dealer.name, Supplier.name)
@@ -229,42 +252,52 @@ async def _invoices_query_reply(
         .limit(limit)
     )
     rows = (await db.execute(stmt)).all()
+    # invoice_number / party name / amount / status value / date are all data —
+    # interpolated, not translated; only "due" and "unknown party" are words.
     lines = [
-        f"{invoice.invoice_number} — {dealer_name or supplier_name or 'unknown party'} — "
-        f"{format_inr(invoice.total_amount)} — {invoice.status.value} — "
-        f"due {invoice.due_date.isoformat()}"
+        t(
+            "reports.invoices.line",
+            loc,
+            number=invoice.invoice_number,
+            party=dealer_name or supplier_name or t("reports.unknown_party", loc),
+            amount=format_inr(invoice.total_amount),
+            status=invoice.status.value,
+            due=t("reports.due.date", loc, date=invoice.due_date.isoformat()),
+        )
         for invoice, dealer_name, supplier_name in rows
     ]
     remaining = total - len(rows)
+    label = t(label_key, loc)
     header = (
-        f"📄 {label} ({len(rows)} of {total}):" if remaining > 0 else f"📄 {label} ({len(rows)}):"
-    )
-    footer = (
-        f"\n\n…and {remaining} more — reply 'all invoices' for the full list."
+        t("reports.invoices.header_partial", loc, label=label, count=len(rows), total=total)
         if remaining > 0
-        else ""
+        else t("reports.invoices.header_full", loc, label=label, count=len(rows))
     )
+    footer = t("reports.invoices.more", loc, remaining=remaining) if remaining > 0 else ""
     return f"{header}\n\n" + "\n\n".join(lines) + footer
 
 
 async def recent_invoices_reply(db: AsyncSession, company: Company) -> str:
     return await _invoices_query_reply(
-        db, company, limit=_RECENT_LIST_CAP, label="Recent Invoices"
+        db, company, limit=_RECENT_LIST_CAP, label_key="reports.invoices.label_recent"
     )
 
 
 async def all_invoices_reply(db: AsyncSession, company: Company) -> str:
-    return await _invoices_query_reply(db, company, limit=_LIST_REPLY_CAP, label="All Invoices")
+    return await _invoices_query_reply(
+        db, company, limit=_LIST_REPLY_CAP, label_key="reports.invoices.label_all"
+    )
 
 
 async def _payments_query_reply(
-    db: AsyncSession, company: Company, *, limit: int, label: str
+    db: AsyncSession, company: Company, *, limit: int, label_key: str
 ) -> str:
+    loc = resolve_locale(company)
     total = await db.scalar(
         select(func.count()).select_from(Payment).where(Payment.company_id == company.id)
     )
     if not total:
-        return "You don't have any payments recorded yet."
+        return t("reports.payments.none", loc)
 
     stmt = (
         select(Payment, Invoice.invoice_number, Invoice.direction)
@@ -278,30 +311,41 @@ async def _payments_query_reply(
     )
     rows = (await db.execute(stmt)).all()
     lines = [
-        f"{format_inr(payment.amount)} — {'from' if direction.value == 'receivable' else 'to'} "
-        f"invoice {invoice_number} — {payment.payment_date.isoformat()}"
+        t(
+            "reports.payments.line",
+            loc,
+            amount=format_inr(payment.amount),
+            direction=(
+                t("reports.payments.from", loc)
+                if direction.value == "receivable"
+                else t("reports.payments.to", loc)
+            ),
+            number=invoice_number,
+            date=payment.payment_date.isoformat(),
+        )
         for payment, invoice_number, direction in rows
     ]
     remaining = total - len(rows)
+    label = t(label_key, loc)
     header = (
-        f"💵 {label} ({len(rows)} of {total}):" if remaining > 0 else f"💵 {label} ({len(rows)}):"
-    )
-    footer = (
-        f"\n\n…and {remaining} more — reply 'all payments' for the full list."
+        t("reports.payments.header_partial", loc, label=label, count=len(rows), total=total)
         if remaining > 0
-        else ""
+        else t("reports.payments.header_full", loc, label=label, count=len(rows))
     )
+    footer = t("reports.payments.more", loc, remaining=remaining) if remaining > 0 else ""
     return f"{header}\n\n" + "\n\n".join(lines) + footer
 
 
 async def recent_payments_reply(db: AsyncSession, company: Company) -> str:
     return await _payments_query_reply(
-        db, company, limit=_RECENT_LIST_CAP, label="Recent Payments"
+        db, company, limit=_RECENT_LIST_CAP, label_key="reports.payments.label_recent"
     )
 
 
 async def all_payments_reply(db: AsyncSession, company: Company) -> str:
-    return await _payments_query_reply(db, company, limit=_LIST_REPLY_CAP, label="All Payments")
+    return await _payments_query_reply(
+        db, company, limit=_LIST_REPLY_CAP, label_key="reports.payments.label_all"
+    )
 
 
 async def party_balance_reply(db: AsyncSession, company: Company, name: str) -> str:
@@ -310,11 +354,16 @@ async def party_balance_reply(db: AsyncSession, company: Company, name: str) -> 
     paths can never disagree on who matched.
     """
     result = await _get_party_balance(db, company, name)
+    loc = resolve_locale(company)
     if "error" in result:
         return result["error"]
     outstanding = format_inr(Decimal(result["outstanding"]))
-    verb = "owes you" if result["relationship"] == "dealer_owes_you" else "you owe"
-    return f"{result['party']} {verb} {outstanding}."
+    key = (
+        "reports.balance.dealer_owes"
+        if result["relationship"] == "dealer_owes_you"
+        else "reports.balance.you_owe"
+    )
+    return t(key, loc, party=result["party"], amount=outstanding)
 
 
 async def stock_item_reply(db: AsyncSession, company: Company, name: str) -> str:
@@ -323,14 +372,23 @@ async def stock_item_reply(db: AsyncSession, company: Company, name: str) -> str
     uses) so this can never name a different product than the LLM tool would.
     """
     product = await _find_product(db, company, name)
+    loc = resolve_locale(company)
     if product is None:
-        return f"I couldn't find a product matching '{name}'."
+        return t("reports.stock.not_found", loc, name=name)
     unit_suffix = f" {product.unit}" if product.unit else ""
     price = (
-        format_inr(product.selling_price) if product.selling_price is not None else "price not set"
+        format_inr(product.selling_price)
+        if product.selling_price is not None
+        else t("reports.product.price_not_set", loc)
     )
     quantity = _format_quantity(product.stock_quantity)
-    return f"{product.name} — {quantity}{unit_suffix} in stock — {price}"
+    return t(
+        "reports.stock.line",
+        loc,
+        name=product.name,
+        stock=f"{quantity}{unit_suffix}",
+        price=price,
+    )
 
 
 async def sales_impact_reply(db: AsyncSession, company: Company, items: list[dict]) -> str:
@@ -342,6 +400,7 @@ async def sales_impact_reply(db: AsyncSession, company: Company, items: list[dic
     no further NL interpretation, only formatting.
     """
     result = await _calculate_sales_impact(db, company, items)
+    loc = resolve_locale(company)
     lines = []
     for entry in result["items"]:
         if "error" in entry:
@@ -350,19 +409,25 @@ async def sales_impact_reply(db: AsyncSession, company: Company, items: list[dic
         quantity_sold = _format_quantity(Decimal(entry["quantity_sold"]))
         bits = [f"{quantity_sold} {entry['product_name']}"]
         if "revenue" in entry:
-            bits.append(f"revenue {format_inr(Decimal(entry['revenue']))}")
+            bits.append(
+                t("reports.sales.revenue", loc, amount=format_inr(Decimal(entry["revenue"])))
+            )
         if "profit" in entry:
-            bits.append(f"profit {format_inr(Decimal(entry['profit']))}")
+            bits.append(t("reports.sales.profit", loc, amount=format_inr(Decimal(entry["profit"]))))
         stock_remaining = _format_quantity(Decimal(entry["stock_remaining"]))
-        bits.append(f"{stock_remaining} left in stock")
+        bits.append(t("reports.sales.left", loc, qty=stock_remaining))
         lines.append("- " + ", ".join(bits))
 
-    footer_bits = [f"Total revenue: {format_inr(Decimal(result['total_revenue']))}"]
+    footer_bits = [
+        t("reports.sales.total_revenue", loc, amount=format_inr(Decimal(result["total_revenue"])))
+    ]
     if Decimal(result["total_profit"]) != 0 or not result["items_missing_cost_data"]:
-        footer_bits.append(f"Total profit: {format_inr(Decimal(result['total_profit']))}")
+        footer_bits.append(
+            t("reports.sales.total_profit", loc, amount=format_inr(Decimal(result["total_profit"])))
+        )
     if result["items_missing_cost_data"]:
         missing = ", ".join(result["items_missing_cost_data"])
-        footer_bits.append(f"(no purchase price on file for {missing} — excluded from profit)")
+        footer_bits.append(t("reports.sales.no_cost", loc, missing=missing))
 
     return "\n\n".join(lines) + "\n\n" + "\n".join(footer_bits)
 

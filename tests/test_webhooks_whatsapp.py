@@ -37,9 +37,14 @@ def _unique_phone() -> str:
     return f"+91{uuid.uuid4().int % 10_000_000_000:010d}"
 
 
-async def _make_company(db: AsyncSession, whatsapp_number: str) -> uuid.UUID:
+async def _make_company(
+    db: AsyncSession, whatsapp_number: str, *, preferred_language: str = "en"
+) -> uuid.UUID:
     company = Company(
-        business_name="Webhook Test Co", owner_name="Owner", whatsapp_number=whatsapp_number
+        business_name="Webhook Test Co",
+        owner_name="Owner",
+        whatsapp_number=whatsapp_number,
+        preferred_language=preferred_language,
     )
     db.add(company)
     await db.commit()
@@ -1084,6 +1089,91 @@ def test_menu_row_ids_are_understood_by_the_dispatch_chain() -> None:
                     ), f"{row_id} is offered on the menu but isn't a registered command"
 
 
+def test_menu_messages_localized_within_limits_all_locales() -> None:
+    """The English-only limit checks above must hold for every localized menu
+    too — Meta silently truncates over-limit titles/buttons, so a too-long
+    Hindi/Odia label would ship a broken-looking menu. Guards the localized
+    builder against overflow in any supported locale.
+    """
+    from app.api.webhooks.whatsapp import menu_messages
+    from app.i18n import SUPPORTED_LOCALES
+
+    for code in SUPPORTED_LOCALES:
+        for message in menu_messages(code):
+            assert len(message["button_text"]) <= 20, (code, message["button_text"])
+            assert len(message["body"]) <= 1024, code
+            assert len(message["sections"]) <= 10, code
+            total_rows = sum(len(section["rows"]) for section in message["sections"])
+            assert total_rows <= 10, code
+            for section in message["sections"]:
+                assert len(section["title"]) <= 24, (code, section["title"])
+                for row in section["rows"]:
+                    assert len(row["title"]) <= 24, (code, row["title"])
+                    assert len(row.get("description", "")) <= 72, (code, row["description"])
+
+
+def test_menu_row_ids_identical_across_locales() -> None:
+    """Localizing the menu changes only the human-readable labels: the row
+    `id`s (read back as commands) stay byte-identical in every locale, so a tap
+    dispatches the same command regardless of the operator's language.
+    """
+    from app.api.webhooks.whatsapp import menu_messages
+    from app.i18n import SUPPORTED_LOCALES
+
+    def ids(code: str) -> list[str]:
+        return [r["id"] for m in menu_messages(code) for s in m["sections"] for r in s["rows"]]
+
+    en_ids = ids("en")
+    assert en_ids
+    for code in SUPPORTED_LOCALES:
+        assert ids(code) == en_ids, f"{code} row ids diverged from English"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("locale_code", ["hi-Deva", "hi-Latn", "or-Orya", "or-Latn"])
+async def test_menu_trigger_localized_for_non_english_company(
+    db: AsyncSession, monkeypatch, locale_code: str
+) -> None:
+    """A company in a non-English locale gets the interactive menu with its
+    labels localized end-to-end (the webhook renders menu_messages() in the
+    company's locale), while the delivered menu differs from the English one.
+    """
+    from app.api.webhooks.whatsapp import menu_messages
+
+    phone = _unique_phone()
+    await _make_company(db, phone, preferred_language=locale_code)
+    bare_sender = phone.removeprefix("+")
+
+    interactive_calls: list[dict] = []
+
+    async def _fake_text_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    async def _fake_interactive_send(to: str, **kwargs) -> WhatsAppSendResult:
+        interactive_calls.append(kwargs)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_text_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.send_interactive_list_message", _fake_interactive_send
+    )
+
+    body = json.dumps(_messages_payload(sender=bare_sender, text="menu")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    sent_sections = [call["sections"] for call in interactive_calls]
+    # Exactly the localized menu for this company's locale went out …
+    assert sent_sections == [m["sections"] for m in menu_messages(locale_code)]
+    # … and it's genuinely localized (differs from the English menu).
+    assert sent_sections != [m["sections"] for m in menu_messages("en")]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("trigger", ["menu", "/menu", "Menu"])
 async def test_menu_trigger_sends_interactive_list_not_plain_text(
@@ -1206,9 +1296,11 @@ async def test_tapped_button_reply_routes_like_typed_text(db: AsyncSession, monk
         )
     assert resp.status_code == 200
 
-    from app.api.webhooks.whatsapp import _HELP_TEXT
+    from app.i18n import t
 
-    assert sent == [_HELP_TEXT]
+    # Help text is now catalog-driven; an English (default-locale) company gets
+    # the English help block.
+    assert sent == [t("menu.help_text", "en")]
 
 
 @pytest.mark.asyncio
@@ -1668,7 +1760,8 @@ async def test_active_not_started_company_routes_to_onboarding(
     assert log is not None
     assert log.notification_type == "onboarding"
     await db.refresh(company)
-    assert company.onboarding_state == OnboardingState.awaiting_business_type
+    # Kickoff now asks language first (awaiting_language) before business setup.
+    assert company.onboarding_state == OnboardingState.awaiting_language
 
 
 @pytest.mark.asyncio

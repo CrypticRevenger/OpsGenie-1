@@ -59,7 +59,9 @@ async def test_onboard_valid_creates_pending_company(client: AsyncClient, db: As
     assert company.subscription_active is False  # pending until activated
     assert company.email == "owner@onboardco.test"
     assert company.business_type == "FMCG Distributor"
-    assert company.preferred_language == "hi"
+    # The onboard schema normalizes a bare language to a locale code; a bare
+    # "hi" resolves to Romanized Hindi (the recommended WhatsApp default).
+    assert company.preferred_language == "hi-Latn"
     assert company.city == "Berhampur"
     assert company.gst_number == "21ABCDE1234F1Z5"
 

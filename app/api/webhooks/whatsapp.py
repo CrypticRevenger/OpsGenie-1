@@ -48,6 +48,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.db.session import async_session_factory, get_db
+from app.i18n import DEFAULT_LOCALE, Locale, resolve_locale, t
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
 from app.models.notification_log import NotificationLog
@@ -56,7 +57,7 @@ from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
-from app.services.onboarding_flow import handle_onboarding_message
+from app.services.onboarding_flow import handle_onboarding_message, start_language_change
 from app.services.query_menu import menu_router
 from app.services.snapshot import build_snapshot, business_now
 from app.services.whatsapp_client import (
@@ -188,281 +189,200 @@ async def _export_link_reply(db: AsyncSession, company: Company) -> str:
     """
     settings = get_settings()
     if not settings.export_link_secret or not settings.public_base_url:
-        return (
-            "The data export link isn't set up yet — ask your OpsGenie admin "
-            "to configure it."
-        )
+        return t("reports.export.not_configured", resolve_locale(company))
     link = generate_export_link(company, base_url=settings.public_base_url)
     ttl = settings.export_link_ttl_minutes
-    return f"Your latest Excel export is ready.\nDownload (valid {ttl} min): {link}"
-
-
-_HELP_TEXT = """*OpsGenie Help*
-
-*Cash & Overview*
-• cash / cash position — current cash, 7-day expected in/out, net position (or reply 1 / /cash)
-• summary / business summary — cash, net position, 7-day collections/payments, overdue dealers
-• priorities / what should I do — ranked actions: cash warnings, dealers to call, supplier dues
-
-*Dealers (they owe you)*
-• dealers / all dealers — every dealer with phone & outstanding
-• top debtors / who owes most — dealers with the largest outstanding
-• overdue / overdue dealers — days overdue & risk level (or reply 4 / /dealer_risk)
-• balance <name> — outstanding for one dealer, e.g. balance Ram Traders
-
-*Suppliers (you owe them)*
-• suppliers / all suppliers — every supplier with phone & outstanding
-• top creditors — suppliers you owe the most
-• balance <name> — outstanding for one supplier
-
-*Upcoming Cash Flow*
-• collections / upcoming collections — expected from dealers, next 7 days (or 2 / /collections)
-• payments / upcoming payments — owed to suppliers in the next 7 days (or reply 3 / /suppliers)
-
-*Inventory*
-• inventory / products / stock — latest products added (stock qty, selling price)
-• all inventory — every product, not just recent
-• stock <product> — check a specific item, e.g. stock Rice
-
-*Transactions*
-• invoices / recent invoices — latest invoices (number, party, total, status, dates)
-• all invoices — every invoice, not just recent
-• payments / recent payments — latest payments recorded
-• all payments / all time payments — every payment, not just recent
-• faq / policy — your saved business policy answers (delivery days, returns, minimum order)
-
-*Manage Products* (guided, one question at a time)
-• add product (or /add_product) — add a new item: name, stock, unit, selling price, purchase price
-• update stock (or /update_stock) — change a product's stock quantity
-• update price (or /update_price) — change a product's selling price
-• update purchase price (or /update_purchase_price) — change what you pay your supplier
-• update product (or /update_product) — pick price, purchase price, or stock to update
-• update gst (or /update_gst) — change GST for all products, or one specific product
-• delete product (or /delete_product) — remove a catalogue item
-
-*Orders & Payments*
-• new order (or /create_order, or "new invoice") — record a sale to a dealer, product by product
-• record payment (or /record_payment) — log a payment received from a dealer or paid to a supplier
-
-*Your Data*
-• export data (or /export_data) — a download link to your full business data as Excel
-• morning briefing (or /morning_briefing) — resend today's briefing
-
-*Quick Access*
-• menu — tap through your options instead of typing
-• help (or /help) — see this list again anytime"""
+    return t("reports.export.ready", resolve_locale(company), ttl=ttl, link=link)
 
 
 async def _help_reply(db: AsyncSession, company: Company) -> str:
-    return _HELP_TEXT
+    # The full help block lives in the i18n catalog (menu.help_text) so it's
+    # localized per company; command keywords inside it stay English triggers.
+    return t("menu.help_text", resolve_locale(company))
+
+
+async def _change_language_reply(db: AsyncSession, company: Company) -> str:
+    """Re-enter the language/script selection for an already-onboarded company
+    (see onboarding_flow.start_language_change). Sets onboarding_state so the
+    next messages flow back through the two-step picker, then return to done.
+    """
+    return start_language_change(company)
 
 
 # "menu" sends tappable WhatsApp list messages instead of plain text — every
-# zero-argument capability in _HELP_TEXT, split across 3 messages since Meta
+# zero-argument capability in the help text, split across 3 messages since Meta
 # caps a single list at 10 rows total. (balance <name> / stock <product>
 # need a typed argument, so they can't be a fixed tappable row — they stay
-# type-to-use, per _HELP_TEXT.) Row ids are read back exactly like typed text
+# type-to-use, per the help text.) Row ids are read back exactly like typed text
 # (see _extract_text_body), so each one is either an existing /slash_command
 # or a bare keyword the free-form assistant (app/services/assistant.py)
 # already understands.
 _MENU_TRIGGERS = ("menu", "/menu")
-_MENU_FALLBACK_TEXT = "Tap an option below, or reply /help for the full list."
-_MENU_MESSAGES: list[dict] = [
+
+
+# Menu *structure* only — the tappable-row ids stay fixed English (they're
+# read back verbatim as commands, see _extract_text_body), while every
+# human-readable label (message body/button, section titles, row
+# titles/descriptions) is looked up from the i18n catalog per the company's
+# locale by menu_messages() below. Each row is (id, title_key, desc_key).
+_MENU_LAYOUT: list[dict] = [
     {
-        "body": "Reports & Overview — tap one:",
-        "button_text": "Choose a report",
+        "body_key": "menu.msg.reports.body",
+        "button_key": "menu.msg.reports.button",
         "sections": [
-            {
-                "title": "Cash & Overview",
-                "rows": [
-                    {
-                        "id": "cash",
-                        "title": "Cash Position",
-                        "description": "Current cash & 7-day in/out",
-                    },
-                    {
-                        "id": "summary",
-                        "title": "Business Summary",
-                        "description": "Overall snapshot",
-                    },
-                    {
-                        "id": "priorities",
-                        "title": "Priorities",
-                        "description": "What should I do today",
-                    },
+            (
+                "menu.section.cash_overview",
+                [
+                    ("cash", "menu.row.cash.title", "menu.row.cash.desc"),
+                    ("summary", "menu.row.summary.title", "menu.row.summary.desc"),
+                    ("priorities", "menu.row.priorities.title", "menu.row.priorities.desc"),
                 ],
-            },
-            {
-                "title": "Money Flow",
-                "rows": [
-                    {
-                        "id": "overdue",
-                        "title": "Overdue Dealers",
-                        "description": "Days overdue & risk level",
-                    },
-                    {
-                        "id": "upcoming collections",
-                        "title": "Collections Due",
-                        "description": "Expected in next 7 days",
-                    },
-                    {
-                        "id": "upcoming payments",
-                        "title": "Payments Due",
-                        "description": "Owed to suppliers, 7 days",
-                    },
+            ),
+            (
+                "menu.section.money_flow",
+                [
+                    ("overdue", "menu.row.overdue.title", "menu.row.overdue.desc"),
+                    (
+                        "upcoming collections",
+                        "menu.row.collections.title",
+                        "menu.row.collections.desc",
+                    ),
+                    ("upcoming payments", "menu.row.payments.title", "menu.row.payments.desc"),
                 ],
-            },
-            {
-                "title": "Dealers & Suppliers",
-                "rows": [
-                    {
-                        "id": "all dealers",
-                        "title": "All Dealers",
-                        "description": "Every dealer, phone & outstanding",
-                    },
-                    {
-                        "id": "all suppliers",
-                        "title": "All Suppliers",
-                        "description": "Every supplier, phone & outstanding",
-                    },
-                    {
-                        "id": "top debtors",
-                        "title": "Top Debtors",
-                        "description": "Dealers who owe you the most",
-                    },
-                    {
-                        "id": "top creditors",
-                        "title": "Top Creditors",
-                        "description": "Suppliers you owe the most",
-                    },
+            ),
+            (
+                "menu.section.dealers_suppliers",
+                [
+                    ("all dealers", "menu.row.all_dealers.title", "menu.row.all_dealers.desc"),
+                    (
+                        "all suppliers",
+                        "menu.row.all_suppliers.title",
+                        "menu.row.all_suppliers.desc",
+                    ),
+                    ("top debtors", "menu.row.top_debtors.title", "menu.row.top_debtors.desc"),
+                    (
+                        "top creditors",
+                        "menu.row.top_creditors.title",
+                        "menu.row.top_creditors.desc",
+                    ),
                 ],
-            },
+            ),
         ],
     },
     {
-        "body": "Inventory, Transactions & Products — tap one:",
-        "button_text": "Choose an option",
+        "body_key": "menu.msg.inventory.body",
+        "button_key": "menu.msg.inventory.button",
         "sections": [
-            {
-                "title": "Inventory & Transactions",
-                "rows": [
-                    {
-                        "id": "inventory",
-                        "title": "Recent Inventory",
-                        "description": "Latest products added, stock & price",
-                    },
-                    {
-                        "id": "invoices",
-                        "title": "Recent Invoices",
-                        "description": "Latest invoices, newest first",
-                    },
-                    {
-                        "id": "recent payments",
-                        "title": "Recent Payments",
-                        "description": "Latest payments recorded",
-                    },
-                    {"id": "faq", "title": "FAQs", "description": "Your saved business policies"},
+            (
+                "menu.section.inventory_transactions",
+                [
+                    ("inventory", "menu.row.inventory.title", "menu.row.inventory.desc"),
+                    ("invoices", "menu.row.invoices.title", "menu.row.invoices.desc"),
+                    (
+                        "recent payments",
+                        "menu.row.recent_payments.title",
+                        "menu.row.recent_payments.desc",
+                    ),
+                    ("faq", "menu.row.faq.title", "menu.row.faq.desc"),
                 ],
-            },
-            {
-                "title": "Manage Products",
-                "rows": [
-                    {
-                        "id": "/add_product",
-                        "title": "Add Product",
-                        "description": "Add a new catalogue item",
-                    },
-                    {
-                        "id": "/update_stock",
-                        "title": "Update Stock",
-                        "description": "Change a product's stock qty",
-                    },
-                    {
-                        "id": "/update_price",
-                        "title": "Update Price",
-                        "description": "Change a product's selling price",
-                    },
-                    {
-                        "id": "/update_purchase_price",
-                        "title": "Update Cost Price",
-                        "description": "Change what you pay your supplier",
-                    },
-                    {
-                        "id": "/delete_product",
-                        "title": "Delete Product",
-                        "description": "Remove a catalogue item",
-                    },
-                    {
-                        "id": "/update_product",
-                        "title": "Update Product",
-                        "description": "Pick price, cost, or stock to change",
-                    },
+            ),
+            (
+                "menu.section.manage_products",
+                [
+                    ("/add_product", "menu.row.add_product.title", "menu.row.add_product.desc"),
+                    ("/update_stock", "menu.row.update_stock.title", "menu.row.update_stock.desc"),
+                    ("/update_price", "menu.row.update_price.title", "menu.row.update_price.desc"),
+                    (
+                        "/update_purchase_price",
+                        "menu.row.update_cost.title",
+                        "menu.row.update_cost.desc",
+                    ),
+                    (
+                        "/delete_product",
+                        "menu.row.delete_product.title",
+                        "menu.row.delete_product.desc",
+                    ),
+                    (
+                        "/update_product",
+                        "menu.row.update_product.title",
+                        "menu.row.update_product.desc",
+                    ),
                 ],
-            },
+            ),
         ],
     },
     {
-        "body": "Orders, Payments & Your Data — tap one:",
-        "button_text": "Choose an option",
+        "body_key": "menu.msg.orders.body",
+        "button_key": "menu.msg.orders.button",
         "sections": [
-            {
-                "title": "Orders & Payments",
-                "rows": [
-                    {
-                        "id": "/create_order",
-                        "title": "Create Order",
-                        "description": "Record a sale to a dealer",
-                    },
-                    {
-                        "id": "/record_payment",
-                        "title": "Record Payment",
-                        "description": "Log a payment received or paid",
-                    },
-                    {
-                        "id": "/update_gst",
-                        "title": "Update GST",
-                        "description": "Change GST for all products, or one product",
-                    },
+            (
+                "menu.section.orders_payments",
+                [
+                    ("/create_order", "menu.row.create_order.title", "menu.row.create_order.desc"),
+                    (
+                        "/record_payment",
+                        "menu.row.record_payment.title",
+                        "menu.row.record_payment.desc",
+                    ),
+                    ("/update_gst", "menu.row.update_gst.title", "menu.row.update_gst.desc"),
                 ],
-            },
-            {
-                "title": "Your Data",
-                "rows": [
-                    {
-                        "id": "/export_data",
-                        "title": "Export Data",
-                        "description": "Download your Excel data",
-                    },
-                    {
-                        "id": "/morning_briefing",
-                        "title": "Morning Briefing",
-                        "description": "Resend today's briefing",
-                    },
+            ),
+            (
+                "menu.section.your_data",
+                [
+                    ("/export_data", "menu.row.export_data.title", "menu.row.export_data.desc"),
+                    (
+                        "/morning_briefing",
+                        "menu.row.morning_briefing.title",
+                        "menu.row.morning_briefing.desc",
+                    ),
                 ],
-            },
-            {
-                "title": "Full Lists",
-                "rows": [
-                    {
-                        "id": "all inventory",
-                        "title": "All Inventory",
-                        "description": "Every product, not just recent",
-                    },
-                    {
-                        "id": "all invoices",
-                        "title": "All Invoices",
-                        "description": "Every invoice, not just recent",
-                    },
-                    {
-                        "id": "all payments",
-                        "title": "All Payments",
-                        "description": "Every payment, not just recent",
-                    },
+            ),
+            (
+                "menu.section.full_lists",
+                [
+                    (
+                        "all inventory",
+                        "menu.row.all_inventory.title",
+                        "menu.row.all_inventory.desc",
+                    ),
+                    ("all invoices", "menu.row.all_invoices.title", "menu.row.all_invoices.desc"),
+                    ("all payments", "menu.row.all_payments.title", "menu.row.all_payments.desc"),
                 ],
-            },
+            ),
         ],
     },
 ]
+
+
+def menu_messages(locale: Locale | object) -> list[dict]:
+    """Render _MENU_LAYOUT into WhatsApp interactive-list payloads with every
+    label localized to `locale`. Row ids are untouched (English commands).
+    """
+    loc = resolve_locale(locale)
+    return [
+        {
+            "body": t(msg["body_key"], loc),
+            "button_text": t(msg["button_key"], loc),
+            "sections": [
+                {
+                    "title": t(section_key, loc),
+                    "rows": [
+                        {"id": rid, "title": t(title_key, loc), "description": t(desc_key, loc)}
+                        for rid, title_key, desc_key in rows
+                    ],
+                }
+                for section_key, rows in msg["sections"]
+            ],
+        }
+        for msg in _MENU_LAYOUT
+    ]
+
+
+# English materialization kept for the structural webhook tests that import it
+# directly; the localized builders above are the source of truth and are what
+# the webhook actually sends (see the "menu" branch in the handler).
+_MENU_MESSAGES: list[dict] = menu_messages(DEFAULT_LOCALE)
 
 
 async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
@@ -594,6 +514,11 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "help": _help_reply,
     "commands": _help_reply,
     "what can you do": _help_reply,
+    "change language": _change_language_reply,
+    "change script": _change_language_reply,
+    "language": _change_language_reply,
+    "script": _change_language_reply,
+    "/language": _change_language_reply,
 }
 
 logger = logging.getLogger(__name__)
@@ -1024,8 +949,12 @@ async def receive_whatsapp_webhook(
                             elif text.strip().lower() in _MENU_TRIGGERS:
                                 command = text.strip().lower()
                                 notification_type = "interactive_menu"
-                                reply = _MENU_FALLBACK_TEXT
-                                interactive_batch = _MENU_MESSAGES
+                                locale = resolve_locale(company)
+                                # Each list message carries its own body; this
+                                # reply is a plain-text safety net (kept bound
+                                # for the shared send contract below).
+                                reply = t("menu.fallback", locale)
+                                interactive_batch = menu_messages(locale)
                             else:
                                 # .lower() so the /cash-style slash aliases are
                                 # case-insensitive like _WORKFLOW_START_TRIGGERS and
