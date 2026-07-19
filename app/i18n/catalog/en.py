@@ -243,6 +243,11 @@ MESSAGES: dict[str, str] = {
     "onboarding.gst.rate_invalid": (
         "Please send a number between 0 and 100, e.g. 18 (or 'not sure' to decide later)."
     ),
+    "onboarding.gst.missing_ask": (
+        "We imported GST rates for most of your products. These {count} don't have one yet: "
+        "{names}. What GST rate should they use? (e.g. 5, 12, 18, or 0 — or 'skip' to decide "
+        "later)"
+    ),
     # Products
     "onboarding.product.intro": (
         "Now let's add your products. Reply 'one by one' to add them individually, "
@@ -326,6 +331,26 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.dealer.credit_ask": "How many credit days do you give {name}? (e.g. 15, or 'skip')",
     "onboarding.dealer.added": "Added dealer {name}. Next dealer's name, or 'done'.",
+    # Dealer missing-field backfill (import path only)
+    "onboarding.dealer.missing_ask": (
+        "We found {count} dealer(s) from your import, but they're missing a phone number "
+        "and/or credit days. Complete them now, or later? (now/later)"
+    ),
+    "onboarding.dealer.missing_list": (
+        "{listing}\n\nReply 'bulk' to paste them all at once, or 'one by one' to fill them in "
+        "individually."
+    ),
+    "onboarding.dealer.missing_bulk_format": (
+        "Send one line per dealer to fill in their details:\n"
+        "Name, Phone, Credit Days\n"
+        "e.g.\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Only names matching the list above will be updated."
+    ),
+    "onboarding.dealer.missing_bulk_done": "Updated {count} dealer(s): {names}.",
+    "onboarding.dealer.missing_bulk_unmatched": (
+        "Couldn't match these names to the list above, so they weren't updated: {names}."
+    ),
     # Suppliers
     "onboarding.suppliers.intro": (
         "Now your suppliers. Reply 'one by one' to add them individually, "
@@ -354,6 +379,26 @@ MESSAGES: dict[str, str] = {
         "How many days does {name} give you to pay? (e.g. 15/'skip')"
     ),
     "onboarding.supplier.added": "Added supplier {name}. Next supplier's name, or 'done'.",
+    # Supplier missing-field backfill (import path only)
+    "onboarding.supplier.missing_ask": (
+        "We found {count} supplier(s) from your import, but they're missing a phone number "
+        "and/or credit days. Complete them now, or later? (now/later)"
+    ),
+    "onboarding.supplier.missing_list": (
+        "{listing}\n\nReply 'bulk' to paste them all at once, or 'one by one' to fill them in "
+        "individually."
+    ),
+    "onboarding.supplier.missing_bulk_format": (
+        "Send one line per supplier to fill in their details:\n"
+        "Name, Phone, Credit Days\n"
+        "e.g.\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Only names matching the list above will be updated."
+    ),
+    "onboarding.supplier.missing_bulk_done": "Updated {count} supplier(s): {names}.",
+    "onboarding.supplier.missing_bulk_unmatched": (
+        "Couldn't match these names to the list above, so they weren't updated: {names}."
+    ),
     # Shared party fields
     "onboarding.party.phone_ask": "Phone number for {name}? (or 'skip')",
     "onboarding.party.credit_invalid": "Please send a number of days, e.g. 15 (or 'skip').",
@@ -617,8 +662,7 @@ MESSAGES: dict[str, str] = {
     "payment.verb_to": "to",
     "payment.target_invoice": " against invoice {number}",
     "payment.preview": (
-        "Confirm: {amount} {verb} {party}{target} on {date}.\n"
-        "Reply YES to record, NO to cancel."
+        "Confirm: {amount} {verb} {party}{target} on {date}.\nReply YES to record, NO to cancel."
     ),
     # ── Create order ───────────────────────────────────────────────────────
     "order.start": "Who is this order for? (dealer name)",
@@ -651,12 +695,10 @@ MESSAGES: dict[str, str] = {
         "I couldn't find an invoice numbered '{number}'. Check and try again, or 'cancel'."
     ),
     "edit.invoice_has_payment": (
-        "Invoice {number} already has a payment recorded against it — void it and "
-        "recreate instead."
+        "Invoice {number} already has a payment recorded against it — void it and recreate instead."
     ),
     "edit.field_ask_invoice": (
-        "What do you want to edit — amount, date, or party? "
-        "Reply 'amount', 'date', or 'party'."
+        "What do you want to edit — amount, date, or party? Reply 'amount', 'date', or 'party'."
     ),
     "edit.field_invalid_invoice": "Please reply 'amount', 'date', or 'party' — or 'cancel'.",
     "edit.amount_ask": "Current amount is {current}. What should the new amount be? (e.g. 1200)",
@@ -680,8 +722,7 @@ MESSAGES: dict[str, str] = {
     ),
     "edit.no_payments_for_party": "No payments on file for {name}.",
     "edit.payment_pick_ask": (
-        "Found {count} recent payments for {name}:\n{listing}\n"
-        "Reply with the number, or 'cancel'."
+        "Found {count} recent payments for {name}:\n{listing}\nReply with the number, or 'cancel'."
     ),
     "edit.payment_pick_invalid": "Please reply with a number from 1 to {count}, or 'cancel'.",
     "edit.payment_gone": (
@@ -932,8 +973,7 @@ MESSAGES: dict[str, str] = {
     "followup.amount_invalid": "I didn't understand that amount. Please send a number, e.g. 25000.",
     "followup.date_invalid": "I didn't understand that date.\nExample: Friday, 3 days, next week",
     "followup.rescheduled": (
-        "Noted. {number} follow-up scheduled for {when}.\n"
-        "{dealer} flagged in tomorrow's briefing."
+        "Noted. {number} follow-up scheduled for {when}.\n{dealer} flagged in tomorrow's briefing."
     ),
     "followup.error": "Something went wrong with that follow-up. {menu_prompt}",
     # ── Proactive notifications (distributor-facing only; founder alerts EN) ─

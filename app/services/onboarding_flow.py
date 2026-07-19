@@ -36,7 +36,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.i18n import Locale, compose_locale, resolve_locale, t
@@ -51,6 +51,7 @@ from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.importer.parties import find_or_create_party, find_party
 from app.services.money_format import format_inr
+from app.services.party_completeness import parties_missing_fields
 from app.services.party_outstanding import calculate_outstanding_for_company
 from app.services.snapshot import business_now
 
@@ -298,6 +299,54 @@ def _product_intro(loc: Locale) -> str:
     return f"{_progress(1, loc)}\n\n{t('onboarding.product.intro', loc)}"
 
 
+# ── GST — only ask about imported products missing a rate ───────────────────
+# An imported products file commonly has its own GST% column, already applied
+# per-row by app/services/importer/product_row.py — re-asking "same or varies,
+# what's your rate?" from scratch would ignore data the distributor already
+# gave. _start_gst_step replaces awaiting_business_type's old unconditional
+# jump into gst_mode_ask with this check; a company with no imported products
+# (including every "start a new business" signup) always takes the "0
+# products" branch below, so this is a no-op for that path — same convention
+# as the import skip-chain further down this file.
+
+_GST_MISSING_LISTING_CAP = 10
+
+
+async def _products_missing_gst(db: AsyncSession, company_id: uuid.UUID) -> list[Product]:
+    stmt = (
+        select(Product)
+        .where(Product.company_id == company_id, Product.gst_rate.is_(None))
+        .order_by(Product.name)
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _start_gst_step(db: AsyncSession, company: Company, loc: Locale) -> str:
+    total_products = await _count(db, Product, company.id)
+    if not total_products:
+        company.onboarding_state = OnboardingState.gst_mode_ask
+        return t("onboarding.gst.mode_ask", loc)
+
+    # Imported products carry (or, once the missing ones are filled in below,
+    # will carry) their own per-product rate — future products this
+    # distributor adds should be asked/shown a GST% column too, exactly like
+    # a from-scratch "varies" answer sets up (see _bulk_format_message and
+    # product_awaiting_purchase_price below, both of which branch on this).
+    company.gst_varies_by_product = True
+
+    missing = await _products_missing_gst(db, company.id)
+    if not missing:
+        return await _after_gst(db, company, loc)
+
+    scratch = {"missing_product_ids": [str(p.id) for p in missing]}
+    company.onboarding_scratch = scratch
+    company.onboarding_state = OnboardingState.gst_missing_rate_ask
+    names = ", ".join(p.name for p in missing[:_GST_MISSING_LISTING_CAP])
+    if len(missing) > _GST_MISSING_LISTING_CAP:
+        names += ", ..."
+    return t("onboarding.gst.missing_ask", loc, count=len(missing), names=names)
+
+
 def _bulk_format_message(company: Company, loc: Locale) -> str:
     """The bulk-paste format instructions, with a GST% column only when GST
     varies by product. When it's the same for every product (or "not sure"),
@@ -356,6 +405,11 @@ def _after_suppliers(company: Company, loc: Locale) -> str:
 async def _after_dealers(db: AsyncSession, company: Company, loc: Locale) -> str:
     supplier_count = await _count(db, Supplier, company.id)
     if supplier_count:
+        missing = await parties_missing_fields(db, Supplier, company.id)
+        if missing:
+            return _start_missing_flow(
+                company, OnboardingState.supplier_missing_ask, "supplier", missing, loc
+            )
         return _after_suppliers(company, loc)
     company.onboarding_state = OnboardingState.supplier_awaiting_mode
     return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
@@ -364,6 +418,11 @@ async def _after_dealers(db: AsyncSession, company: Company, loc: Locale) -> str
 async def _after_products(db: AsyncSession, company: Company, loc: Locale) -> str:
     dealer_count = await _count(db, Dealer, company.id)
     if dealer_count:
+        missing = await parties_missing_fields(db, Dealer, company.id)
+        if missing:
+            return _start_missing_flow(
+                company, OnboardingState.dealer_missing_ask, "dealer", missing, loc
+            )
         return await _after_dealers(db, company, loc)
     company.onboarding_state = OnboardingState.dealer_awaiting_mode
     return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
@@ -397,6 +456,113 @@ async def _route_past_import(db: AsyncSession, company: Company, loc: Locale) ->
         return await _after_products(db, company, loc)
     company.onboarding_state = OnboardingState.product_awaiting_mode
     return _product_intro(loc)
+
+
+# ── Dealers/suppliers — only ask about parties missing phone/credit days ─────
+# Mirrors the products/GST situation above: an imported dealer/supplier row
+# only ever has `name` set (see app/services/party_completeness.py's
+# docstring). Wired into _after_products/_after_dealers below, right where
+# each currently does a bare "count > 0 -> skip the whole section" — that
+# part is unchanged; what's new is checking whether the rows that made count
+# non-zero are actually complete before skipping silently.
+
+
+def _missing_ask_prompt(kind_key: str, count: int, loc: Locale) -> str:
+    return t(f"onboarding.{kind_key}.missing_ask", loc, count=count)
+
+
+def _missing_list_prompt(kind_key: str, parties: list[Dealer] | list[Supplier], loc: Locale) -> str:
+    listing = "\n".join(f"{i}. {p.name}" for i, p in enumerate(parties, start=1))
+    return t(f"onboarding.{kind_key}.missing_list", loc, listing=listing)
+
+
+def _start_missing_flow(
+    company: Company,
+    ask_state: OnboardingState,
+    kind_key: str,
+    parties: list[Dealer] | list[Supplier],
+    loc: Locale,
+) -> str:
+    company.onboarding_scratch = {"missing_ids": [str(p.id) for p in parties]}
+    company.onboarding_state = ask_state
+    return _missing_ask_prompt(kind_key, len(parties), loc)
+
+
+async def _parties_by_ids(
+    db: AsyncSession, model: type[Dealer] | type[Supplier], ids: list[str]
+) -> list[Dealer] | list[Supplier]:
+    """Look up parties by id, preserving `ids`' own order (the order the
+    missing-fields list was first shown/queued in) rather than whatever order
+    the database happens to return them in."""
+    if not ids:
+        return []
+    uuids = [uuid.UUID(i) for i in ids]
+    rows = (await db.execute(select(model).where(model.id.in_(uuids)))).scalars().all()
+    by_id = {str(row.id): row for row in rows}
+    return [by_id[i] for i in ids if i in by_id]
+
+
+def _apply_missing_bulk_lines(
+    parties: list[Dealer] | list[Supplier], lines: list[str]
+) -> tuple[list[str], list[str]]:
+    """Parses each pasted line (the same "Name, Phone, Credit Days" shape
+    _parse_bulk_party_line already parses for the from-scratch bulk flows,
+    reused unchanged), matches it case-insensitively against `parties` —
+    never any other party, so a typo can't accidentally edit an unrelated
+    record — and updates the matched row's phone/credit in place, leaving
+    whichever field a line skipped untouched. Raises ValueError (same
+    contract as _parse_bulk_party_line) on a present-but-unparseable field,
+    for the caller to re-show the format instructions on, same as every
+    other bulk-paste handler in this file. Returns (updated_names,
+    unmatched_names).
+    """
+    parsed_items = [_parse_bulk_party_line(line) for line in lines]
+    by_name = {p.name.strip().lower(): p for p in parties}
+    updated: list[str] = []
+    unmatched: list[str] = []
+    for item in parsed_items:
+        party = by_name.get(item["name"].strip().lower())
+        if party is None:
+            unmatched.append(item["name"])
+            continue
+        if item["phone"] is not None:
+            party.phone = item["phone"]
+        if item["credit_days"] is not None:
+            party.payment_terms_days = item["credit_days"]
+        updated.append(party.name)
+    return updated, unmatched
+
+
+async def _advance_missing_one_by_one(
+    db: AsyncSession,
+    company: Company,
+    model: type[Dealer] | type[Supplier],
+    queue: list[str],
+    phone_state: OnboardingState,
+    loc: Locale,
+) -> str | None:
+    """Pop the next party id off `queue`, transition to `phone_state`, and ask
+    their phone number (reusing onboarding.party.phone_ask verbatim). Returns
+    None (and clears scratch) once the queue is exhausted — signalling the
+    caller to run its own section continuation (_after_dealers/
+    _after_suppliers take different signatures, so that decision has to stay
+    with the caller rather than living in this shared helper).
+    """
+    while queue:
+        next_id, *rest = queue
+        party = await db.get(model, uuid.UUID(next_id))
+        if party is None:  # defensive: row gone mid-flow — skip it, don't crash
+            queue = rest
+            continue
+        company.onboarding_scratch = {
+            "missing_queue": rest,
+            "fill_id": next_id,
+            "fill_name": party.name,
+        }
+        company.onboarding_state = phone_state
+        return t("onboarding.party.phone_ask", loc, name=party.name)
+    company.onboarding_scratch = None
+    return None
 
 
 async def _import_summary_counts(db: AsyncSession, company: Company) -> dict[str, object]:
@@ -513,6 +679,7 @@ _STEP_OF_STATE: dict[OnboardingState, int] = {
     OnboardingState.awaiting_business_type: 1,
     OnboardingState.gst_mode_ask: 1,
     OnboardingState.gst_rate_same: 1,
+    OnboardingState.gst_missing_rate_ask: 1,
     OnboardingState.import_confirm: 1,
     OnboardingState.product_awaiting_mode: 2,
     OnboardingState.product_awaiting_bulk: 2,
@@ -529,11 +696,21 @@ _STEP_OF_STATE: dict[OnboardingState, int] = {
     OnboardingState.dealer_awaiting_name: 3,
     OnboardingState.dealer_awaiting_phone: 3,
     OnboardingState.dealer_awaiting_credit: 3,
+    OnboardingState.dealer_missing_ask: 3,
+    OnboardingState.dealer_missing_mode: 3,
+    OnboardingState.dealer_missing_bulk: 3,
+    OnboardingState.dealer_missing_phone: 3,
+    OnboardingState.dealer_missing_credit: 3,
     OnboardingState.supplier_awaiting_mode: 4,
     OnboardingState.supplier_awaiting_bulk: 4,
     OnboardingState.supplier_awaiting_name: 4,
     OnboardingState.supplier_awaiting_phone: 4,
     OnboardingState.supplier_awaiting_credit: 4,
+    OnboardingState.supplier_missing_ask: 4,
+    OnboardingState.supplier_missing_mode: 4,
+    OnboardingState.supplier_missing_bulk: 4,
+    OnboardingState.supplier_missing_phone: 4,
+    OnboardingState.supplier_missing_credit: 4,
     OnboardingState.awaiting_opening_balance: 5,
     OnboardingState.receivable_ask: 6,
     OnboardingState.receivable_dealer: 6,
@@ -704,8 +881,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 1. Business type ─────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_business_type:
         company.business_type = stripped
-        company.onboarding_state = OnboardingState.gst_mode_ask
-        return t("onboarding.gst.mode_ask", loc)
+        return await _start_gst_step(db, company, loc)
 
     if state == OnboardingState.gst_mode_ask:
         if _is(stripped, "not sure", "skip", "later"):
@@ -727,6 +903,19 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             return t("onboarding.gst.rate_invalid", loc)
         company.gst_rate = rate
         company.gst_varies_by_product = False
+        return await _after_gst(db, company, loc)
+
+    # ── GST for imported products still missing a rate (see _start_gst_step) ─
+    if state == OnboardingState.gst_missing_rate_ask:
+        if not _is(stripped, "not sure", "skip", "later"):
+            try:
+                rate = parse_gst_rate(stripped)
+            except ValueError:
+                return t("onboarding.gst.rate_invalid", loc)
+            ids = [uuid.UUID(i) for i in scratch.get("missing_product_ids", [])]
+            if ids:
+                await db.execute(update(Product).where(Product.id.in_(ids)).values(gst_rate=rate))
+        company.onboarding_scratch = None
         return await _after_gst(db, company, loc)
 
     # ── Import confirm (reached from _after_gst when a website import left ──
@@ -928,6 +1117,97 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_state = OnboardingState.dealer_awaiting_name
         return t("onboarding.dealer.added", loc, name=name)
 
+    # ── Dealer missing-field backfill (import path only — see _after_products) ─
+    if state == OnboardingState.dealer_missing_ask:
+        if _is(stripped, "yes", "y", "now"):
+            parties = await _parties_by_ids(db, Dealer, scratch.get("missing_ids", []))
+            company.onboarding_state = OnboardingState.dealer_missing_mode
+            return _missing_list_prompt("dealer", parties, loc)
+        if _is(stripped, "no", "n", "later", "skip"):
+            company.onboarding_scratch = None
+            return await _after_dealers(db, company, loc)
+        return t("onboarding.yes_no_invalid", loc)
+
+    if state == OnboardingState.dealer_missing_mode:
+        mode = _classify_entry_mode(stripped)
+        if mode == "bulk":
+            company.onboarding_state = OnboardingState.dealer_missing_bulk
+            return t("onboarding.dealer.missing_bulk_format", loc)
+        if mode == "one_by_one":
+            reply = await _advance_missing_one_by_one(
+                db,
+                company,
+                Dealer,
+                scratch.get("missing_ids", []),
+                OnboardingState.dealer_missing_phone,
+                loc,
+            )
+            return reply if reply is not None else await _after_dealers(db, company, loc)
+        return t("onboarding.dealer.mode_invalid", loc)
+
+    if state == OnboardingState.dealer_missing_bulk:
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return t("onboarding.dealer.missing_bulk_format", loc)
+        parties = await _parties_by_ids(db, Dealer, scratch.get("missing_ids", []))
+        try:
+            updated, unmatched = _apply_missing_bulk_lines(parties, lines)
+        except ValueError as exc:
+            return (
+                t("onboarding.bulk_error", loc, error=exc)
+                + "\n\n"
+                + t("onboarding.dealer.missing_bulk_format", loc)
+            )
+        company.onboarding_scratch = None
+        parts = []
+        if updated:
+            parts.append(
+                t(
+                    "onboarding.dealer.missing_bulk_done",
+                    loc,
+                    count=len(updated),
+                    names=", ".join(updated),
+                )
+            )
+        if unmatched:
+            parts.append(
+                t("onboarding.dealer.missing_bulk_unmatched", loc, names=", ".join(unmatched))
+            )
+        return "\n\n".join(parts) + f"\n\n{await _after_dealers(db, company, loc)}"
+
+    if state == OnboardingState.dealer_missing_phone:
+        if not _is(stripped, "skip"):
+            scratch["fill_phone"] = stripped
+        company.onboarding_scratch = scratch
+        company.onboarding_state = OnboardingState.dealer_missing_credit
+        name = scratch.get("fill_name", "them")
+        return t("onboarding.dealer.credit_ask", loc, name=name)
+
+    if state == OnboardingState.dealer_missing_credit:
+        credit = None
+        if not _is(stripped, "skip"):
+            try:
+                credit = int(stripped)
+            except ValueError:
+                return t("onboarding.party.credit_invalid", loc)
+        fill_id = scratch.get("fill_id")
+        if fill_id:
+            dealer = await db.get(Dealer, uuid.UUID(fill_id))
+            if dealer is not None:
+                if scratch.get("fill_phone") is not None:
+                    dealer.phone = scratch["fill_phone"]
+                if credit is not None:
+                    dealer.payment_terms_days = credit
+        reply = await _advance_missing_one_by_one(
+            db,
+            company,
+            Dealer,
+            scratch.get("missing_queue", []),
+            OnboardingState.dealer_missing_phone,
+            loc,
+        )
+        return reply if reply is not None else await _after_dealers(db, company, loc)
+
     # ── 4. Suppliers (same shape as dealers, mode -> name/bulk) ──────────────
     if state == OnboardingState.supplier_awaiting_mode:
         if _is(stripped, "done", "skip"):
@@ -1005,6 +1285,97 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_scratch = None
         company.onboarding_state = OnboardingState.supplier_awaiting_name
         return t("onboarding.supplier.added", loc, name=name)
+
+    # ── Supplier missing-field backfill (import path only — see _after_dealers) ─
+    if state == OnboardingState.supplier_missing_ask:
+        if _is(stripped, "yes", "y", "now"):
+            parties = await _parties_by_ids(db, Supplier, scratch.get("missing_ids", []))
+            company.onboarding_state = OnboardingState.supplier_missing_mode
+            return _missing_list_prompt("supplier", parties, loc)
+        if _is(stripped, "no", "n", "later", "skip"):
+            company.onboarding_scratch = None
+            return _after_suppliers(company, loc)
+        return t("onboarding.yes_no_invalid", loc)
+
+    if state == OnboardingState.supplier_missing_mode:
+        mode = _classify_entry_mode(stripped)
+        if mode == "bulk":
+            company.onboarding_state = OnboardingState.supplier_missing_bulk
+            return t("onboarding.supplier.missing_bulk_format", loc)
+        if mode == "one_by_one":
+            reply = await _advance_missing_one_by_one(
+                db,
+                company,
+                Supplier,
+                scratch.get("missing_ids", []),
+                OnboardingState.supplier_missing_phone,
+                loc,
+            )
+            return reply if reply is not None else _after_suppliers(company, loc)
+        return t("onboarding.supplier.mode_invalid", loc)
+
+    if state == OnboardingState.supplier_missing_bulk:
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return t("onboarding.supplier.missing_bulk_format", loc)
+        parties = await _parties_by_ids(db, Supplier, scratch.get("missing_ids", []))
+        try:
+            updated, unmatched = _apply_missing_bulk_lines(parties, lines)
+        except ValueError as exc:
+            return (
+                t("onboarding.bulk_error", loc, error=exc)
+                + "\n\n"
+                + t("onboarding.supplier.missing_bulk_format", loc)
+            )
+        company.onboarding_scratch = None
+        parts = []
+        if updated:
+            parts.append(
+                t(
+                    "onboarding.supplier.missing_bulk_done",
+                    loc,
+                    count=len(updated),
+                    names=", ".join(updated),
+                )
+            )
+        if unmatched:
+            parts.append(
+                t("onboarding.supplier.missing_bulk_unmatched", loc, names=", ".join(unmatched))
+            )
+        return "\n\n".join(parts) + f"\n\n{_after_suppliers(company, loc)}"
+
+    if state == OnboardingState.supplier_missing_phone:
+        if not _is(stripped, "skip"):
+            scratch["fill_phone"] = stripped
+        company.onboarding_scratch = scratch
+        company.onboarding_state = OnboardingState.supplier_missing_credit
+        name = scratch.get("fill_name", "them")
+        return t("onboarding.supplier.credit_ask", loc, name=name)
+
+    if state == OnboardingState.supplier_missing_credit:
+        credit = None
+        if not _is(stripped, "skip"):
+            try:
+                credit = int(stripped)
+            except ValueError:
+                return t("onboarding.party.credit_invalid", loc)
+        fill_id = scratch.get("fill_id")
+        if fill_id:
+            supplier = await db.get(Supplier, uuid.UUID(fill_id))
+            if supplier is not None:
+                if scratch.get("fill_phone") is not None:
+                    supplier.phone = scratch["fill_phone"]
+                if credit is not None:
+                    supplier.payment_terms_days = credit
+        reply = await _advance_missing_one_by_one(
+            db,
+            company,
+            Supplier,
+            scratch.get("missing_queue", []),
+            OnboardingState.supplier_missing_phone,
+            loc,
+        )
+        return reply if reply is not None else _after_suppliers(company, loc)
 
     # ── 5. Opening cash ──────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_opening_balance:

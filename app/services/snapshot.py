@@ -29,6 +29,7 @@ from app.models.import_log import ImportLog
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.payment import Payment
 from app.models.supplier import Supplier
+from app.services.party_completeness import count_parties_missing_fields
 from app.services.party_outstanding import calculate_outstanding_for_company
 
 _OPEN_STATUSES = (InvoiceStatus.Pending, InvoiceStatus.Partially_Paid, InvoiceStatus.Overdue)
@@ -108,6 +109,15 @@ class Snapshot:
     # round-trip. Defaulted to English so existing Snapshot(...) test fixtures
     # stay valid and unchanged (English behavior).
     locale: Locale = DEFAULT_LOCALE
+    # How many dealers/suppliers still have no phone/credit-days on file —
+    # commonly non-zero right after an "import existing data" onboarding
+    # where the distributor picked "later" instead of filling these in on the
+    # spot (see app/services/onboarding_flow.py's dealer_missing_*/
+    # supplier_missing_* states). Feeds RecommendationEngine's
+    # incomplete_party_data action so "later" doesn't mean "forgotten".
+    # Defaulted to 0 for the same reason as business_name/locale above.
+    dealers_missing_fields_count: int = 0
+    suppliers_missing_fields_count: int = 0
 
 
 def is_cash_sufficient(cash_available: Decimal, amount: Decimal) -> bool:
@@ -342,6 +352,8 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
     payments = await _expected_payments_7d(db, company_id, today)
     overdue_dealers = await _overdue_dealers(db, company_id, today)
     freshness_hours = await data_freshness_hours(db, company_id, now)
+    dealers_missing_fields_count = await count_parties_missing_fields(db, Dealer, company_id)
+    suppliers_missing_fields_count = await count_parties_missing_fields(db, Supplier, company_id)
 
     collections_total = sum((c.amount for c in collections), Decimal("0.00"))
     payments_total = sum((p.amount for p in payments), Decimal("0.00"))
@@ -363,4 +375,6 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
         confidence_score=_confidence_score(freshness_hours),
         business_name=company.business_name,
         locale=resolve_locale(company),
+        dealers_missing_fields_count=dealers_missing_fields_count,
+        suppliers_missing_fields_count=suppliers_missing_fields_count,
     )

@@ -206,6 +206,47 @@ def test_fresh_data_no_stale_warning():
     assert not [a for a in actions if a.action_type == "stale_data_warning"]
 
 
+# ── Incomplete party data (import "later" reminder) ──────────────────────────
+
+
+def test_no_incomplete_party_data_no_action():
+    # _base_snapshot doesn't override either count, so this also confirms the
+    # Snapshot dataclass's own 0 defaults keep every pre-existing hand-built
+    # fixture in this file unaffected.
+    snapshot = _base_snapshot()
+    actions = build_recommendations(snapshot)
+    assert not [a for a in actions if a.action_type == "incomplete_party_data"]
+
+
+def test_dealers_missing_fields_fires_incomplete_party_data():
+    snapshot = _base_snapshot(dealers_missing_fields_count=3, suppliers_missing_fields_count=0)
+    actions = build_recommendations(snapshot)
+    matches = [a for a in actions if a.action_type == "incomplete_party_data"]
+    assert len(matches) == 1
+    assert matches[0].priority == 3
+    assert matches[0].entity_id is None
+    assert "3 dealer(s)" in matches[0].reason
+    assert "supplier" not in matches[0].reason
+
+
+def test_suppliers_missing_fields_fires_incomplete_party_data():
+    snapshot = _base_snapshot(dealers_missing_fields_count=0, suppliers_missing_fields_count=2)
+    actions = build_recommendations(snapshot)
+    matches = [a for a in actions if a.action_type == "incomplete_party_data"]
+    assert len(matches) == 1
+    assert "2 supplier(s)" in matches[0].reason
+    assert "dealer" not in matches[0].reason
+
+
+def test_both_missing_fires_one_combined_action():
+    snapshot = _base_snapshot(dealers_missing_fields_count=3, suppliers_missing_fields_count=2)
+    actions = build_recommendations(snapshot)
+    matches = [a for a in actions if a.action_type == "incomplete_party_data"]
+    assert len(matches) == 1  # one action, not two
+    assert "3 dealer(s)" in matches[0].reason
+    assert "2 supplier(s)" in matches[0].reason
+
+
 # ── Rule 5: follow-up reminder ────────────────────────────────────────────────
 
 

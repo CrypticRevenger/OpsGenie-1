@@ -154,9 +154,7 @@ MESSAGES: dict[str, str] = {
     "reports.inventory.label_all": "पूरी इन्वेंटरी",
     "reports.inventory.header_partial": "📦 {label} ({count} of {total}):",
     "reports.inventory.header_full": "📦 {label} ({count}):",
-    "reports.inventory.more": (
-        "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all inventory' भेजें।"
-    ),
+    "reports.inventory.more": ("\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all inventory' भेजें।"),
     "reports.product.price_not_set": "कीमत सेट नहीं",
     # ── FAQs ───────────────────────────────────────────────────────────────
     "reports.faq.none": "आपके पास अभी कोई सेव की गई पॉलिसी नहीं।",
@@ -168,9 +166,7 @@ MESSAGES: dict[str, str] = {
     "reports.invoices.label_all": "सभी इनवॉइस",
     "reports.invoices.header_partial": "📄 {label} ({count} of {total}):",
     "reports.invoices.header_full": "📄 {label} ({count}):",
-    "reports.invoices.more": (
-        "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all invoices' भेजें।"
-    ),
+    "reports.invoices.more": ("\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all invoices' भेजें।"),
     "reports.invoices.line": "{number} — {party} — {amount} — {status} — {due}",
     "reports.unknown_party": "अज्ञात party",
     # ── Payments ───────────────────────────────────────────────────────────
@@ -179,9 +175,7 @@ MESSAGES: dict[str, str] = {
     "reports.payments.label_all": "सभी पेमेंट",
     "reports.payments.header_partial": "💵 {label} ({count} of {total}):",
     "reports.payments.header_full": "💵 {label} ({count}):",
-    "reports.payments.more": (
-        "\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all payments' भेजें।"
-    ),
+    "reports.payments.more": ("\n\n…और {remaining} ज़्यादा — पूरी लिस्ट के लिए 'all payments' भेजें।"),
     "reports.payments.from": "से",
     "reports.payments.to": "को",
     "reports.payments.line": "{amount} — invoice {number} {direction} — {date}",
@@ -236,6 +230,11 @@ MESSAGES: dict[str, str] = {
     "onboarding.gst.rate_invalid": (
         "कृपया 0 से 100 के बीच number भेजें, जैसे 18 (या 'not sure' बाद में तय करने के लिए)।"
     ),
+    "onboarding.gst.missing_ask": (
+        "हमने आपके ज़्यादातर products के GST rates import कर लिए हैं। इन {count} में अभी तक "
+        "नहीं है: {names}। इनके लिए कौन सा GST rate use करें? (जैसे 5, 12, 18, या 0 — या "
+        "'skip' बाद में तय करने के लिए)"
+    ),
     "onboarding.product.intro": (
         "अब अपने products add करें। Reply 'one by one' एक-एक करके, या 'bulk' सब एक साथ "
         "पूरे details के साथ (जैसे Rice, 300, 400, kg, 100, 5)। 'done' skip करने के लिए।"
@@ -267,9 +266,7 @@ MESSAGES: dict[str, str] = {
     "onboarding.product.bulk_added": (
         "{count} product add किए: {names}। और भेजें, या हो जाए तो 'done' भेजें।"
     ),
-    "onboarding.product.quantity_ask": (
-        "अभी आपके पास कितना {name} stock में है? (जैसे 100, या 'skip')"
-    ),
+    "onboarding.product.quantity_ask": ("अभी आपके पास कितना {name} stock में है? (जैसे 100, या 'skip')"),
     "onboarding.product.quantity_invalid": "कृपया एक number भेजें, जैसे 100 (या 'skip')।",
     "onboarding.product.unit": "यह किस unit में है? (जैसे kg, pcs, box, litre, या 'skip')",
     "onboarding.product.price_ask": "{name} की selling price क्या है? (जैसे 400, या 'skip')",
@@ -284,9 +281,7 @@ MESSAGES: dict[str, str] = {
     "onboarding.product.gst_invalid": (
         "कृपया 0 से 100 के बीच number भेजें, जैसे 18 (या 'skip' बाद में तय करने के लिए)।"
     ),
-    "onboarding.product.added": (
-        "Product add किया: {name} ({stock} stock में)। और भेजें, या 'done'।"
-    ),
+    "onboarding.product.added": ("Product add किया: {name} ({stock} stock में)। और भेजें, या 'done'।"),
     "onboarding.dealers.intro": (
         "अब अपने dealers (customers) add करें। Reply 'one by one' एक-एक करके add करने के लिए, "
         "या 'bulk' सबको एक साथ भेजने के लिए (जैसे Ram Traders, 9876543210, 15)। "
@@ -312,6 +307,25 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.dealer.credit_ask": "{name} को आप कितने credit दिन देते हैं? (जैसे 15, या 'skip')",
     "onboarding.dealer.added": "Dealer {name} add किया। अगले dealer का नाम, या 'done'।",
+    "onboarding.dealer.missing_ask": (
+        "आपके import से हमें {count} dealer(s) मिले, लेकिन उनका phone number और/या credit "
+        "days missing है। अभी complete करें, या बाद में? (now/later)"
+    ),
+    "onboarding.dealer.missing_list": (
+        "{listing}\n\n'bulk' reply करें सबको एक साथ paste करने के लिए, या 'one by one' "
+        "एक-एक करके fill करने के लिए।"
+    ),
+    "onboarding.dealer.missing_bulk_format": (
+        "हर dealer की details fill करने के लिए एक line भेजें:\n"
+        "Name, Phone, Credit Days\n"
+        "जैसे\n"
+        "Ram Traders, 9876543210, 15\n"
+        "सिर्फ ऊपर वाली list से match होने वाले नाम ही update होंगे।"
+    ),
+    "onboarding.dealer.missing_bulk_done": "{count} dealer update किए: {names}।",
+    "onboarding.dealer.missing_bulk_unmatched": (
+        "ये नाम ऊपर की list से match नहीं हुए, इसलिए update नहीं हुए: {names}।"
+    ),
     "onboarding.suppliers.intro": (
         "अब आपके suppliers। Reply 'one by one' एक-एक करके add करने के लिए, "
         "या 'bulk' सबको एक साथ भेजने के लिए (जैसे Metro Distributors, 9988776655, 30)। "
@@ -335,10 +349,27 @@ MESSAGES: dict[str, str] = {
     "onboarding.supplier.bulk_added": (
         "{count} supplier add किए: {names}। और भेजें, या हो जाए तो 'done' भेजें।"
     ),
-    "onboarding.supplier.credit_ask": (
-        "{name} आपको pay करने के लिए कितने दिन देता है? (जैसे 15/'skip')"
-    ),
+    "onboarding.supplier.credit_ask": ("{name} आपको pay करने के लिए कितने दिन देता है? (जैसे 15/'skip')"),
     "onboarding.supplier.added": "Supplier {name} add किया। अगले supplier का नाम, या 'done'।",
+    "onboarding.supplier.missing_ask": (
+        "आपके import से हमें {count} supplier(s) मिले, लेकिन उनका phone number और/या credit "
+        "days missing है। अभी complete करें, या बाद में? (now/later)"
+    ),
+    "onboarding.supplier.missing_list": (
+        "{listing}\n\n'bulk' reply करें सबको एक साथ paste करने के लिए, या 'one by one' "
+        "एक-एक करके fill करने के लिए।"
+    ),
+    "onboarding.supplier.missing_bulk_format": (
+        "हर supplier की details fill करने के लिए एक line भेजें:\n"
+        "Name, Phone, Credit Days\n"
+        "जैसे\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "सिर्फ ऊपर वाली list से match होने वाले नाम ही update होंगे।"
+    ),
+    "onboarding.supplier.missing_bulk_done": "{count} supplier update किए: {names}।",
+    "onboarding.supplier.missing_bulk_unmatched": (
+        "ये नाम ऊपर की list से match नहीं हुए, इसलिए update नहीं हुए: {names}।"
+    ),
     "onboarding.party.phone_ask": "{name} का phone number? (या 'skip')",
     "onboarding.party.credit_invalid": "कृपया दिनों का number भेजें, जैसे 15 (या 'skip')।",
     "onboarding.bulk_error": "यह समझ नहीं आया: {error}",
@@ -374,9 +405,7 @@ MESSAGES: dict[str, str] = {
     "onboarding.date_invalid": (
         "माफ़ करें, वह date समझ नहीं आई। Try करें जैसे Friday, 15 days, या next week।"
     ),
-    "onboarding.briefing.ask": (
-        "आख़िरी step — मैं आपकी morning briefing कब भेजूँ? Reply 7, 8, या 9।"
-    ),
+    "onboarding.briefing.ask": ("आख़िरी step — मैं आपकी morning briefing कब भेजूँ? Reply 7, 8, या 9।"),
     "onboarding.briefing.invalid": "कृपया एक घंटा reply करें, जैसे 7, 8, या 9।",
     "onboarding.briefing.range": "कृपया सुबह 5 से 11 के बीच का घंटा चुनें (जैसे 7, 8, या 9)।",
     # Resume: progress checklist ("progress"/"status") and restart ("restart")
@@ -414,9 +443,7 @@ MESSAGES: dict[str, str] = {
         "⚠️ इससे अब तक भरी गई सारी जानकारी (products, dealers, suppliers, opening balance) मिट "
         "जाएगी और सेटअप शुरुआत से फिर होगा। पक्का करना चाहते हैं? (yes/no)"
     ),
-    "onboarding.restart.cancelled": (
-        "ठीक है — आपका सेटअप जारी है। ऊपर वाले आख़िरी सवाल का जवाब भेजें।"
-    ),
+    "onboarding.restart.cancelled": ("ठीक है — आपका सेटअप जारी है। ऊपर वाले आख़िरी सवाल का जवाब भेजें।"),
     "onboarding.restart.done": (
         "🔄 सब कुछ मिट गया। चलिए फिर से शुरुआत से आपका बिज़नेस सेट अप करते हैं।\n\n"
         "पहला सवाल: आप किस तरह का बिज़नेस चलाते हैं? (जैसे FMCG Distributor, Pharma Distributor)"
@@ -533,9 +560,7 @@ MESSAGES: dict[str, str] = {
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel कर दिया।",
     "workflow.yes_no": "कृपया yes या no reply करें।",
-    "workflow.error_restart": (
-        "कुछ गड़बड़ हो गई। कृपया दोबारा '{trigger}' बोलकर शुरू करें।"
-    ),
+    "workflow.error_restart": ("कुछ गड़बड़ हो गई। कृपया दोबारा '{trigger}' बोलकर शुरू करें।"),
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
     # ── Record payment ─────────────────────────────────────────────────────
@@ -574,9 +599,7 @@ MESSAGES: dict[str, str] = {
     "payment.date_ask": (
         "यह कब pay हुआ? Reply 'today', 'yesterday', '3 days ago', या skip आज के लिए।"
     ),
-    "payment.date_invalid": (
-        "माफ़ करें, वह date समझ नहीं आई। Try 'today', 'yesterday', '3 days ago'।"
-    ),
+    "payment.date_invalid": ("माफ़ करें, वह date समझ नहीं आई। Try 'today', 'yesterday', '3 days ago'।"),
     "payment.verb_from": "से",
     "payment.verb_to": "को",
     "payment.target_invoice": " invoice {number} के against",
@@ -602,9 +625,7 @@ MESSAGES: dict[str, str] = {
     "order.price_positive": "कृपया zero से ज़्यादा price भेजें।",
     "order.quantity_invalid": "कृपया एक quantity भेजें, जैसे 10।",
     "order.quantity_positive": "कृपया zero से ज़्यादा quantity भेजें।",
-    "order.item_added": (
-        "{quantity} x {product} add किया। और product add करें, या 'done' reply करें।"
-    ),
+    "order.item_added": ("{quantity} x {product} add किया। और product add करें, या 'done' reply करें।"),
     "order.line": "- {quantity} x {product} @ {price} = {total}",
     "order.subtotal": "Subtotal: {amount}",
     "order.gst": "GST{rate_label}: {amount}",
@@ -617,12 +638,10 @@ MESSAGES: dict[str, str] = {
         "मुझे '{number}' नाम का invoice नहीं मिला। जांच कर दोबारा भेजें, या 'cancel'।"
     ),
     "edit.invoice_has_payment": (
-        "Invoice {number} पर पहले से payment record है — पहले उसे void करें और "
-        "दोबारा बनाएं।"
+        "Invoice {number} पर पहले से payment record है — पहले उसे void करें और दोबारा बनाएं।"
     ),
     "edit.field_ask_invoice": (
-        "क्या edit करना है — amount, date, या party? "
-        "Reply करें 'amount', 'date', या 'party'।"
+        "क्या edit करना है — amount, date, या party? Reply करें 'amount', 'date', या 'party'।"
     ),
     "edit.field_invalid_invoice": "कृपया reply करें 'amount', 'date', या 'party' — या 'cancel'।",
     "edit.amount_ask": "अभी का amount {current} है। नया amount क्या हो? (जैसे 1200)",
@@ -642,8 +661,7 @@ MESSAGES: dict[str, str] = {
     ),
     "edit.no_payments_for_party": "{name} के लिए कोई payment नहीं मिला।",
     "edit.payment_pick_ask": (
-        "{name} के लिए {count} हाल के payments मिले:\n{listing}\n"
-        "Number भेजें, या 'cancel'।"
+        "{name} के लिए {count} हाल के payments मिले:\n{listing}\nNumber भेजें, या 'cancel'।"
     ),
     "edit.payment_pick_invalid": "कृपया 1 से {count} के बीच एक number भेजें, या 'cancel'।",
     "edit.payment_gone": "वह payment अब उपलब्ध नहीं है। 'edit payment' कहकर दोबारा शुरू करें।",
@@ -687,9 +705,7 @@ MESSAGES: dict[str, str] = {
     "product.candidate_line": "{index}. {description}",
     "product.candidate_desc": "{name} ({details})",
     "product.candidate_stock": "{stock} stock में",
-    "product.gone": (
-        "वह product अब available नहीं है। कृपया दोबारा '{trigger}' बोलकर शुरू करें।"
-    ),
+    "product.gone": ("वह product अब available नहीं है। कृपया दोबारा '{trigger}' बोलकर शुरू करें।"),
     "product.delete_name_prompt": "कौन सा product delete करना है? नाम भेजें, या 'cancel'।",
     "product.delete_confirm": (
         "{description} delete करें? यह undo नहीं होगा। Reply YES delete, NO cancel।"
@@ -707,15 +723,10 @@ MESSAGES: dict[str, str] = {
     "product.label_price": "price",
     "product.label_purchase": "purchase price",
     "product.label_stock": "stock",
-    "product.update_name_prompt": (
-        "किस product की {label} update करनी है? नाम भेजें, या 'cancel'।"
-    ),
-    "product.current_price": (
-        "{name} की अभी price {current} है। नई price क्या होनी चाहिए? (जैसे 450)"
-    ),
+    "product.update_name_prompt": ("किस product की {label} update करनी है? नाम भेजें, या 'cancel'।"),
+    "product.current_price": ("{name} की अभी price {current} है। नई price क्या होनी चाहिए? (जैसे 450)"),
     "product.current_purchase": (
-        "{name} की अभी purchase price {current} है। "
-        "नई purchase price क्या होनी चाहिए? (जैसे 300)"
+        "{name} की अभी purchase price {current} है। नई purchase price क्या होनी चाहिए? (जैसे 300)"
     ),
     "product.current_stock": (
         "{name} का अभी stock {current} है। नया stock क्या होना चाहिए? (जैसे 100)"
@@ -762,9 +773,7 @@ MESSAGES: dict[str, str] = {
     "party.supplier.name_or_done": (
         "Supplier का नाम भेजें (जैसे Metro Distributors), या रुकने के लिए 'done'।"
     ),
-    "party.supplier.mode_invalid": (
-        "कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।"
-    ),
+    "party.supplier.mode_invalid": ("कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।"),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
     "party.edit.field_prompt": (
         "क्या edit करना है — phone, credit limit, payment terms, या GSTIN? "
@@ -777,8 +786,7 @@ MESSAGES: dict[str, str] = {
     "party.edit.name_ask_supplier": "कौन सा supplier? उनका नाम भेजें, या 'cancel'।",
     "party.edit.not_found": "मुझे '{name}' नहीं मिला। spelling जांच कर दोबारा भेजें, या 'cancel'।",
     "party.edit.disambiguation": (
-        "'{name}' नाम के {count} matches मिले:\n{listing}\n"
-        "Edit करने के लिए number भेजें, या 'cancel'।"
+        "'{name}' नाम के {count} matches मिले:\n{listing}\nEdit करने के लिए number भेजें, या 'cancel'।"
     ),
     "party.edit.disambiguation_invalid": "कृपया 1 से {count} के बीच एक number भेजें, या 'cancel'।",
     "party.edit.gone": "वह record अब उपलब्ध नहीं है। '{trigger}' कहकर दोबारा शुरू करें।",
@@ -788,8 +796,7 @@ MESSAGES: dict[str, str] = {
         "{name} की अभी की credit limit {current} है। नई credit limit क्या हो? (जैसे 50000)"
     ),
     "party.edit.payment_terms_ask": (
-        "{name} के अभी के payment terms {current} days हैं। नए terms दिनों में क्या हों? "
-        "(जैसे 30)"
+        "{name} के अभी के payment terms {current} days हैं। नए terms दिनों में क्या हों? (जैसे 30)"
     ),
     "party.edit.gstin_ask": "{name} का अभी का GSTIN {current} है। नया GSTIN क्या हो?",
     "party.edit.days_invalid": "कृपया दिनों की एक पूरी संख्या भेजें, जैसे 30।",
