@@ -387,6 +387,33 @@ MESSAGES: dict[str, str] = {
     "onboarding.briefing.range": (
         "ଦୟାକରି ସକାଳ 5 ରୁ 11 ମଧ୍ୟରେ ଘଣ୍ଟା ବାଛନ୍ତୁ (ଯେମିତି 7, 8, କିମ୍ବା 9)।"
     ),
+    # Resume: progress checklist ("progress"/"status") and restart ("restart")
+    "onboarding.section.business_type": "ବ୍ୟବସାୟ ପ୍ରକାର",
+    "onboarding.section.products": "ପ୍ରୋଡକ୍ଟସ୍",
+    "onboarding.section.dealers": "ଡିଲର",
+    "onboarding.section.suppliers": "ସପ୍ଲାୟର",
+    "onboarding.section.opening_balance": "ଓପନିଂ ବ୍ୟାଲାନ୍ସ",
+    "onboarding.section.receivables": "ଡିଲର ବାକି",
+    "onboarding.section.payables": "ସପ୍ଲାୟର ବାକି",
+    "onboarding.section.briefing_hour": "ବ୍ରିଫିଂ ସମୟ",
+    "onboarding.status.title": "📋 Setup progress — {percent}% ସମ୍ପୂର୍ଣ୍ଣ ହେଲା।",
+    "onboarding.status.section_done": "✅ {name}",
+    "onboarding.status.section_current": "▶️ {name} (ଆପଣ ଏଠାରେ ଅଛନ୍ତି)",
+    "onboarding.status.section_pending": "⬜ {name}",
+    "onboarding.status.footer_generic": "ଜାରି ରଖିବାକୁ ଆପଣଙ୍କ ପରବର୍ତ୍ତୀ ଉତ୍ତର reply କରନ୍ତୁ।",
+    "onboarding.status.restart_hint": "ସେଟଅପ୍ ପୁଣି ଆରମ୍ଭ କରିବାକୁ 'restart' ପଠାନ୍ତୁ।",
+    "onboarding.restart.confirm": (
+        "⚠️ ଏଥିରେ ଆପଣ ଏବେ ପର୍ଯ୍ୟନ୍ତ ଭରିଥିବା ସବୁ ତଥ୍ୟ (products, dealers, suppliers, opening "
+        "balance) ଲିଭିଯିବ ଏବଂ ସେଟଅପ୍ ଆରମ୍ଭରୁ ପୁଣି ହେବ। ଆପଣ ନିଶ୍ଚିତ କି? (yes/no)"
+    ),
+    "onboarding.restart.cancelled": (
+        "ଠିକ୍ ଅଛି — ଆପଣଙ୍କ ସେଟଅପ୍ ଜାରି ଅଛି। ଉପରର ଶେଷ ପ୍ରଶ୍ନର ଉତ୍ତର ପଠାନ୍ତୁ।"
+    ),
+    "onboarding.restart.done": (
+        "🔄 ସବୁ ଲିଭିଗଲା। ଚାଲନ୍ତୁ ପୁଣି ଆରମ୍ଭରୁ ଆପଣଙ୍କ ବ୍ୟବସାୟ ସେଟ୍ ଅପ୍ କରିବା।\n\n"
+        "ପ୍ରଥମ ପ୍ରଶ୍ନ: ଆପଣ କେଉଁ ପ୍ରକାର ବ୍ୟବସାୟ କରନ୍ତି? (ଯେମିତି FMCG Distributor, Pharma "
+        "Distributor)"
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "ତଳେ ଗୋଟିଏ ବିକଳ୍ପ ଟାପ୍ କରନ୍ତୁ, କିମ୍ବା ପୂରା ତାଲିକା ପାଇଁ /help ପଠାନ୍ତୁ।",
     "menu.msg.reports.body": "ରିପୋର୍ଟ ଓ ସାରାଂଶ — ଗୋଟିଏ ବାଛନ୍ତୁ:",

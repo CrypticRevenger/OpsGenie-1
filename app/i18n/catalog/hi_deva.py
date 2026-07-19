@@ -379,6 +379,32 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.briefing.invalid": "कृपया एक घंटा reply करें, जैसे 7, 8, या 9।",
     "onboarding.briefing.range": "कृपया सुबह 5 से 11 के बीच का घंटा चुनें (जैसे 7, 8, या 9)।",
+    # Resume: progress checklist ("progress"/"status") and restart ("restart")
+    "onboarding.section.business_type": "बिज़नेस टाइप",
+    "onboarding.section.products": "प्रोडक्ट्स",
+    "onboarding.section.dealers": "डीलर",
+    "onboarding.section.suppliers": "सप्लायर",
+    "onboarding.section.opening_balance": "ओपनिंग बैलेंस",
+    "onboarding.section.receivables": "डीलर बकाया",
+    "onboarding.section.payables": "सप्लायर बकाया",
+    "onboarding.section.briefing_hour": "ब्रीफिंग टाइम",
+    "onboarding.status.title": "📋 Setup progress — {percent}% पूरा हो गया।",
+    "onboarding.status.section_done": "✅ {name}",
+    "onboarding.status.section_current": "▶️ {name} (आप यहाँ हैं)",
+    "onboarding.status.section_pending": "⬜ {name}",
+    "onboarding.status.footer_generic": "जारी रखने के लिए अपना अगला जवाब reply करें।",
+    "onboarding.status.restart_hint": "सेटअप फिर से शुरू करने के लिए 'restart' भेजें।",
+    "onboarding.restart.confirm": (
+        "⚠️ इससे अब तक भरी गई सारी जानकारी (products, dealers, suppliers, opening balance) मिट "
+        "जाएगी और सेटअप शुरुआत से फिर होगा। पक्का करना चाहते हैं? (yes/no)"
+    ),
+    "onboarding.restart.cancelled": (
+        "ठीक है — आपका सेटअप जारी है। ऊपर वाले आख़िरी सवाल का जवाब भेजें।"
+    ),
+    "onboarding.restart.done": (
+        "🔄 सब कुछ मिट गया। चलिए फिर से शुरुआत से आपका बिज़नेस सेट अप करते हैं।\n\n"
+        "पहला सवाल: आप किस तरह का बिज़नेस चलाते हैं? (जैसे FMCG Distributor, Pharma Distributor)"
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "नीचे से एक विकल्प चुनें, या पूरी सूची के लिए /help भेजें।",
     "menu.msg.reports.body": "रिपोर्ट्स और अवलोकन — एक चुनें:",

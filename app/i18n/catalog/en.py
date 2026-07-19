@@ -403,6 +403,36 @@ MESSAGES: dict[str, str] = {
     "onboarding.briefing.range": (
         "Please choose a morning hour between 5 and 11 (e.g. 7, 8, or 9)."
     ),
+    # Resume: progress checklist ("progress"/"status", any in-flight
+    # business-setup state) and restart ("restart", confirm-gated).
+    "onboarding.section.business_type": "Business type",
+    "onboarding.section.products": "Products",
+    "onboarding.section.dealers": "Dealers",
+    "onboarding.section.suppliers": "Suppliers",
+    "onboarding.section.opening_balance": "Opening balance",
+    "onboarding.section.receivables": "Receivables",
+    "onboarding.section.payables": "Payables",
+    "onboarding.section.briefing_hour": "Briefing time",
+    "onboarding.status.title": "📋 Setup progress — {percent}% complete",
+    "onboarding.status.section_done": "✅ {name}",
+    "onboarding.status.section_current": "▶️ {name} (you're here)",
+    "onboarding.status.section_pending": "⬜ {name}",
+    "onboarding.status.footer_generic": "Reply with your next answer to continue.",
+    "onboarding.status.restart_hint": (
+        "Type 'restart' to start your business setup over from the beginning."
+    ),
+    "onboarding.restart.confirm": (
+        "⚠️ This will erase everything you've entered so far in this setup "
+        "(products, dealers, suppliers, opening balances) and start over from "
+        "the beginning. Are you sure? (yes/no)"
+    ),
+    "onboarding.restart.cancelled": (
+        "Okay — continuing your setup. Reply with your answer to the last question above."
+    ),
+    "onboarding.restart.done": (
+        "🔄 All cleared. Let's set up your business again from the beginning.\n\n"
+        "First: what kind of business do you run? (e.g. FMCG Distributor, Pharma Distributor)"
+    ),
     # ── Interactive menu ("menu") ──────────────────────────────────────────
     # The tappable-list plaintext that accompanies the list message, plus the
     # per-message body/button labels, section titles, and row titles +

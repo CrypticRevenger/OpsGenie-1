@@ -401,6 +401,33 @@ MESSAGES: dict[str, str] = {
     "onboarding.briefing.range": (
         "Daya kari sakala 5 ru 11 madhyare ghanta bachantu (jaise 7, 8, kimba 9)."
     ),
+    # Resume: progress checklist ("progress"/"status") and restart ("restart")
+    "onboarding.section.business_type": "Business type",
+    "onboarding.section.products": "Products",
+    "onboarding.section.dealers": "Dealers",
+    "onboarding.section.suppliers": "Suppliers",
+    "onboarding.section.opening_balance": "Opening balance",
+    "onboarding.section.receivables": "Dealer baki",
+    "onboarding.section.payables": "Supplier baki",
+    "onboarding.section.briefing_hour": "Briefing samaya",
+    "onboarding.status.title": "📋 Setup progress — {percent}% sampurna heigala.",
+    "onboarding.status.section_done": "✅ {name}",
+    "onboarding.status.section_current": "▶️ {name} (apana ethare achanti)",
+    "onboarding.status.section_pending": "⬜ {name}",
+    "onboarding.status.footer_generic": "Jari rakhibaku apanka paravarti uttara reply karantu.",
+    "onboarding.status.restart_hint": "Setup puni arambha karibaku 'restart' pathantu.",
+    "onboarding.restart.confirm": (
+        "⚠️ Ehare apana ebe paryanta bharithiba saba tathya (products, dealers, suppliers, "
+        "opening balance) mucchi jiba au setup arambharu puni heba. Apana nishchita ki? (yes/no)"
+    ),
+    "onboarding.restart.cancelled": (
+        "Thik achi — apanka setup jari achi. Upara sesha prashna ra uttara pathantu."
+    ),
+    "onboarding.restart.done": (
+        "🔄 Saba mucchigala. Chaluntu puni arambharu apanka business set up karibaa.\n\n"
+        "Prathama prashna: apana kaun prakara business karanti? (jaise FMCG Distributor, Pharma "
+        "Distributor)"
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "Tale gotie option tap karantu, kimba puura list paain /help pathantu.",
     "menu.msg.reports.body": "Reports & Overview — gotie bachantu:",
