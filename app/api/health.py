@@ -20,6 +20,15 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     settings = get_settings()
     checked_at = datetime.now(UTC).isoformat()
 
+    # CORS is otherwise unconfigured for this app (every other route is
+    # same-origin or already authenticated) — this one header is scoped to
+    # just this endpoint so the static marketing site (a different origin,
+    # e.g. the Vercel deployment) can read the real JSON body cross-origin
+    # instead of firing a `no-cors` fetch that can't distinguish this
+    # response from Render's own opaque cold-start placeholder page (see
+    # app/static/js/main.js's pingAwake).
+    cors_headers = {"Access-Control-Allow-Origin": "*"}
+
     try:
         await db.execute(text("SELECT 1"))
     except Exception:
@@ -37,6 +46,7 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
                 "database": "disconnected",
                 "checked_at": checked_at,
             },
+            headers=cors_headers,
         )
 
     return JSONResponse(
@@ -49,4 +59,5 @@ async def health_check(db: AsyncSession = Depends(get_db)) -> JSONResponse:
             "database": "connected",
             "checked_at": checked_at,
         },
+        headers=cors_headers,
     )
