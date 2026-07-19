@@ -413,25 +413,25 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "Receivables",
     "onboarding.section.payables": "Payables",
     "onboarding.section.briefing_hour": "Briefing time",
-    # Skip already-imported sections (website "seed from an existing export"
-    # step, app/api/onboarding.py's POST /onboard/{id}/import) — shown once,
-    # right at the moment the corresponding WhatsApp section would otherwise
-    # have started asking.
-    "onboarding.skip.dealers_imported": (
-        "✅ Found {count} dealer(s) from your import — no need to re-enter them "
-        "(you can always add more later with 'add dealer')."
+    # Import confirm (website "seed from an existing export" step,
+    # app/api/onboarding.py's POST /onboard/{id}/import) — shown once, right
+    # after GST setup, as one consolidated "here's what we found" summary
+    # instead of a separate note per section.
+    "onboarding.import_confirm.title": "📋 We found some data from your import:",
+    "onboarding.import_confirm.line_products": "✅ {count} product(s)",
+    "onboarding.import_confirm.line_dealers": "✅ {count} dealer(s)",
+    "onboarding.import_confirm.line_suppliers": "✅ {count} supplier(s)",
+    "onboarding.import_confirm.line_receivables": (
+        "✅ {count} outstanding receivable invoice(s) ({amount})"
     ),
-    "onboarding.skip.suppliers_imported": (
-        "✅ Found {count} supplier(s) from your import — no need to re-enter them "
-        "(you can always add more later with 'add supplier')."
+    "onboarding.import_confirm.line_payables": (
+        "✅ {count} outstanding payable invoice(s) ({amount})"
     ),
-    "onboarding.skip.receivables_imported": (
-        "✅ Found {count} outstanding receivable invoice(s) from your import — "
-        "no need to re-enter them."
-    ),
-    "onboarding.skip.payables_imported": (
-        "✅ Found {count} outstanding payable invoice(s) from your import — "
-        "no need to re-enter them."
+    "onboarding.import_confirm.ask": "Does this look correct? (yes/no)",
+    "onboarding.import_confirm.no_ack": (
+        "No problem — you can fix any of this anytime: 'edit dealer <name>', "
+        "'edit supplier <name>', 'add dealer', 'add supplier', or 'stock take' to "
+        "adjust product quantities. Continuing with the rest of your setup."
     ),
     "onboarding.status.title": "📋 Setup progress — {percent}% complete",
     "onboarding.status.section_done": "✅ {name}",

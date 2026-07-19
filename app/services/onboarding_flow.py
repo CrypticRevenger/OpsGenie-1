@@ -20,6 +20,15 @@ complete so a distributor returning after a break can reorient without
 scrolling back through the chat; "restart" (confirm-gated) wipes everything
 this conversation has created so far and starts the 8 steps over, for anyone
 who'd rather begin fresh than continue with what they've already entered.
+
+Right after GST setup, _after_gst checks whether the company already has
+data from the website's "seed from an existing export" step (POST /onboard/
+{id}/import, run before WhatsApp ever starts) — products, dealers, suppliers,
+or receivable/payable invoices. Nothing imported -> straight to the normal
+products question. Anything imported -> one consolidated import_confirm
+("here's what we found, correct?") instead of a note per section; either
+answer then skips exactly the imported sections and still asks normally for
+whatever wasn't, via the same skip-or-ask chain the answer routes through.
 """
 
 from __future__ import annotations
@@ -42,6 +51,7 @@ from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.importer.parties import find_or_create_party, find_party
 from app.services.money_format import format_inr
+from app.services.party_outstanding import calculate_outstanding_for_company
 from app.services.snapshot import business_now
 
 # Language/script is picked *first* (a pre-step), so every question after it is
@@ -308,13 +318,18 @@ def _bulk_format_message(company: Company, loc: Locale) -> str:
 # ── Skip already-imported sections ───────────────────────────────────────────
 # A distributor who used the website's "seed from an existing export" step
 # (app/api/onboarding.py's POST /onboard/{id}/import, run before WhatsApp
-# ever starts) arrives here with Dealer/Supplier/Invoice rows already in
-# place before this state machine's dealer/supplier/receivable/payable
-# sections would otherwise ask for them one at a time. Each helper below
-# checks its own section's row count exactly once, right at the moment that
-# section would start — a company with no import (the common case) always
-# sees count 0 at that point (the section's own loop is what would create
-# rows, and it hasn't run yet), so this is a no-op for everyone else.
+# ever starts) arrives here with Product/Dealer/Supplier/Invoice rows already
+# in place before this state machine's products/dealers/suppliers/
+# receivable/payable sections would otherwise ask for them one at a time.
+# _after_gst (below, right after GST setup — the last question that doesn't
+# depend on import data) checks all five at once and, if anything was
+# imported, shows ONE consolidated confirmation instead of scattering a
+# "found N" note through every section. Once confirmed either way, each
+# _after_* helper below checks its own section's row count exactly once,
+# right at the moment that section would start, and skips silently — a
+# company with no import (the common case) always sees count 0 at every one
+# of these checkpoints (the section's own loop is what would create rows,
+# and it hasn't run yet), so this whole chain is a no-op for everyone else.
 
 
 async def _count(db: AsyncSession, model, company_id: uuid.UUID) -> int:
@@ -341,8 +356,7 @@ def _after_suppliers(company: Company, loc: Locale) -> str:
 async def _after_dealers(db: AsyncSession, company: Company, loc: Locale) -> str:
     supplier_count = await _count(db, Supplier, company.id)
     if supplier_count:
-        note = t("onboarding.skip.suppliers_imported", loc, count=supplier_count)
-        return f"{note}\n\n{_after_suppliers(company, loc)}"
+        return _after_suppliers(company, loc)
     company.onboarding_state = OnboardingState.supplier_awaiting_mode
     return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
 
@@ -350,8 +364,7 @@ async def _after_dealers(db: AsyncSession, company: Company, loc: Locale) -> str
 async def _after_products(db: AsyncSession, company: Company, loc: Locale) -> str:
     dealer_count = await _count(db, Dealer, company.id)
     if dealer_count:
-        note = t("onboarding.skip.dealers_imported", loc, count=dealer_count)
-        return f"{note}\n\n{await _after_dealers(db, company, loc)}"
+        return await _after_dealers(db, company, loc)
     company.onboarding_state = OnboardingState.dealer_awaiting_mode
     return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
 
@@ -360,8 +373,7 @@ async def _after_receivables(db: AsyncSession, company: Company, loc: Locale) ->
     payable_count = await _invoice_count(db, company.id, InvoiceDirection.payable)
     if payable_count:
         company.onboarding_state = OnboardingState.awaiting_briefing_hour
-        note = t("onboarding.skip.payables_imported", loc, count=payable_count)
-        return f"{note}\n\n{_progress(7, loc)}\n\n{t('onboarding.briefing.ask', loc)}"
+        return f"{_progress(7, loc)}\n\n{t('onboarding.briefing.ask', loc)}"
     company.onboarding_state = OnboardingState.payable_ask
     return f"{_progress(6, loc)}\n\n{t('onboarding.payable.ask', loc)}"
 
@@ -369,10 +381,104 @@ async def _after_receivables(db: AsyncSession, company: Company, loc: Locale) ->
 async def _after_opening_balance(db: AsyncSession, company: Company, loc: Locale) -> str:
     receivable_count = await _invoice_count(db, company.id, InvoiceDirection.receivable)
     if receivable_count:
-        note = t("onboarding.skip.receivables_imported", loc, count=receivable_count)
-        return f"{note}\n\n{await _after_receivables(db, company, loc)}"
+        return await _after_receivables(db, company, loc)
     company.onboarding_state = OnboardingState.receivable_ask
     return f"{_progress(5, loc)}\n\n{t('onboarding.receivable.ask', loc)}"
+
+
+async def _route_past_import(db: AsyncSession, company: Company, loc: Locale) -> str:
+    """The tail both import_confirm answers share: check products (the one
+    category _after_gst itself doesn't hand off to a _after_* sibling for),
+    then fall into the same skip-or-ask chain _after_products already uses
+    for dealers/suppliers/receivables/payables.
+    """
+    product_count = await _count(db, Product, company.id)
+    if product_count:
+        return await _after_products(db, company, loc)
+    company.onboarding_state = OnboardingState.product_awaiting_mode
+    return _product_intro(loc)
+
+
+async def _import_summary_counts(db: AsyncSession, company: Company) -> dict[str, object]:
+    receivable_count = await _invoice_count(db, company.id, InvoiceDirection.receivable)
+    payable_count = await _invoice_count(db, company.id, InvoiceDirection.payable)
+    receivable_total = Decimal("0.00")
+    payable_total = Decimal("0.00")
+    if receivable_count:
+        by_party = await calculate_outstanding_for_company(
+            db, company_id=company.id, direction="receivable"
+        )
+        receivable_total = sum(by_party.values(), Decimal("0.00"))
+    if payable_count:
+        by_party = await calculate_outstanding_for_company(
+            db, company_id=company.id, direction="payable"
+        )
+        payable_total = sum(by_party.values(), Decimal("0.00"))
+    return {
+        "product": await _count(db, Product, company.id),
+        "dealer": await _count(db, Dealer, company.id),
+        "supplier": await _count(db, Supplier, company.id),
+        "receivable": receivable_count,
+        "receivable_total": receivable_total,
+        "payable": payable_count,
+        "payable_total": payable_total,
+    }
+
+
+def _import_confirm_prompt(loc: Locale, counts: dict[str, object]) -> str:
+    lines = []
+    if counts["product"]:
+        lines.append(t("onboarding.import_confirm.line_products", loc, count=counts["product"]))
+    if counts["dealer"]:
+        lines.append(t("onboarding.import_confirm.line_dealers", loc, count=counts["dealer"]))
+    if counts["supplier"]:
+        lines.append(t("onboarding.import_confirm.line_suppliers", loc, count=counts["supplier"]))
+    if counts["receivable"]:
+        lines.append(
+            t(
+                "onboarding.import_confirm.line_receivables",
+                loc,
+                count=counts["receivable"],
+                amount=format_inr(counts["receivable_total"]),
+            )
+        )
+    if counts["payable"]:
+        lines.append(
+            t(
+                "onboarding.import_confirm.line_payables",
+                loc,
+                count=counts["payable"],
+                amount=format_inr(counts["payable_total"]),
+            )
+        )
+    title = t("onboarding.import_confirm.title", loc)
+    ask = t("onboarding.import_confirm.ask", loc)
+    return f"{title}\n\n" + "\n".join(lines) + f"\n\n{ask}"
+
+
+async def _after_gst(db: AsyncSession, company: Company, loc: Locale) -> str:
+    """Where products would normally start — the first point at which every
+    website-import category (products/dealers/suppliers/receivables/
+    payables, all seeded before WhatsApp ever starts) is known. Nothing
+    imported -> the normal products question. Anything imported -> one
+    consolidated confirmation before the skip chain runs, so a distributor
+    only ever gets asked "is this correct?" once, not once per section.
+    """
+    counts = await _import_summary_counts(db, company)
+    imported_anything = any(
+        [
+            counts["product"],
+            counts["dealer"],
+            counts["supplier"],
+            counts["receivable"],
+            counts["payable"],
+        ]
+    )
+    if not imported_anything:
+        company.onboarding_state = OnboardingState.product_awaiting_mode
+        return _product_intro(loc)
+    company.onboarding_state = OnboardingState.import_confirm
+    return _import_confirm_prompt(loc, counts)
 
 
 # ── Resume: progress checklist & restart (any in-flight business-setup state) ─
@@ -407,6 +513,7 @@ _STEP_OF_STATE: dict[OnboardingState, int] = {
     OnboardingState.awaiting_business_type: 1,
     OnboardingState.gst_mode_ask: 1,
     OnboardingState.gst_rate_same: 1,
+    OnboardingState.import_confirm: 1,
     OnboardingState.product_awaiting_mode: 2,
     OnboardingState.product_awaiting_bulk: 2,
     OnboardingState.product_awaiting_bulk_unit: 2,
@@ -602,12 +709,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.gst_mode_ask:
         if _is(stripped, "not sure", "skip", "later"):
-            company.onboarding_state = OnboardingState.product_awaiting_mode
-            return _product_intro(loc)
+            return await _after_gst(db, company, loc)
         if _is(stripped, "varies", "vary"):
             company.gst_varies_by_product = True
-            company.onboarding_state = OnboardingState.product_awaiting_mode
-            return _product_intro(loc)
+            return await _after_gst(db, company, loc)
         if _is(stripped, "same"):
             company.onboarding_state = OnboardingState.gst_rate_same
             return t("onboarding.gst.rate_ask", loc)
@@ -615,16 +720,24 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.gst_rate_same:
         if _is(stripped, "not sure", "skip", "later"):
-            company.onboarding_state = OnboardingState.product_awaiting_mode
-            return _product_intro(loc)
+            return await _after_gst(db, company, loc)
         try:
             rate = parse_gst_rate(stripped)
         except ValueError:
             return t("onboarding.gst.rate_invalid", loc)
         company.gst_rate = rate
         company.gst_varies_by_product = False
-        company.onboarding_state = OnboardingState.product_awaiting_mode
-        return _product_intro(loc)
+        return await _after_gst(db, company, loc)
+
+    # ── Import confirm (reached from _after_gst when a website import left ──
+    # ── products/dealers/suppliers/receivables/payables already in place) ───
+    if state == OnboardingState.import_confirm:
+        if _is(stripped, "yes", "y"):
+            return await _route_past_import(db, company, loc)
+        if _is(stripped, "no", "n"):
+            note = t("onboarding.import_confirm.no_ack", loc)
+            return f"{note}\n\n{await _route_past_import(db, company, loc)}"
+        return t("onboarding.yes_no_invalid", loc)
 
     # ── 2. Products (name -> stock quantity, repeatable, or bulk paste) ──────
     if state == OnboardingState.product_awaiting_mode:

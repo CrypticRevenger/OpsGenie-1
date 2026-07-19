@@ -140,11 +140,12 @@ async def submit_onboarding(
     summary="Self-serve: import a Tally/Vyapar/Excel export before WhatsApp starts",
     description=(
         "Optional wizard step between business details and activation — lets a "
-        "distributor bootstrap dealers/suppliers/invoices from an existing export "
-        "instead of typing everything into WhatsApp. Same importer as the founder "
-        "admin route (Tally/Vyapar/OpsGenie-canonical CSV/Excel), scoped to "
-        "invoices only (opening receivables/payables — not full payment history) "
-        "and to one direction per call, matching how a real sales register vs. "
+        "distributor bootstrap dealers/suppliers/invoices, or their product/stock "
+        "catalogue, from an existing export instead of typing everything into "
+        "WhatsApp. Same importer as the founder admin route (Tally/Vyapar/"
+        "OpsGenie-canonical CSV/Excel), scoped to invoices only for file_kind="
+        "invoices (opening receivables/payables — not full payment history) and "
+        "to one direction per call, matching how a real sales register vs. "
         "purchase register export works. Returns the import result plus a fresh "
         "reconciliation summary so the distributor can confirm it looks right "
         "before continuing."
@@ -152,9 +153,14 @@ async def submit_onboarding(
 )
 async def import_onboarding_data(
     company_id: uuid.UUID,
-    direction: Literal["receivable", "payable"] = Query(
-        ...,
-        description="receivable = dealer invoices you're owed, payable = supplier invoices you owe",
+    file_kind: Literal["invoices", "products"] = Query(
+        "invoices",
+        description="Whether this file contains invoices or a product/stock catalogue",
+    ),
+    direction: Literal["receivable", "payable"] | None = Query(
+        None,
+        description="receivable = dealer invoices, payable = supplier invoices. "
+        "Required unless file_kind=products.",
     ),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
@@ -166,6 +172,11 @@ async def import_onboarding_data(
             detail="Onboarding is not available right now.",
         )
     company = await _get_importable_company(company_id, db)
+    if file_kind != "products" and direction is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="direction is required unless file_kind=products.",
+        )
 
     # Bounded read: pull at most the limit + 1 byte, so an oversized upload is
     # rejected without ever being fully buffered.
@@ -180,7 +191,7 @@ async def import_onboarding_data(
             db,
             company_id=company.id,
             direction=direction,
-            file_kind="invoices",
+            file_kind=file_kind,
             filename=file.filename or "upload",
             contents=contents,
         )

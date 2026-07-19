@@ -30,6 +30,12 @@ PAYABLE_CSV = (
     b"BILL-200,payable,Metro Distributors,2026-01-05,2026-02-04,8000.00,0.00,8000.00,stock\n"
 )
 
+PRODUCT_CSV = (
+    b"Name,Purchase Price,Selling Price,Unit,Stock,GST%\n"
+    b"Rice,300,400,kg,100,5\n"
+    b"Dal,320,450,kg,50,12\n"
+)
+
 
 def _unique_number() -> str:
     return f"+919{uuid.uuid4().int % 1_000_000_000:09d}"
@@ -181,3 +187,84 @@ async def test_import_disabled_returns_503(client: AsyncClient) -> None:
         assert resp.status_code == 503
     finally:
         settings.onboarding_enabled = original
+
+
+# ── Product & current stock upload ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_import_products_updates_summary(client: AsyncClient) -> None:
+    company_id = await _register_company(client)
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", PRODUCT_CSV, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["import_result"]["rows_succeeded"] == 2
+    assert data["import_result"]["rows_failed"] == 0
+    summary = data["summary"]
+    assert summary["product_count"] == 2
+    # Products don't touch dealer/supplier/invoice counts.
+    assert summary["dealer_count"] == 0
+    assert summary["receivable_invoice_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_import_products_no_direction_required(client: AsyncClient) -> None:
+    """Unlike file_kind=invoices, direction is optional (and ignored) for
+    file_kind=products — products have no receivable/payable concept."""
+    company_id = await _register_company(client)
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", PRODUCT_CSV, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_import_invoices_without_direction_returns_400(client: AsyncClient) -> None:
+    company_id = await _register_company(client)
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        # file_kind defaults to "invoices"; direction omitted.
+        files={"file": ("invoices.csv", RECEIVABLE_CSV, "text/csv")},
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_import_products_alias_headers_and_missing_fields(client: AsyncClient) -> None:
+    """Header matching is alias-based and case/whitespace-insensitive; missing
+    optional fields (price/unit/stock/GST) default sensibly rather than
+    failing the row."""
+    company_id = await _register_company(client)
+    csv_bytes = b"Product Name,Cost,Rate\nSoap,20,35\n"
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", csv_bytes, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["import_result"]["rows_succeeded"] == 1
+    assert data["summary"]["product_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_import_products_missing_name_column_returns_400(client: AsyncClient) -> None:
+    company_id = await _register_company(client)
+    csv_bytes = b"Price,Stock\n400,100\n"
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", csv_bytes, "text/csv")},
+    )
+    assert resp.status_code == 400

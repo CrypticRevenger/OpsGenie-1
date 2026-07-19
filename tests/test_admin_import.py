@@ -125,3 +125,34 @@ async def test_import_log_written_matches_response(client: AsyncClient, db: Asyn
     assert log.rows_processed == data["rows_processed"]
     assert log.rows_succeeded == data["rows_succeeded"] + data["rows_skipped"]
     assert log.rows_failed == data["rows_failed"]
+
+
+@pytest.mark.asyncio
+async def test_import_products_file_kind_no_direction_required(client: AsyncClient) -> None:
+    """file_kind=products reuses the same ImportEngine.run_import dispatch as
+    the self-serve onboarding route (app/api/onboarding.py) — direction is
+    N/A for products and must not be required here either."""
+    company_id = await _create_company(client)
+    csv_bytes = b"Name,Purchase Price,Selling Price,Unit,Stock,GST%\nRice,300,400,kg,100,5\n"
+
+    resp = await client.post(
+        f"/admin/companies/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", csv_bytes, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["rows_succeeded"] == 1
+    assert data["rows_failed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_import_invoices_without_direction_returns_400(client: AsyncClient) -> None:
+    company_id = await _create_company(client)
+
+    resp = await client.post(
+        f"/admin/companies/{company_id}/import",
+        # file_kind defaults to "invoices"; direction omitted.
+        files={"file": ("invoices.csv", CANONICAL_CSV, "text/csv")},
+    )
+    assert resp.status_code == 400

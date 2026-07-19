@@ -26,6 +26,7 @@ from app.core.config import get_settings
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection
+from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.party_outstanding import calculate_outstanding_for_company
 
@@ -166,6 +167,7 @@ async def summarize_business_data(db: AsyncSession, company_id: uuid.UUID) -> di
     state via the same calculate_outstanding_for_company the rest of the
     product uses, so it's correct regardless of how the data got there.
     """
+    product_count = await _count(db, Product, company_id)
     dealer_count = await _count(db, Dealer, company_id)
     supplier_count = await _count(db, Supplier, company_id)
     receivable_invoice_count = await db.scalar(
@@ -185,6 +187,7 @@ async def summarize_business_data(db: AsyncSession, company_id: uuid.UUID) -> di
         db, company_id=company_id, direction="payable"
     )
     return {
+        "product_count": product_count,
         "dealer_count": dealer_count,
         "supplier_count": supplier_count,
         "receivable_invoice_count": receivable_invoice_count or 0,

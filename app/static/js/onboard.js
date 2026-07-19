@@ -147,8 +147,10 @@
     }
   }
 
-  async function uploadImportFile(direction, file) {
-    const resp = await fetch(`/onboard/${state.companyId}/import?direction=${direction}`, {
+  async function uploadImportFile(fileKind, direction, file) {
+    const params = new URLSearchParams({ file_kind: fileKind });
+    if (direction) params.set("direction", direction);
+    const resp = await fetch(`/onboard/${state.companyId}/import?${params}`, {
       method: "POST",
       body: (() => {
         const formData = new FormData();
@@ -166,6 +168,7 @@
   function renderImportSummary(summary, rowProblems) {
     const totalInvoices = summary.receivable_invoice_count + summary.payable_invoice_count;
     const rows = [
+      ["Products", summary.product_count],
       ["Invoices imported", totalInvoices],
       ["Dealers", summary.dealer_count],
       ["Suppliers", summary.supplier_count],
@@ -202,7 +205,8 @@
     }
     const receivableFile = form.elements["import_receivable_file"].files[0];
     const payableFile = form.elements["import_payable_file"].files[0];
-    if (!receivableFile && !payableFile) {
+    const productFile = form.elements["import_product_file"].files[0];
+    if (!receivableFile && !payableFile && !productFile) {
       showStep(4);
       return;
     }
@@ -214,11 +218,15 @@
       let lastResponse = null;
       const rowProblems = [];
       if (receivableFile) {
-        lastResponse = await uploadImportFile("receivable", receivableFile);
+        lastResponse = await uploadImportFile("invoices", "receivable", receivableFile);
         rowProblems.push(...lastResponse.import_result.errors);
       }
       if (payableFile) {
-        lastResponse = await uploadImportFile("payable", payableFile);
+        lastResponse = await uploadImportFile("invoices", "payable", payableFile);
+        rowProblems.push(...lastResponse.import_result.errors);
+      }
+      if (productFile) {
+        lastResponse = await uploadImportFile("products", null, productFile);
         rowProblems.push(...lastResponse.import_result.errors);
       }
       renderImportSummary(lastResponse.summary, rowProblems);
@@ -272,7 +280,12 @@
     if (state.importSummary) {
       const totalInvoices =
         state.importSummary.receivable_invoice_count + state.importSummary.payable_invoice_count;
-      if (totalInvoices > 0) rows.push(["Imported", `${totalInvoices} invoices`]);
+      const importedBits = [];
+      if (totalInvoices > 0) importedBits.push(`${totalInvoices} invoices`);
+      if (state.importSummary.product_count > 0) {
+        importedBits.push(`${state.importSummary.product_count} products`);
+      }
+      if (importedBits.length > 0) rows.push(["Imported", importedBits.join(", ")]);
     }
     document.getElementById("successSummary").innerHTML = rows
       .map(([label, value]) => `<div class="row"><span>${label}</span><span>${value}</span></div>`)
