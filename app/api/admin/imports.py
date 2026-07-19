@@ -53,16 +53,24 @@ async def _get_company_or_404(company_id: uuid.UUID, db: AsyncSession) -> Compan
 )
 async def import_file(
     company_id: uuid.UUID,
-    direction: Literal["receivable", "payable"] = Query(
-        ..., description="receivable = dealer invoices/payments, payable = supplier"
+    direction: Literal["receivable", "payable"] | None = Query(
+        None,
+        description="receivable = dealer invoices/payments, payable = supplier. "
+        "Required unless file_kind=products.",
     ),
-    file_kind: Literal["invoices", "payments"] = Query(
-        "invoices", description="Whether this file contains invoices or payments"
+    file_kind: Literal["invoices", "payments", "products"] = Query(
+        "invoices",
+        description="Whether this file contains invoices, payments, or a product/stock catalogue",
     ),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ) -> ImportResponse:
     await _get_company_or_404(company_id, db)
+    if file_kind != "products" and direction is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="direction is required unless file_kind=products.",
+        )
 
     # Bounded read: pull at most the limit + 1 byte. If we get more than the
     # limit, the file is too big — reject without having buffered it all.

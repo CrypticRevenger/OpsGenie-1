@@ -46,6 +46,7 @@ class OnboardImportSummary(BaseModel):
     call, so it stays correct however the data got there.
     """
 
+    product_count: int
     dealer_count: int
     supplier_count: int
     receivable_invoice_count: int

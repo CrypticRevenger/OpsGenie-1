@@ -134,6 +134,14 @@ class OnboardingState(enum.StrEnum):
     # everything entered so far and starting the 8-step sequence over. Not
     # reachable from awaiting_language/awaiting_script (nothing to erase yet).
     restart_confirm = "restart_confirm"
+    # Reached right after GST setup when the company already has any data
+    # from a website import (products/dealers/suppliers/receivable or
+    # payable invoices — see app/api/onboarding.py's POST /onboard/{id}/
+    # import, which always runs before WhatsApp starts). Shows one
+    # consolidated "here's what we found, correct?" summary instead of
+    # re-asking each imported section one at a time. See
+    # app/services/onboarding_flow.py's _after_gst/_route_past_import.
+    import_confirm = "import_confirm"
 
 
 class Company(UUIDMixin, TimestampMixin, Base):

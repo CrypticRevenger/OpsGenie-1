@@ -164,6 +164,71 @@ async def test_workbook_reflects_real_data(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_website_import_data_reflects_in_excel_export(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The onboarding wizard's "seed from an existing export" step
+    (POST /onboard/{id}/import, tests/test_onboarding_import.py) writes plain
+    Dealer/Supplier/Product/Invoice rows — every export sheet builder queries
+    those same tables fresh on every request (no import-specific plumbing),
+    so imported data should appear in the workbook exactly like WhatsApp- or
+    admin-entered data does. This drives the real public endpoints rather
+    than seeding the DB directly, to prove the whole pipeline, not just that
+    arbitrary rows show up.
+    """
+    register = await client.post(
+        "/onboard",
+        json={
+            "business_name": "Export Import Co",
+            "owner_name": "Owner",
+            "whatsapp_number": _unique_phone(),
+        },
+    )
+    company_id = register.json()["company_id"]
+
+    receivable_csv = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description\n"
+        b"INV-500,receivable,Imported Dealer Co,2026-01-05,2026-02-04,2000.00,0.00,2000.00,goods\n"
+    )
+    product_csv = (
+        b"Name,Purchase Price,Selling Price,Unit,Stock,GST%\nImported Widget,70,100,pcs,50,5\n"
+    )
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"direction": "receivable"},
+        files={"file": ("sales.csv", receivable_csv, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", product_csv, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+
+    company = await db.get(Company, uuid.UUID(company_id))
+    wb = _load(await build_company_workbook(db, company))
+
+    dealers_rows = list(wb["Dealers"].iter_rows(values_only=True))
+    assert dealers_rows[1][0] == "Imported Dealer Co"
+
+    invoice_rows = list(wb["Invoices"].iter_rows(values_only=True))
+    assert invoice_rows[1][0] == "INV-500"
+    assert invoice_rows[1][2] == "Imported Dealer Co"
+
+    receivables_rows = list(wb["Receivables"].iter_rows(values_only=True))
+    assert receivables_rows[1][4] == 2000  # fully outstanding, no payments yet
+
+    products_rows = list(wb["Products"].iter_rows(values_only=True))
+    assert products_rows[1][0] == "Imported Widget"
+    assert products_rows[1][2] == 100  # selling_price
+    assert products_rows[1][3] == 70  # purchase_price
+    assert products_rows[1][4] == 50  # stock_quantity
+
+
+@pytest.mark.asyncio
 async def test_company_sheet_has_export_metadata(db: AsyncSession) -> None:
     company = await _make_company(db, name="Metadata Co")
     wb = _load(await build_company_workbook(db, company))

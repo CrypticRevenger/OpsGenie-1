@@ -396,21 +396,21 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "ଡିଲର ବାକି",
     "onboarding.section.payables": "ସପ୍ଲାୟର ବାକି",
     "onboarding.section.briefing_hour": "ବ୍ରିଫିଂ ସମୟ",
-    "onboarding.skip.dealers_imported": (
-        "✅ ଆପଣଙ୍କ import ରୁ {count} ଡିଲର ମିଳିଲା — ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ "
-        "(ପରେ ବି 'add dealer' ରେ ଆଉ ଯୋଡ଼ି ପାରିବେ)।"
+    "onboarding.import_confirm.title": "📋 ଆପଣଙ୍କ import ରୁ କିଛି ତଥ୍ୟ ମିଳିଲା:",
+    "onboarding.import_confirm.line_products": "✅ {count} ପ୍ରୋଡକ୍ଟସ୍",
+    "onboarding.import_confirm.line_dealers": "✅ {count} ଡିଲର",
+    "onboarding.import_confirm.line_suppliers": "✅ {count} ସପ୍ଲାୟର",
+    "onboarding.import_confirm.line_receivables": (
+        "✅ {count} outstanding receivable invoice ({amount})"
     ),
-    "onboarding.skip.suppliers_imported": (
-        "✅ ଆପଣଙ୍କ import ରୁ {count} ସପ୍ଲାୟର ମିଳିଲା — ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ "
-        "(ପରେ ବି 'add supplier' ରେ ଆଉ ଯୋଡ଼ି ପାରିବେ)।"
+    "onboarding.import_confirm.line_payables": (
+        "✅ {count} outstanding payable invoice ({amount})"
     ),
-    "onboarding.skip.receivables_imported": (
-        "✅ ଆପଣଙ୍କ import ରୁ {count} outstanding receivable invoice ମିଳିଲା — "
-        "ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ।"
-    ),
-    "onboarding.skip.payables_imported": (
-        "✅ ଆପଣଙ୍କ import ରୁ {count} outstanding payable invoice ମିଳିଲା — "
-        "ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ।"
+    "onboarding.import_confirm.ask": "ଏହା ଠିକ୍ କି? (yes/no)",
+    "onboarding.import_confirm.no_ack": (
+        "କିଛି ଅସୁବିଧା ନାହିଁ — ଆପଣ ଏହାକୁ ଯେକୌଣସି ସମୟରେ ଠିକ୍ କରିପାରିବେ: "
+        "'edit dealer <name>', 'edit supplier <name>', 'add dealer', 'add supplier', "
+        "କିମ୍ବା 'stock take' ରେ product quantity ବଦଳାନ୍ତୁ। ଆପଣଙ୍କ ବାକି ସେଟଅପ୍ ଜାରି ଅଛି।"
     ),
     "onboarding.status.title": "📋 Setup progress — {percent}% ସମ୍ପୂର୍ଣ୍ଣ ହେଲା।",
     "onboarding.status.section_done": "✅ {name}",

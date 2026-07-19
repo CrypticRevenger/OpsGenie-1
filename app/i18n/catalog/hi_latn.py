@@ -398,21 +398,21 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "Dealer baaki",
     "onboarding.section.payables": "Supplier baaki",
     "onboarding.section.briefing_hour": "Briefing time",
-    "onboarding.skip.dealers_imported": (
-        "✅ Aapke import se {count} dealer mile — dobara bharne ki zaroorat nahi "
-        "(baad me bhi 'add dealer' se aur jod sakte hain)."
+    "onboarding.import_confirm.title": "📋 Aapke import se kuch data mila:",
+    "onboarding.import_confirm.line_products": "✅ {count} product(s)",
+    "onboarding.import_confirm.line_dealers": "✅ {count} dealer(s)",
+    "onboarding.import_confirm.line_suppliers": "✅ {count} supplier(s)",
+    "onboarding.import_confirm.line_receivables": (
+        "✅ {count} outstanding receivable invoice(s) ({amount})"
     ),
-    "onboarding.skip.suppliers_imported": (
-        "✅ Aapke import se {count} supplier mile — dobara bharne ki zaroorat nahi "
-        "(baad me bhi 'add supplier' se aur jod sakte hain)."
+    "onboarding.import_confirm.line_payables": (
+        "✅ {count} outstanding payable invoice(s) ({amount})"
     ),
-    "onboarding.skip.receivables_imported": (
-        "✅ Aapke import se {count} outstanding receivable invoice mile — "
-        "dobara bharne ki zaroorat nahi."
-    ),
-    "onboarding.skip.payables_imported": (
-        "✅ Aapke import se {count} outstanding payable invoice mile — "
-        "dobara bharne ki zaroorat nahi."
+    "onboarding.import_confirm.ask": "Kya yeh sahi hai? (yes/no)",
+    "onboarding.import_confirm.no_ack": (
+        "Koi baat nahi — aap ise kabhi bhi theek kar sakte hain: 'edit dealer <name>', "
+        "'edit supplier <name>', 'add dealer', 'add supplier', ya 'stock take' se "
+        "product quantity badlein. Aapka baaki setup jaari hai."
     ),
     "onboarding.status.title": "📋 Setup progress — {percent}% pura ho gaya.",
     "onboarding.status.section_done": "✅ {name}",

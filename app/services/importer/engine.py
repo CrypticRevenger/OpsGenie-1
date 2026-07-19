@@ -54,7 +54,7 @@ from app.services.importer.result import ImportResult
 logger = logging.getLogger(__name__)
 
 Direction = Literal["receivable", "payable"]
-FileKind = Literal["invoices", "payments"]
+FileKind = Literal["invoices", "payments", "products"]
 
 __all__ = [
     "UnrecognisedFormatError",
@@ -262,7 +262,7 @@ async def run_import(
     db: AsyncSession,
     *,
     company_id: uuid.UUID,
-    direction: Direction,
+    direction: Direction | None,
     file_kind: FileKind,
     filename: str,
     contents: bytes,
@@ -270,11 +270,27 @@ async def run_import(
     """Parse and persist a CSV/Excel file. Raises UnsupportedFileError /
     UnrecognisedFormatError for whole-file rejections; per-row problems are
     captured in the returned ImportResult, never raised.
+
+    ``direction`` is required for "invoices"/"payments" (receivable vs.
+    payable) but ignored for "products" — products have no direction, so
+    callers importing a product/stock file pass None.
     """
     source_format = "csv" if filename.lower().endswith(".csv") else "excel"
     result = ImportResult(filename=filename, source_format=source_format)
 
     headers, rows = parse_file(contents, filename)
+
+    if file_kind == "products":
+        from app.services.importer.product_row import run_product_import
+
+        return await run_product_import(
+            db,
+            company_id=company_id,
+            filename=filename,
+            headers=headers,
+            rows=rows,
+            result=result,
+        )
 
     if file_kind == "payments":
         from app.services.importer.payment_row import run_payment_import

@@ -410,21 +410,21 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "Dealer baki",
     "onboarding.section.payables": "Supplier baki",
     "onboarding.section.briefing_hour": "Briefing samaya",
-    "onboarding.skip.dealers_imported": (
-        "✅ Apanka import ru {count} dealer milila — puni bharibara abasyaka nahi "
-        "(pare bi 'add dealer' re au jodi paribe)."
+    "onboarding.import_confirm.title": "📋 Apanka import ru kichi tathya milila:",
+    "onboarding.import_confirm.line_products": "✅ {count} product(s)",
+    "onboarding.import_confirm.line_dealers": "✅ {count} dealer(s)",
+    "onboarding.import_confirm.line_suppliers": "✅ {count} supplier(s)",
+    "onboarding.import_confirm.line_receivables": (
+        "✅ {count} outstanding receivable invoice(s) ({amount})"
     ),
-    "onboarding.skip.suppliers_imported": (
-        "✅ Apanka import ru {count} supplier milila — puni bharibara abasyaka nahi "
-        "(pare bi 'add supplier' re au jodi paribe)."
+    "onboarding.import_confirm.line_payables": (
+        "✅ {count} outstanding payable invoice(s) ({amount})"
     ),
-    "onboarding.skip.receivables_imported": (
-        "✅ Apanka import ru {count} outstanding receivable invoice milila — "
-        "puni bharibara abasyaka nahi."
-    ),
-    "onboarding.skip.payables_imported": (
-        "✅ Apanka import ru {count} outstanding payable invoice milila — "
-        "puni bharibara abasyaka nahi."
+    "onboarding.import_confirm.ask": "Eha thik ki? (yes/no)",
+    "onboarding.import_confirm.no_ack": (
+        "Kichi asubidha nahi — apana eha ku jekauNsi samaya re thik kari paribe: "
+        "'edit dealer <name>', 'edit supplier <name>', 'add dealer', 'add supplier', "
+        "kimba 'stock take' re product quantity badalantu. Apanka baki setup jari achi."
     ),
     "onboarding.status.title": "📋 Setup progress — {percent}% sampurna heigala.",
     "onboarding.status.section_done": "✅ {name}",
