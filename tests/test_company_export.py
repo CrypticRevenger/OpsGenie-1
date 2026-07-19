@@ -280,6 +280,82 @@ async def test_public_export_endpoint_rejects_expired_link(db: AsyncSession) -> 
     assert resp.status_code == 403
 
 
+# ── Public signed endpoint — report/format/period query params ─────────────
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_ledger_report_with_party(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+    await db.refresh(dealer)
+
+    link = generate_export_link(
+        company, base_url="http://test", report="ledger", party_id=dealer.id
+    )
+    path = link.removeprefix("http://test")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(path)
+    assert resp.status_code == 200
+    wb = load_workbook(io.BytesIO(resp.content))
+    assert "Ledger" in wb.sheetnames
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_aging_report_as_pdf(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    link = generate_export_link(company, base_url="http://test", report="aging", format="pdf")
+    path = link.removeprefix("http://test")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(path)
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content[:4] == b"%PDF"
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_unknown_report_returns_400(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    link = generate_export_link(company, base_url="http://test")
+    path = link.removeprefix("http://test") + "?report=not_a_real_report"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(path)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_pdf_unsupported_for_report_returns_400(
+    db: AsyncSession,
+) -> None:
+    company = await _make_company(db)
+    link = generate_export_link(company, base_url="http://test", report="day_book", format="pdf")
+    path = link.removeprefix("http://test")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(path)
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_ledger_without_party_returns_400(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    link = generate_export_link(company, base_url="http://test", report="ledger")
+    path = link.removeprefix("http://test")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(path)
+    assert resp.status_code == 400
+
+
 # ── Dashboard entry point ────────────────────────────────────────────────────
 
 
@@ -418,3 +494,195 @@ async def test_whatsapp_export_trigger_without_config_says_so(
         assert resp.status_code == 200
 
     assert "set up yet" in sent[-1].lower()
+
+
+# ── New report WhatsApp triggers ─────────────────────────────────────────────
+
+
+def _extract_links(text: str) -> list[str]:
+    return [
+        line.split(": ", 1)[1]
+        for line in text.splitlines()
+        if line.startswith("Excel: ") or line.startswith("PDF: ")
+    ]
+
+
+async def _report_trigger_company(db: AsyncSession, *, name: str) -> tuple[Company, str]:
+    phone = _unique_phone()
+    company = Company(
+        business_name=name,
+        owner_name="Owner",
+        whatsapp_number=phone,
+        subscription_active=True,
+        onboarding_state=OnboardingState.completed,
+    )
+    db.add(company)
+    await db.commit()
+    return company, phone.removeprefix("+")
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_ledger_trigger_resolves_party_and_replies_with_working_links(
+    db: AsyncSession, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://test")
+
+    company, bare_sender = await _report_trigger_company(db, name="Ledger Trigger Co")
+    db.add(Dealer(company_id=company.id, name="Ram Traders"))
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        body = json.dumps(_messages_payload(sender=bare_sender, text="ledger Ram Traders")).encode()
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+        assert resp.status_code == 200
+
+        links = _extract_links(sent[-1])
+        assert len(links) == 2  # Excel + PDF (ledger has both)
+        for url in links:
+            download_resp = await client.get(url.removeprefix("http://test"))
+            assert download_resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_ledger_trigger_unknown_party_says_not_found(
+    db: AsyncSession, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://test")
+    company, bare_sender = await _report_trigger_company(db, name="Ledger Not Found Co")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        body = json.dumps(
+            _messages_payload(sender=bare_sender, text="ledger Nonexistent Traders")
+        ).encode()
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+        assert resp.status_code == 200
+
+    assert "couldn't find" in sent[-1].lower()
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_gst_report_trigger_sends_both_registers(
+    db: AsyncSession, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://test")
+    company, bare_sender = await _report_trigger_company(db, name="GST Trigger Co")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        body = json.dumps(_messages_payload(sender=bare_sender, text="gst report")).encode()
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+        assert resp.status_code == 200
+
+        assert "Sales Register" in sent[-1]
+        assert "Purchase Register" in sent[-1]
+        links = _extract_links(sent[-1])
+        assert len(links) == 2  # sales + purchase, Excel-only (no PDF for either)
+        for url in links:
+            download_resp = await client.get(url.removeprefix("http://test"))
+            assert download_resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_outstanding_report_trigger_replies_with_excel_and_pdf(
+    db: AsyncSession, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://test")
+    company, bare_sender = await _report_trigger_company(db, name="Aging Trigger Co")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        body = json.dumps(_messages_payload(sender=bare_sender, text="outstanding report")).encode()
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+        assert resp.status_code == 200
+
+        links = _extract_links(sent[-1])
+        assert len(links) == 2
+        for url in links:
+            download_resp = await client.get(url.removeprefix("http://test"))
+            assert download_resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_day_book_trigger_replies_with_working_link(
+    db: AsyncSession, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "public_base_url", "http://test")
+    company, bare_sender = await _report_trigger_company(db, name="Day Book Trigger Co")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        body = json.dumps(_messages_payload(sender=bare_sender, text="day book")).encode()
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+        assert resp.status_code == 200
+
+        links = _extract_links(sent[-1])
+        assert len(links) == 1  # day book has no PDF version
+        download_resp = await client.get(links[0].removeprefix("http://test"))
+        assert download_resp.status_code == 200

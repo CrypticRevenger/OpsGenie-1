@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
@@ -24,6 +24,7 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.agent.base import AgentTool, no_params
+from app.services.party_lookup import find_party
 from app.services.party_outstanding import (
     calculate_outstanding_for_company,
     calculate_party_outstanding,
@@ -64,28 +65,14 @@ async def _get_cash_position(db: AsyncSession, company: Company) -> dict:
 
 
 async def _get_party_balance(db: AsyncSession, company: Company, name: str) -> dict:
-    like = f"%{name.strip().lower()}%"
-    dealer = await db.scalar(
-        select(Dealer)
-        .where(Dealer.company_id == company.id, func.lower(Dealer.name).like(like))
-        .limit(1)
-    )
-    if dealer is not None:
-        amount = await calculate_party_outstanding(db, direction="receivable", party_id=dealer.id)
-        return {"party": dealer.name, "relationship": "dealer_owes_you", "outstanding": str(amount)}
-    supplier = await db.scalar(
-        select(Supplier)
-        .where(Supplier.company_id == company.id, func.lower(Supplier.name).like(like))
-        .limit(1)
-    )
-    if supplier is not None:
-        amount = await calculate_party_outstanding(db, direction="payable", party_id=supplier.id)
-        return {
-            "party": supplier.name,
-            "relationship": "you_owe_supplier",
-            "outstanding": str(amount),
-        }
-    return {"error": f"No dealer or supplier found matching '{name}'."}
+    match = await find_party(db, company.id, name)
+    if match is None:
+        return {"error": f"No dealer or supplier found matching '{name}'."}
+    party, direction = match
+    amount = await calculate_party_outstanding(db, direction=direction, party_id=party.id)
+    if direction == "receivable":
+        return {"party": party.name, "relationship": "dealer_owes_you", "outstanding": str(amount)}
+    return {"party": party.name, "relationship": "you_owe_supplier", "outstanding": str(amount)}
 
 
 async def _top_parties(

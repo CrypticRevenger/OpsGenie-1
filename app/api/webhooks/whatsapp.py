@@ -51,14 +51,19 @@ from app.db.session import async_session_factory, get_db
 from app.i18n import DEFAULT_LOCALE, Locale, resolve_locale, t
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
+from app.models.dealer import Dealer
 from app.models.notification_log import NotificationLog
+from app.models.supplier import Supplier
 from app.services import instant_reports
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
 from app.services.onboarding_flow import handle_onboarding_message, start_language_change
+from app.services.party_lookup import find_party
 from app.services.query_menu import menu_router
+from app.services.reports.period import resolve_period
+from app.services.reports.registry import REPORTS
 from app.services.snapshot import build_snapshot, business_now
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
@@ -195,6 +200,95 @@ async def _export_link_reply(db: AsyncSession, company: Company) -> str:
     return t("reports.export.ready", resolve_locale(company), ttl=ttl, link=link)
 
 
+def _current_month_str(company: Company) -> str:
+    today = business_now(company.timezone).date()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+async def _report_link_reply(
+    db: AsyncSession, company: Company, *, report: str, party: Dealer | Supplier | None = None
+) -> str:
+    """Generic reply for every period-scoped report in
+    app.services.reports.registry.REPORTS — un-parameterized requests
+    default to the current calendar month (aging/outstanding ignores the
+    period entirely, it's always a snapshot as of today, see
+    app/services/reports/aging.py). Sends both an Excel and, when the report
+    has one, a PDF link, so the WhatsApp reply itself names the report *and*
+    the period, not just the downloaded file.
+    """
+    settings = get_settings()
+    loc = resolve_locale(company)
+    if not settings.export_link_secret or not settings.public_base_url:
+        return t("reports.export.not_configured", loc)
+
+    spec = REPORTS[report]
+    if report == "aging":
+        month, period_label = None, "as of today"
+    else:
+        month = _current_month_str(company)
+        period_label = resolve_period(month_str=month).label
+
+    link_kwargs: dict[str, object] = {"report": report, "month": month}
+    if party is not None:
+        link_kwargs["party_id"] = party.id
+
+    excel_link = generate_export_link(company, base_url=settings.public_base_url, **link_kwargs)
+    lines = [f"Excel: {excel_link}"]
+    if spec.build_pdf is not None:
+        pdf_link = generate_export_link(
+            company, base_url=settings.public_base_url, format="pdf", **link_kwargs
+        )
+        lines.append(f"PDF: {pdf_link}")
+
+    report_label = f"{spec.display_name} — {party.name}" if party is not None else spec.display_name
+    return t(
+        "reports.download.ready",
+        loc,
+        report_name=report_label,
+        period=period_label,
+        ttl=settings.export_link_ttl_minutes,
+        links="\n".join(lines),
+    )
+
+
+async def _ledger_reply(db: AsyncSession, company: Company, name: str) -> str:
+    match = await find_party(db, company.id, name)
+    if match is None:
+        return t("reports.ledger.not_found", resolve_locale(company), name=name)
+    party, _direction = match
+    return await _report_link_reply(db, company, report="ledger", party=party)
+
+
+async def _gst_report_reply(db: AsyncSession, company: Company) -> str:
+    """"GST report" is ambiguous between sales and purchase — send both
+    rather than guess. Distributors who want just one already have
+    "sales register"/"purchase register" for that.
+    """
+    sales = await _report_link_reply(db, company, report="sales_register")
+    purchase = await _report_link_reply(db, company, report="purchase_register")
+    return f"{sales}\n\n{purchase}"
+
+
+async def _sales_register_reply(db: AsyncSession, company: Company) -> str:
+    return await _report_link_reply(db, company, report="sales_register")
+
+
+async def _purchase_register_reply(db: AsyncSession, company: Company) -> str:
+    return await _report_link_reply(db, company, report="purchase_register")
+
+
+async def _payment_register_reply(db: AsyncSession, company: Company) -> str:
+    return await _report_link_reply(db, company, report="payment_register")
+
+
+async def _day_book_reply(db: AsyncSession, company: Company) -> str:
+    return await _report_link_reply(db, company, report="day_book")
+
+
+async def _aging_report_reply(db: AsyncSession, company: Company) -> str:
+    return await _report_link_reply(db, company, report="aging")
+
+
 async def _help_reply(db: AsyncSession, company: Company) -> str:
     # The full help block lives in the i18n catalog (menu.help_text) so it's
     # localized per company; command keywords inside it stay English triggers.
@@ -210,10 +304,10 @@ async def _change_language_reply(db: AsyncSession, company: Company) -> str:
 
 
 # "menu" sends tappable WhatsApp list messages instead of plain text — every
-# zero-argument capability in the help text, split across 3 messages since Meta
-# caps a single list at 10 rows total. (balance <name> / stock <product>
-# need a typed argument, so they can't be a fixed tappable row — they stay
-# type-to-use, per the help text.) Row ids are read back exactly like typed text
+# zero-argument capability in the help text, split across 4 messages since Meta
+# caps a single list at 10 rows total. (balance <name> / stock <product> /
+# ledger <name> need a typed argument, so they can't be a fixed tappable row —
+# they stay type-to-use, per the help text.) Row ids are read back exactly like typed text
 # (see _extract_text_body), so each one is either an existing /slash_command
 # or a bare keyword the free-form assistant (app/services/assistant.py)
 # already understands.
@@ -352,6 +446,39 @@ _MENU_LAYOUT: list[dict] = [
             ),
         ],
     },
+    {
+        "body_key": "menu.msg.statements.body",
+        "button_key": "menu.msg.statements.button",
+        "sections": [
+            (
+                "menu.section.reports_statements",
+                [
+                    ("gst report", "menu.row.gst_report.title", "menu.row.gst_report.desc"),
+                    (
+                        "sales register",
+                        "menu.row.sales_register.title",
+                        "menu.row.sales_register.desc",
+                    ),
+                    (
+                        "purchase register",
+                        "menu.row.purchase_register.title",
+                        "menu.row.purchase_register.desc",
+                    ),
+                    (
+                        "payment register",
+                        "menu.row.payment_register.title",
+                        "menu.row.payment_register.desc",
+                    ),
+                    ("day book", "menu.row.day_book.title", "menu.row.day_book.desc"),
+                    (
+                        "outstanding report",
+                        "menu.row.outstanding_report.title",
+                        "menu.row.outstanding_report.desc",
+                    ),
+                ],
+            ),
+        ],
+    },
 ]
 
 
@@ -412,16 +539,17 @@ async def _morning_briefing_reply(db: AsyncSession, company: Company) -> str:
 
 _BALANCE_PREFIX = "balance "
 _STOCK_PREFIX = "stock "
+_LEDGER_PREFIX = "ledger "
 
 
 async def _try_deterministic_free_text(db: AsyncSession, company: Company, text: str) -> str | None:
     """The last deterministic tier before the LLM assistant: a name/item-
-    scoped lookup ("balance <name>", "stock <item>") or the "if I sell N of
-    X" fast-path — too free-form for _INSTANT_COMMANDS' exact-match dict,
-    but narrow enough to resolve with certainty against the real party
-    list/catalogue. Returns None (never a guess) if nothing matches
-    confidently, so the caller falls through to the LLM assistant exactly
-    as before — this can only ever add coverage, never regress it.
+    scoped lookup ("balance <name>", "stock <item>", "ledger <name>") or the
+    "if I sell N of X" fast-path — too free-form for _INSTANT_COMMANDS'
+    exact-match dict, but narrow enough to resolve with certainty against the
+    real party list/catalogue. Returns None (never a guess) if nothing
+    matches confidently, so the caller falls through to the LLM assistant
+    exactly as before — this can only ever add coverage, never regress it.
     """
     stripped = text.strip()
     lower = stripped.lower()
@@ -433,6 +561,10 @@ async def _try_deterministic_free_text(db: AsyncSession, company: Company, text:
         name = stripped[len(_STOCK_PREFIX) :].strip()
         if name:
             return await instant_reports.stock_item_reply(db, company, name)
+    elif lower.startswith(_LEDGER_PREFIX):
+        name = stripped[len(_LEDGER_PREFIX) :].strip()
+        if name:
+            return await _ledger_reply(db, company, name)
 
     return await instant_reports.try_deterministic_sales_impact(db, company, text)
 
@@ -472,6 +604,23 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "brief me": _morning_briefing_reply,
     "/export_data": _export_link_reply,
     "/morning_briefing": _morning_briefing_reply,
+    "gst report": _gst_report_reply,
+    "gst sales register": _sales_register_reply,
+    "sales register": _sales_register_reply,
+    "gst purchase register": _purchase_register_reply,
+    "purchase register": _purchase_register_reply,
+    "payment register": _payment_register_reply,
+    "receipt register": _payment_register_reply,
+    "day book": _day_book_reply,
+    "outstanding report": _aging_report_reply,
+    "aging report": _aging_report_reply,
+    "outstanding aging report": _aging_report_reply,
+    "/gst_report": _gst_report_reply,
+    "/sales_register": _sales_register_reply,
+    "/purchase_register": _purchase_register_reply,
+    "/payment_register": _payment_register_reply,
+    "/day_book": _day_book_reply,
+    "/outstanding_report": _aging_report_reply,
     "cash": instant_reports.cash_position_reply,
     "cash position": instant_reports.cash_position_reply,
     "/cash": instant_reports.cash_position_reply,

@@ -19,7 +19,7 @@ from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
-import app.services.invoice_pdf as invoice_pdf
+import app.services.reports.pdf_common as pdf_common
 from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.writes.orders import CreateOrderResult, OrderLine
 
@@ -90,7 +90,10 @@ def test_pdf_falls_back_to_core_font_when_bundled_fonts_absent(monkeypatch, tmp_
     the PDF still generates via core Helvetica — regional characters downgrade
     rather than crashing.
     """
-    monkeypatch.setattr(invoice_pdf, "_FONT_DIR", tmp_path)  # empty dir → no fonts load
+    # _FONT_DIR now lives in pdf_common.py (invoice_pdf.py imports the loader
+    # function, not the constant) — patch it where try_load_unicode_fonts
+    # actually reads it from.
+    monkeypatch.setattr(pdf_common, "_FONT_DIR", tmp_path)  # empty dir → no fonts load
     company = SimpleNamespace(business_name="श्री बायोकेयर", gst_number="21ABCDE1234F1Z5")
     out = generate_invoice_pdf(company, _result(dealer_name="ଶ୍ରୀ", product_name="ଚାଉଳ"))
     assert out[:4] == b"%PDF"

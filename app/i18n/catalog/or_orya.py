@@ -62,6 +62,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • export data (କିମ୍ବା /export_data) — ପୂରା ବ୍ୟବସାୟ ଡାଟା Excel ରେ download link
 • morning briefing (କିମ୍ବା /morning_briefing) — ଆଜିର ବ୍ରିଫିଂ ପୁଣି ପଠାନ୍ତୁ
 
+*ରିପୋର୍ଟ ଓ ଷ୍ଟେଟମେଣ୍ଟ* (ଏହି ମାସର, Excel + PDF ଯେଉଁଠି କୁହାଯାଇଛି)
+• ledger <name> — ଏକ ଡିଲର/ସପ୍ଲାୟରର running-balance ଷ୍ଟେଟମେଣ୍ଟ, Excel + PDF, ଯେମିତି ledger Ram Traders
+• sales register / purchase register (କିମ୍ବା ଉଭୟ ପାଇଁ "gst report") — GST register, rate-wise summary ସହ
+• payment register (କିମ୍ବା receipt register) — ଏହି ମାସର receipts ଓ payments
+• day book — ଏହି ମାସର ସବୁ invoice ଓ payment, ଏକ ତାଲିକାରେ
+• outstanding report (କିମ୍ବା aging report) — 0-30/31-60/61-90/90+ ଦିନ bucket, Excel + PDF
+
 *Quick Access*
 • menu — ଟାଇପ୍ କରିବା ବଦଳରେ option tap କରନ୍ତୁ
 • help (କିମ୍ବା /help) — ଏହି ତାଲିକା ଯେକୌଣସି ସମୟରେ ପୁଣି ଦେଖନ୍ତୁ"""
@@ -185,6 +192,10 @@ MESSAGES: dict[str, str] = {
     "reports.export.ready": (
         "ଆପଣଙ୍କ latest Excel export ପ୍ରସ୍ତୁତ।\nDownload ({ttl} min valid): {link}"
     ),
+    "reports.download.ready": (
+        "ଆପଣଙ୍କ {report_name} ({period}) ପ୍ରସ୍ତୁତ।\nDownload ({ttl} min valid):\n{links}"
+    ),
+    "reports.ledger.not_found": "'{name}' ସହ ମିଳୁଥିବା କୌଣସି ଡିଲର କିମ୍ବା ସପ୍ଲାୟର ମିଳିଲା ନାହିଁ।",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -318,6 +329,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.inventory.button": "ଗୋଟିଏ ବିକଳ୍ପ ବାଛନ୍ତୁ",
     "menu.msg.orders.body": "ଅର୍ଡର, ପେମେଣ୍ଟ ଓ ଆପଣଙ୍କ ଡାଟା — ଗୋଟିଏ ବାଛନ୍ତୁ:",
     "menu.msg.orders.button": "ଗୋଟିଏ ବିକଳ୍ପ ବାଛନ୍ତୁ",
+    "menu.msg.statements.body": "ରିପୋର୍ଟ ଓ ଷ୍ଟେଟମେଣ୍ଟ — ଗୋଟିଏ ବାଛନ୍ତୁ:",
+    "menu.msg.statements.button": "ଷ୍ଟେଟମେଣ୍ଟ ବାଛନ୍ତୁ",
     "menu.section.cash_overview": "ନଗଦ ଓ ସାରାଂଶ",
     "menu.section.money_flow": "ପଇସା ପ୍ରବାହ",
     "menu.section.dealers_suppliers": "ଡିଲର ଓ ସପ୍ଲାୟର",
@@ -326,6 +339,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.orders_payments": "ଅର୍ଡର ଓ ପେମେଣ୍ଟ",
     "menu.section.your_data": "ଆପଣଙ୍କ ଡାଟା",
     "menu.section.full_lists": "ପୂର୍ଣ୍ଣ ତାଲିକା",
+    "menu.section.reports_statements": "ରିପୋର୍ଟ ଓ ଷ୍ଟେଟମେଣ୍ଟ",
     "menu.row.cash.title": "ନଗଦ ସ୍ଥିତି",
     "menu.row.cash.desc": "ବର୍ତ୍ତମାନ ନଗଦ ଓ 7-ଦିନ ଇନ୍/ଆଉଟ୍",
     "menu.row.summary.title": "ବ୍ୟବସାୟ ସାରାଂଶ",
@@ -382,6 +396,18 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "ପ୍ରତ୍ୟେକ ଇନଭଏସ୍, କେବଳ ନୂଆ ନୁହେଁ",
     "menu.row.all_payments.title": "ସମସ୍ତ ପେମେଣ୍ଟ",
     "menu.row.all_payments.desc": "ପ୍ରତ୍ୟେକ ପେମେଣ୍ଟ, କେବଳ ନୂଆ ନୁହେଁ",
+    "menu.row.gst_report.title": "GST ରିପୋର୍ଟ",
+    "menu.row.gst_report.desc": "ସେଲ୍ସ ଓ ପର୍ଚେଜ୍ ରେଜିଷ୍ଟର ଉଭୟ ପାଇଁ",
+    "menu.row.sales_register.title": "ସେଲ୍ସ ରେଜିଷ୍ଟର",
+    "menu.row.sales_register.desc": "GST ରେଜିଷ୍ଟର + ରେଟ୍-ୱାଇଜ୍ ସାରାଂଶ",
+    "menu.row.purchase_register.title": "ପର୍ଚେଜ୍ ରେଜିଷ୍ଟର",
+    "menu.row.purchase_register.desc": "GST ରେଜିଷ୍ଟର + ରେଟ୍-ୱାଇଜ୍ ସାରାଂଶ",
+    "menu.row.payment_register.title": "ପେମେଣ୍ଟ ରେଜିଷ୍ଟର",
+    "menu.row.payment_register.desc": "ଏହି ମାସର ରସିଦ ଓ ପେମେଣ୍ଟ",
+    "menu.row.day_book.title": "ଡେ ବୁକ୍",
+    "menu.row.day_book.desc": "ଏହି ମାସର ସବୁ ଇନଭଏସ୍ ଓ ପେମେଣ୍ଟ",
+    "menu.row.outstanding_report.title": "ଆଉଟଷ୍ଟାଣ୍ଡିଂ ରିପୋର୍ଟ",
+    "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ ଦିନ ବକେଟ",
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel କରିଦେଲି।",
     "workflow.yes_no": "ଦୟାକରି yes କିମ୍ବା no reply କରନ୍ତୁ।",

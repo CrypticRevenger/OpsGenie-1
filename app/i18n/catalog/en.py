@@ -64,6 +64,13 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • export data (or /export_data) — a download link to your full business data as Excel
 • morning briefing (or /morning_briefing) — resend today's briefing
 
+*Reports & Statements* (this month, Excel + PDF where noted)
+• ledger <name> — running-balance statement, Excel + PDF, e.g. ledger Ram Traders
+• sales register / purchase register (or "gst report" for both) — GST register + rate-wise summary
+• payment register (or receipt register) — receipts & payments this month
+• day book — every invoice and payment this month, in one list
+• outstanding report (or aging report) — 0-30/31-60/61-90/90+ day buckets, Excel + PDF
+
 *Quick Access*
 • menu — tap through your options instead of typing
 • help (or /help) — see this list again anytime"""
@@ -189,6 +196,12 @@ MESSAGES: dict[str, str] = {
     "reports.export.ready": (
         "Your latest Excel export is ready.\nDownload (valid {ttl} min): {link}"
     ),
+    # ── Period-scoped report downloads (ledger, GST/sales/purchase
+    # registers, payment register, day book, aging) ────────────────────────
+    "reports.download.ready": (
+        "Your {report_name} ({period}) is ready.\nDownload (valid {ttl} min):\n{links}"
+    ),
+    "reports.ledger.not_found": "I couldn't find a dealer or supplier matching '{name}'.",
     # ── Help text (single block; command keywords stay English triggers) ───
     "menu.help_text": _HELP_TEXT_EN,
     # ── Onboarding: guided business setup (shown after language is chosen) ──
@@ -331,6 +344,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.inventory.button": "Choose an option",
     "menu.msg.orders.body": "Orders, Payments & Your Data — tap one:",
     "menu.msg.orders.button": "Choose an option",
+    "menu.msg.statements.body": "Reports & Statements — tap one:",
+    "menu.msg.statements.button": "Choose a statement",
     "menu.section.cash_overview": "Cash & Overview",
     "menu.section.money_flow": "Money Flow",
     "menu.section.dealers_suppliers": "Dealers & Suppliers",
@@ -339,6 +354,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.orders_payments": "Orders & Payments",
     "menu.section.your_data": "Your Data",
     "menu.section.full_lists": "Full Lists",
+    "menu.section.reports_statements": "Reports & Statements",
     "menu.row.cash.title": "Cash Position",
     "menu.row.cash.desc": "Current cash & 7-day in/out",
     "menu.row.summary.title": "Business Summary",
@@ -395,6 +411,18 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "Every invoice, not just recent",
     "menu.row.all_payments.title": "All Payments",
     "menu.row.all_payments.desc": "Every payment, not just recent",
+    "menu.row.gst_report.title": "GST Report",
+    "menu.row.gst_report.desc": "Sales + purchase register together",
+    "menu.row.sales_register.title": "Sales Register",
+    "menu.row.sales_register.desc": "GST register + rate-wise summary",
+    "menu.row.purchase_register.title": "Purchase Register",
+    "menu.row.purchase_register.desc": "GST register + rate-wise summary",
+    "menu.row.payment_register.title": "Payment Register",
+    "menu.row.payment_register.desc": "Receipts & payments this month",
+    "menu.row.day_book.title": "Day Book",
+    "menu.row.day_book.desc": "Every invoice & payment, one list",
+    "menu.row.outstanding_report.title": "Outstanding Report",
+    "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ day buckets",
     # ── Guided write-workflows (shared) ────────────────────────────────────
     "workflow.cancelled": "OK, cancelled.",
     "workflow.yes_no": "Please reply yes or no.",

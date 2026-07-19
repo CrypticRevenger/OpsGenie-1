@@ -63,6 +63,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • export data (kimba /export_data) — puura business data Excel re download link
 • morning briefing (kimba /morning_briefing) — aji ra briefing punarbara pathantu
 
+*Reports & Statements* (e mahara, Excel + PDF jahin bataithiba)
+• ledger <name> — running-balance statement, Excel + PDF, jemiti ledger Ram Traders
+• sales register / purchase register (kimba duhenka pain "gst report") — GST register + summary
+• payment register (kimba receipt register) — e mahara receipts o payments
+• day book — e mahara sabu invoice o payment, eka list re
+• outstanding report (kimba aging report) — 0-30/31-60/61-90/90+ dina bucket, Excel + PDF
+
 *Quick Access*
 • menu — type karibaru option tap karantu
 • help (kimba /help) — e list kebe bi punarbara dekhantu"""
@@ -188,6 +195,10 @@ MESSAGES: dict[str, str] = {
     "reports.export.ready": (
         "Apanka latest Excel export taiyar.\nDownload ({ttl} min valid): {link}"
     ),
+    "reports.download.ready": (
+        "Apanka {report_name} ({period}) taiyar.\nDownload ({ttl} min valid):\n{links}"
+    ),
+    "reports.ledger.not_found": "'{name}' saha milu thiba kono dealer kimba supplier milila nahin.",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -330,6 +341,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.inventory.button": "Option bachantu",
     "menu.msg.orders.body": "Orders, Payments & aapanka Data — gotie bachantu:",
     "menu.msg.orders.button": "Option bachantu",
+    "menu.msg.statements.body": "Reports & Statements — gotie bachantu:",
+    "menu.msg.statements.button": "Statement bachantu",
     "menu.section.cash_overview": "Cash & Overview",
     "menu.section.money_flow": "Paisa Flow",
     "menu.section.dealers_suppliers": "Dealers & Suppliers",
@@ -338,6 +351,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.orders_payments": "Orders & Payments",
     "menu.section.your_data": "Aapanka Data",
     "menu.section.full_lists": "Puura Lists",
+    "menu.section.reports_statements": "Reports & Statements",
     "menu.row.cash.title": "Cash Position",
     "menu.row.cash.desc": "Ebe cash & 7-dina in/out",
     "menu.row.summary.title": "Business Summary",
@@ -394,6 +408,18 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "Pratyeka invoice, kebala natun nuhe",
     "menu.row.all_payments.title": "Sabu Payments",
     "menu.row.all_payments.desc": "Pratyeka payment, kebala natun nuhe",
+    "menu.row.gst_report.title": "GST Report",
+    "menu.row.gst_report.desc": "Sales o purchase register, duhenka pain",
+    "menu.row.sales_register.title": "Sales Register",
+    "menu.row.sales_register.desc": "GST sales register + rate-wise summary",
+    "menu.row.purchase_register.title": "Purchase Register",
+    "menu.row.purchase_register.desc": "GST purchase register + rate-wise summary",
+    "menu.row.payment_register.title": "Payment Register",
+    "menu.row.payment_register.desc": "E mahara receipts o payments",
+    "menu.row.day_book.title": "Day Book",
+    "menu.row.day_book.desc": "E mahara sabu invoice o payment",
+    "menu.row.outstanding_report.title": "Outstanding Report",
+    "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ dina bucket",
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel karidela.",
     "workflow.yes_no": "Daya kari yes kimba no reply karantu.",
