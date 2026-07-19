@@ -961,6 +961,8 @@ async def test_help_command_aliases_all_reach_the_same_reply(
         ("/update_stock", "update stock"),
         ("/record_payment", "record payment"),
         ("/create_order", "create order"),
+        ("/add_dealer", "add dealer"),
+        ("/add_supplier", "add supplier"),
     ],
 )
 async def test_slash_workflow_trigger_matches_its_phrase_equivalent(

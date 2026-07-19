@@ -25,11 +25,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • top debtors / who owes most — sabse zyada baaki wale dealers
 • overdue / overdue dealers — kitne din late & risk level (ya 4 / /dealer_risk)
 • balance <name> — ek dealer ka baaki, jaise balance Ram Traders
+• add dealer (ya /add_dealer) — naya dealer add karein: naam, phone, credit din
 
 *Suppliers (jinhe aap dete hain)*
 • suppliers / all suppliers — har supplier phone & baaki ke saath
 • top creditors — jinhe aap sabse zyada dete hain
 • balance <name> — ek supplier ka baaki
+• add supplier (ya /add_supplier) — naya supplier add karein: naam, phone, credit din
 
 *Aane wala Cash Flow*
 • collections / upcoming collections — dealers se aane wala, agle 7 din (ya 2 / /collections)
@@ -394,6 +396,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.inventory_transactions": "Inventory & Transactions",
     "menu.section.manage_products": "Products Manage karein",
     "menu.section.orders_payments": "Orders & Payments",
+    "menu.section.manage_parties": "Party Manage Karein",
     "menu.section.your_data": "Aapka Data",
     "menu.section.full_lists": "Poori Lists",
     "menu.section.reports_statements": "Reports & Statements",
@@ -443,6 +446,10 @@ MESSAGES: dict[str, str] = {
     "menu.row.record_payment.desc": "Aaya ya diya payment log karein",
     "menu.row.update_gst.title": "GST Update karein",
     "menu.row.update_gst.desc": "Sabhi ya ek product ka GST badlein",
+    "menu.row.add_dealer.title": "Dealer Add Karein",
+    "menu.row.add_dealer.desc": "Naya dealer add karein",
+    "menu.row.add_supplier.title": "Supplier Add Karein",
+    "menu.row.add_supplier.desc": "Naya supplier add karein",
     "menu.row.export_data.title": "Data Export karein",
     "menu.row.export_data.desc": "Apna Excel data download karein",
     "menu.row.morning_briefing.title": "Morning Briefing",
@@ -634,6 +641,32 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} ki price {new} ki (pehle {old} thi).",
     "product.updated_purchase": "{name} ki purchase price {new} ki (pehle {old} thi).",
     "product.updated_stock": "{name} ka stock {new} kiya (pehle {old} tha).",
+    "party.dealer.mode_prompt": (
+        "Apne dealers add karein. Reply 'one by one' ek-ek karke add karne ke liye, "
+        "ya 'bulk' sabko ek saath bhejne ke liye (jaise Ram Traders, 9876543210, 15). "
+        "'done' kabhi bhi rukne ke liye."
+    ),
+    "party.dealer.no_added": "OK, koi dealer add nahi kiya.",
+    "party.dealer.all_done": "Sabhi dealers add ho gaye.",
+    "party.dealer.name_or_done": (
+        "Dealer ka naam bhejein (jaise Ram Traders), ya rukne ke liye 'done'."
+    ),
+    "party.dealer.mode_invalid": (
+        "Kripya reply karein 'one by one' ya 'bulk' — ya rukne ke liye 'done'."
+    ),
+    "party.supplier.mode_prompt": (
+        "Apne suppliers add karein. Reply 'one by one' ek-ek karke add karne ke liye, "
+        "ya 'bulk' sabko ek saath bhejne ke liye (jaise Metro Distributors, 9988776655, 30). "
+        "'done' kabhi bhi rukne ke liye."
+    ),
+    "party.supplier.no_added": "OK, koi supplier add nahi kiya.",
+    "party.supplier.all_done": "Sabhi suppliers add ho gaye.",
+    "party.supplier.name_or_done": (
+        "Supplier ka naam bhejein (jaise Metro Distributors), ya rukne ke liye 'done'."
+    ),
+    "party.supplier.mode_invalid": (
+        "Kripya reply karein 'one by one' ya 'bulk' — ya rukne ke liye 'done'."
+    ),
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm karne ke liye ya NO cancel ke liye.",
     "pending.payment_failed": (

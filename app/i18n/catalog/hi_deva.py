@@ -23,11 +23,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • top debtors / who owes most — सबसे ज़्यादा बकाया वाले डीलर
 • overdue / overdue dealers — कितने दिन लेट और रिस्क लेवल (या 4 / /dealer_risk)
 • balance <name> — एक डीलर का बकाया, जैसे balance Ram Traders
+• add dealer (या /add_dealer) — नया dealer add करें: नाम, फ़ोन, credit दिन
 
 *सप्लायर (जिन्हें आप देते हैं)*
 • suppliers / all suppliers — हर सप्लायर फ़ोन और बकाया के साथ
 • top creditors — जिन्हें आप सबसे ज़्यादा देते हैं
 • balance <name> — एक सप्लायर का बकाया
+• add supplier (या /add_supplier) — नया supplier add करें: नाम, फ़ोन, credit दिन
 
 *आने वाला कैश फ़्लो*
 • collections / upcoming collections — डीलरों से आने वाला, अगले 7 दिन (या 2 / /collections)
@@ -384,6 +386,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.inventory_transactions": "इन्वेंटरी व लेनदेन",
     "menu.section.manage_products": "प्रोडक्ट्स मैनेज करें",
     "menu.section.orders_payments": "ऑर्डर और पेमेंट",
+    "menu.section.manage_parties": "पार्टी मैनेज करें",
     "menu.section.your_data": "आपका डेटा",
     "menu.section.full_lists": "पूरी सूचियाँ",
     "menu.section.reports_statements": "रिपोर्ट्स और स्टेटमेंट्स",
@@ -433,6 +436,10 @@ MESSAGES: dict[str, str] = {
     "menu.row.record_payment.desc": "आया या दिया पेमेंट लॉग करें",
     "menu.row.update_gst.title": "GST अपडेट करें",
     "menu.row.update_gst.desc": "सभी या एक प्रोडक्ट का GST बदलें",
+    "menu.row.add_dealer.title": "Dealer Add करें",
+    "menu.row.add_dealer.desc": "नया dealer add करें",
+    "menu.row.add_supplier.title": "Supplier Add करें",
+    "menu.row.add_supplier.desc": "नया supplier add करें",
     "menu.row.export_data.title": "डेटा एक्सपोर्ट करें",
     "menu.row.export_data.desc": "अपना Excel डेटा डाउनलोड करें",
     "menu.row.morning_briefing.title": "मॉर्निंग ब्रीफ़िंग",
@@ -614,6 +621,28 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} की price {new} की (पहले {old} थी)।",
     "product.updated_purchase": "{name} की purchase price {new} की (पहले {old} थी)।",
     "product.updated_stock": "{name} का stock {new} किया (पहले {old} था)।",
+    "party.dealer.mode_prompt": (
+        "अपने dealers add करें। Reply 'one by one' एक-एक करके add करने के लिए, "
+        "या 'bulk' सबको एक साथ भेजने के लिए (जैसे Ram Traders, 9876543210, 15)। "
+        "'done' कभी भी रुकने के लिए।"
+    ),
+    "party.dealer.no_added": "ठीक है, कोई dealer add नहीं किया।",
+    "party.dealer.all_done": "सभी dealers add हो गए।",
+    "party.dealer.name_or_done": "Dealer का नाम भेजें (जैसे Ram Traders), या रुकने के लिए 'done'।",
+    "party.dealer.mode_invalid": "कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।",
+    "party.supplier.mode_prompt": (
+        "अपने suppliers add करें। Reply 'one by one' एक-एक करके add करने के लिए, "
+        "या 'bulk' सबको एक साथ भेजने के लिए (जैसे Metro Distributors, 9988776655, 30)। "
+        "'done' कभी भी रुकने के लिए।"
+    ),
+    "party.supplier.no_added": "ठीक है, कोई supplier add नहीं किया।",
+    "party.supplier.all_done": "सभी suppliers add हो गए।",
+    "party.supplier.name_or_done": (
+        "Supplier का नाम भेजें (जैसे Metro Distributors), या रुकने के लिए 'done'।"
+    ),
+    "party.supplier.mode_invalid": (
+        "कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।"
+    ),
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm करने के लिए या NO cancel के लिए।",
     "pending.payment_failed": "वह payment record नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
