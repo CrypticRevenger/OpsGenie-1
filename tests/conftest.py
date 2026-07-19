@@ -43,6 +43,30 @@ from app.core.config import get_settings  # noqa: E402  (must precede other app 
 _REAL_DB_URL = str(get_settings().database_url)
 TEST_DB_URL = _derive_test_url(_REAL_DB_URL)
 
+# ── Production tripwire ───────────────────────────────────────────────────────
+# The suite CREATEs, migrates, and TRUNCATEs its target database (see fixtures
+# below), so that target must never be production infrastructure. The _test
+# suffix already redirects the database *name*, but assert it — and refuse any
+# non-local host unless explicitly opted in — so a fat-fingered DATABASE_URL
+# (e.g. the live prod Neon URL uncommented in .env) can never repeat the
+# incident where the test suite populated the production DB with 1,000+ fixture
+# companies and blasted the founder's real WhatsApp. Run tests against a local
+# Postgres; set ALLOW_REMOTE_TEST_DB=1 only for a deliberate remote *_test DB.
+_test_db_name = urlsplit(TEST_DB_URL).path.lstrip("/")
+_test_db_host = urlsplit(TEST_DB_URL).hostname or ""
+if not _test_db_name.endswith("_test"):
+    raise RuntimeError(f"Refusing to run tests: {_test_db_name!r} is not a *_test database.")
+if _test_db_host not in {"localhost", "127.0.0.1", "::1", ""} and (
+    os.environ.get("ALLOW_REMOTE_TEST_DB") != "1"
+):
+    raise RuntimeError(
+        f"Refusing to run the test suite against remote DB host {_test_db_host!r}: the "
+        "suite CREATEs/migrates/TRUNCATEs its target DB. Tests once ran against the "
+        "production Neon DB and polluted it with 1,000+ fixture companies. Point "
+        "DATABASE_URL at a local Postgres, or set ALLOW_REMOTE_TEST_DB=1 if you truly "
+        "intend a remote *_test database."
+    )
+
 os.environ["DATABASE_URL"] = TEST_DB_URL
 # Fail-closed the outbound side for the whole test run (empty string is falsy,
 # so every `if not settings.x` guard treats these as unset).
