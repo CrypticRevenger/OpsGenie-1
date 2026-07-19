@@ -103,6 +103,13 @@
         showStep(1);
       } else if (resp.status === 503) {
         showBanner("step2Banner", data.detail || "Onboarding is not available right now.");
+      } else if (resp.status === 409) {
+        // Founder-number collision (app/services/onboarding.py's
+        // FounderNumberConflictError) — a deliberate rejection with a real
+        // reason, not a generic failure. Send the user back to fix the
+        // number instead of leaving them stuck on step 2.
+        setFieldError("field_whatsapp_number", data.detail || "That number can't be used.");
+        showStep(1);
       } else {
         showBanner("step2Banner", "Something went wrong. Please try again.");
       }
