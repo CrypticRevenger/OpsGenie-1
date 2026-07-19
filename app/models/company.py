@@ -142,6 +142,27 @@ class OnboardingState(enum.StrEnum):
     # re-asking each imported section one at a time. See
     # app/services/onboarding_flow.py's _after_gst/_route_past_import.
     import_confirm = "import_confirm"
+    # Reached from awaiting_business_type instead of gst_mode_ask when an
+    # import left some (but not all) products without their own GST rate —
+    # asks one rate to apply to just those, instead of re-asking GST from
+    # scratch for a catalogue that mostly already has it. See
+    # app/services/onboarding_flow.py's _start_gst_step.
+    gst_missing_rate_ask = "gst_missing_rate_ask"
+    # Reached from _after_products/_after_dealers when the import left some
+    # dealers/suppliers with only a name (no phone/credit days) — offers to
+    # fill those in now or later, instead of silently leaving them blank.
+    # See app/services/onboarding_flow.py's _parties_missing_fields.
+    dealer_missing_ask = "dealer_missing_ask"
+    dealer_missing_mode = "dealer_missing_mode"
+    dealer_missing_bulk = "dealer_missing_bulk"
+    dealer_missing_phone = "dealer_missing_phone"
+    dealer_missing_credit = "dealer_missing_credit"
+    # Same shape as the dealer_missing_* set above, for suppliers.
+    supplier_missing_ask = "supplier_missing_ask"
+    supplier_missing_mode = "supplier_missing_mode"
+    supplier_missing_bulk = "supplier_missing_bulk"
+    supplier_missing_phone = "supplier_missing_phone"
+    supplier_missing_credit = "supplier_missing_credit"
 
 
 class Company(UUIDMixin, TimestampMixin, Base):

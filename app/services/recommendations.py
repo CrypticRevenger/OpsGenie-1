@@ -26,6 +26,7 @@ ActionType = Literal[
     "call_dealer",
     "stale_data_warning",
     "follow_up_reminder",
+    "incomplete_party_data",
 ]
 
 _URGENT_SUPPLIER_PAYMENT_HOURS = 48
@@ -138,6 +139,28 @@ def build_recommendations(snapshot: Snapshot) -> list[ActionItem]:
                     if snapshot.data_freshness_hours is None
                     else f"Data is {snapshot.data_freshness_hours:.1f} hours old."
                 ),
+                days_overdue=None,
+            )
+        )
+
+    # Same "housekeeping, not urgent-money" tier as stale_data_warning — fires
+    # once, covering both counts, when a distributor picked "later" during
+    # onboarding's dealer/supplier missing-field backfill (see
+    # app/services/onboarding_flow.py) instead of filling them in on the spot.
+    if snapshot.dealers_missing_fields_count or snapshot.suppliers_missing_fields_count:
+        parts = []
+        if snapshot.dealers_missing_fields_count:
+            parts.append(f"{snapshot.dealers_missing_fields_count} dealer(s)")
+        if snapshot.suppliers_missing_fields_count:
+            parts.append(f"{snapshot.suppliers_missing_fields_count} supplier(s)")
+        actions.append(
+            ActionItem(
+                priority=3,
+                action_type="incomplete_party_data",
+                entity_name=snapshot.business_name,
+                entity_id=None,
+                amount=None,
+                reason=f"{' and '.join(parts)} are missing phone number and/or credit days.",
                 days_overdue=None,
             )
         )

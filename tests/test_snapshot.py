@@ -365,6 +365,43 @@ async def test_no_import_ever_means_no_freshness_and_zero_confidence(db: AsyncSe
 
 
 @pytest.mark.asyncio
+async def test_no_incomplete_parties_counts_zero(db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    await _make_dealer(db, company_id, "Complete Dealer")  # no phone/credit either way
+    snapshot = await build_snapshot(db, company_id)
+    # A dealer with neither phone nor payment_terms_days set still counts as
+    # missing — matches count_parties_missing_fields' OR predicate, not an
+    # oversight; assert the shape this test actually needs instead.
+    assert snapshot.dealers_missing_fields_count == 1
+    assert snapshot.suppliers_missing_fields_count == 0
+
+
+@pytest.mark.asyncio
+async def test_dealers_and_suppliers_missing_fields_counted_independently(
+    db: AsyncSession,
+) -> None:
+    company_id = await _make_company(db)
+    db.add(Dealer(company_id=company_id, name="No Phone No Credit"))
+    db.add(
+        Dealer(
+            company_id=company_id,
+            name="Complete Dealer",
+            phone="+919876543210",
+            payment_terms_days=15,
+        )
+    )
+    db.add(Dealer(company_id=company_id, name="Phone Only", phone="+919876543211"))
+    db.add(Supplier(company_id=company_id, name="No Phone No Credit Supplier"))
+    await db.commit()
+
+    snapshot = await build_snapshot(db, company_id)
+    # 2 of 3 dealers are missing at least one field ("Phone Only" still
+    # counts — missing payment_terms_days is enough on its own).
+    assert snapshot.dealers_missing_fields_count == 2
+    assert snapshot.suppliers_missing_fields_count == 1
+
+
+@pytest.mark.asyncio
 async def test_company_not_found_raises(db: AsyncSession) -> None:
     with pytest.raises(ValueError):
         await build_snapshot(db, uuid.uuid4())

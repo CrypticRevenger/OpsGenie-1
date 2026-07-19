@@ -386,9 +386,7 @@ async def test_product_bulk_paste_saves_each_item_separately(db: AsyncSession) -
     assert company.onboarding_state == OnboardingState.product_awaiting_bulk  # loops for more
     assert "Added 4 product" in reply
     assert await _count(db, Product, company.id) == 4
-    products = (
-        await db.scalars(select(Product).where(Product.company_id == company.id))
-    ).all()
+    products = (await db.scalars(select(Product).where(Product.company_id == company.id))).all()
     assert {p.name for p in products} == {"T-Shirt", "Shirt", "Jeans", "Kurti"}
     assert all(p.unit == "pcs" for p in products)
 
@@ -635,9 +633,7 @@ async def test_dealer_bulk_paste_saves_each_item_separately(db: AsyncSession) ->
     reply = await _send(
         db,
         company,
-        "Ram Traders, 9876543210, 15\n"
-        "Shree Enterprises, 9123456780, 30\n"
-        "Kirana Point, skip, skip",
+        "Ram Traders, 9876543210, 15\nShree Enterprises, 9123456780, 30\nKirana Point, skip, skip",
     )
     assert company.onboarding_state == OnboardingState.dealer_awaiting_bulk  # loops for more
     assert "Added 3 dealer" in reply
@@ -951,16 +947,45 @@ async def test_restart_yes_removes_opening_receivable_invoice(db: AsyncSession) 
 # setup finishes (the first point _after_gst can see all of them at once).
 
 
-async def _seed_product(db: AsyncSession, company: Company) -> None:
-    db.add(Product(company_id=company.id, name=f"Seed Product {uuid.uuid4().hex[:6]}"))
+async def _seed_product(db: AsyncSession, company: Company, *, complete: bool = False) -> None:
+    """`complete=False` (the default) matches real import behavior — a
+    products file with no GST% column leaves gst_rate NULL, same as
+    app/services/importer/product_row.py does. Pass complete=True for tests
+    whose actual purpose is the section skip-chain, not the missing-GST
+    backfill feature — matches _seed_invoice's own complete= convention."""
+    gst_rate = Decimal("5.00") if complete else None
+    db.add(
+        Product(
+            company_id=company.id, name=f"Seed Product {uuid.uuid4().hex[:6]}", gst_rate=gst_rate
+        )
+    )
     await db.flush()
 
 
-async def _seed_invoice(db: AsyncSession, company: Company, direction: InvoiceDirection) -> None:
+async def _seed_invoice(
+    db: AsyncSession, company: Company, direction: InvoiceDirection, *, complete: bool = False
+) -> None:
+    """`complete=False` (the default) matches real import behavior —
+    find_or_create_party (app/services/importer/parties.py) only ever sets
+    `name`, leaving phone/payment_terms_days NULL. Pass complete=True for
+    tests whose actual purpose is the section skip-chain, not the
+    missing-field backfill feature this default shape now triggers."""
+    phone = "+919876543210" if complete else None
+    credit_days = 15 if complete else None
     if direction == InvoiceDirection.receivable:
-        party = Dealer(company_id=company.id, name=f"Seed Dealer {uuid.uuid4().hex[:6]}")
+        party = Dealer(
+            company_id=company.id,
+            name=f"Seed Dealer {uuid.uuid4().hex[:6]}",
+            phone=phone,
+            payment_terms_days=credit_days,
+        )
     else:
-        party = Supplier(company_id=company.id, name=f"Seed Supplier {uuid.uuid4().hex[:6]}")
+        party = Supplier(
+            company_id=company.id,
+            name=f"Seed Supplier {uuid.uuid4().hex[:6]}",
+            phone=phone,
+            payment_terms_days=credit_days,
+        )
     db.add(party)
     await db.flush()
     db.add(
@@ -1014,10 +1039,13 @@ async def test_import_confirm_shown_with_everything_imported(db: AsyncSession) -
 
 @pytest.mark.asyncio
 async def test_import_confirm_yes_skips_everything_to_opening_balance(db: AsyncSession) -> None:
+    # This test is about the section skip-chain itself, not the missing-field
+    # backfill feature — complete=True keeps every seeded row fully filled so
+    # "yes" really does skip straight through, same as it always did.
     company = await _fresh_company(db)
-    await _seed_product(db, company)
-    await _seed_invoice(db, company, InvoiceDirection.receivable)
-    await _seed_invoice(db, company, InvoiceDirection.payable)
+    await _seed_product(db, company, complete=True)
+    await _seed_invoice(db, company, InvoiceDirection.receivable, complete=True)
+    await _seed_invoice(db, company, InvoiceDirection.payable, complete=True)
     await _to_gst_done(db, company)
     assert company.onboarding_state == OnboardingState.import_confirm
 
@@ -1076,9 +1104,12 @@ async def test_import_confirm_partial_products_only_still_asks_dealers(db: Async
 async def test_import_confirm_partial_receivables_skips_dealers_asks_rest(db: AsyncSession) -> None:
     # A sales-register-only import creates a Dealer + a receivable Invoice
     # together, but no products/suppliers/payables — the chain should skip
-    # exactly the dealer section and ask normally for everything else.
+    # exactly the dealer section and ask normally for everything else. This
+    # test is about that skip-chain, not the missing-field backfill feature —
+    # complete=True keeps the seeded dealer fully filled so the section is
+    # really skipped, not routed into the new dealer_missing_ask flow.
     company = await _fresh_company(db)
-    await _seed_invoice(db, company, InvoiceDirection.receivable)
+    await _seed_invoice(db, company, InvoiceDirection.receivable, complete=True)
     await _to_gst_done(db, company)
     await _send(db, company, "yes")
     assert company.onboarding_state == OnboardingState.product_awaiting_mode
@@ -1091,3 +1122,213 @@ async def test_import_confirm_partial_receivables_skips_dealers_asks_rest(db: As
     await _send(db, company, "50000")
     assert company.onboarding_state == OnboardingState.payable_ask  # receivables skipped
     assert await _count(db, Dealer, company.id) == 1  # not duplicated
+
+
+# ── GST: only ask about imported products missing a rate ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_gst_all_imported_products_have_rate_skips_question(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", gst_rate=Decimal("5.00")))
+    db.add(Product(company_id=company.id, name="Dal", gst_rate=Decimal("12.00")))
+    await db.flush()
+
+    reply = await _send(db, company, "FMCG")
+    # Straight to import_confirm — the GST question never appeared at all.
+    assert company.onboarding_state == OnboardingState.import_confirm
+    assert "gst" not in reply.lower()
+    assert company.gst_varies_by_product is True
+
+
+@pytest.mark.asyncio
+async def test_gst_some_imported_products_missing_rate_asks_only_for_those(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Rice", gst_rate=Decimal("5.00")))
+    db.add(Product(company_id=company.id, name="Dal", gst_rate=None))
+    db.add(Product(company_id=company.id, name="Oil", gst_rate=None))
+    await db.flush()
+
+    reply = await _send(db, company, "FMCG")
+    assert company.onboarding_state == OnboardingState.gst_missing_rate_ask
+    assert "dal" in reply.lower()
+    assert "oil" in reply.lower()
+    assert "rice" not in reply.lower()  # already has a rate — not named
+
+    await _send(db, company, "18")
+    assert company.onboarding_state == OnboardingState.import_confirm
+
+    products = (
+        (await db.execute(select(Product).where(Product.company_id == company.id))).scalars().all()
+    )
+    by_name = {p.name: p.gst_rate for p in products}
+    assert by_name["Rice"] == Decimal("5.00")  # untouched
+    assert by_name["Dal"] == Decimal("18.00")
+    assert by_name["Oil"] == Decimal("18.00")
+
+
+@pytest.mark.asyncio
+async def test_gst_missing_rate_can_be_skipped(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add(Product(company_id=company.id, name="Dal", gst_rate=None))
+    await db.flush()
+
+    await _send(db, company, "FMCG")
+    assert company.onboarding_state == OnboardingState.gst_missing_rate_ask
+    await _send(db, company, "skip")
+    assert company.onboarding_state == OnboardingState.import_confirm
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.gst_rate is None
+
+
+# ── Dealer/supplier missing-field backfill (import path only) ───────────────
+
+
+async def _company_with_incomplete_dealer(db: AsyncSession) -> Company:
+    """A company just past import_confirm's "yes", with one dealer imported
+    with no phone/credit days — lands on dealer_missing_ask."""
+    company = await _fresh_company(db)
+    await _seed_product(db, company, complete=True)  # skips the GST question
+    await _seed_invoice(db, company, InvoiceDirection.receivable)  # incomplete dealer
+    await _send(db, company, "FMCG")
+    assert company.onboarding_state == OnboardingState.import_confirm
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.dealer_missing_ask
+    return company
+
+
+async def _company_with_incomplete_supplier(db: AsyncSession) -> Company:
+    """Same shape, but the dealer section is already complete (auto-skips)
+    and it's the supplier that's missing phone/credit days — lands on
+    supplier_missing_ask."""
+    company = await _fresh_company(db)
+    await _seed_product(db, company, complete=True)
+    await _seed_invoice(db, company, InvoiceDirection.receivable, complete=True)
+    await _seed_invoice(db, company, InvoiceDirection.payable)  # incomplete supplier
+    await _send(db, company, "FMCG")
+    assert company.onboarding_state == OnboardingState.import_confirm
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.supplier_missing_ask
+    return company
+
+
+@pytest.mark.asyncio
+async def test_dealer_missing_ask_later_leaves_rows_unchanged(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_dealer(db)
+
+    await _send(db, company, "later")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode  # chain continues
+    dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
+    assert dealer.phone is None
+    assert dealer.payment_terms_days is None
+
+
+@pytest.mark.asyncio
+async def test_dealer_missing_now_shows_list_and_asks_mode(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_dealer(db)
+
+    reply = await _send(db, company, "now")
+    assert company.onboarding_state == OnboardingState.dealer_missing_mode
+    assert "1." in reply
+    assert "bulk" in reply.lower()
+    assert "one by one" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_dealer_missing_one_by_one_updates_existing_row(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_dealer(db)
+    await _send(db, company, "now")
+    await _send(db, company, "one by one")
+    assert company.onboarding_state == OnboardingState.dealer_missing_phone
+
+    await _send(db, company, "9876543210")
+    assert company.onboarding_state == OnboardingState.dealer_missing_credit
+    await _send(db, company, "15")
+    # Only one dealer was missing — the queue's now empty, so the chain moves on.
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode
+
+    assert await _count(db, Dealer, company.id) == 1  # not duplicated
+    dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
+    assert dealer.phone == "9876543210"
+    assert dealer.payment_terms_days == 15
+
+
+@pytest.mark.asyncio
+async def test_dealer_missing_bulk_updates_matched_and_reports_unmatched(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    await _seed_product(db, company, complete=True)
+    db.add(Dealer(company_id=company.id, name="Ram Traders"))
+    db.add(Dealer(company_id=company.id, name="Shree Enterprises"))
+    await db.flush()
+    await _send(db, company, "FMCG")
+    assert company.onboarding_state == OnboardingState.import_confirm
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.dealer_missing_ask
+
+    await _send(db, company, "now")
+    await _send(db, company, "bulk")
+    assert company.onboarding_state == OnboardingState.dealer_missing_bulk
+
+    reply = await _send(db, company, "Ram Traders, 9876543210, 15\nUnknown Dealer, 9000000000, 10")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode  # chain continued
+    assert "unknown dealer" in reply.lower()  # reported back as unmatched
+
+    dealers = (
+        (await db.execute(select(Dealer).where(Dealer.company_id == company.id))).scalars().all()
+    )
+    assert len(dealers) == 2  # no duplicate row created for "Unknown Dealer"
+    by_name = {d.name: d for d in dealers}
+    assert by_name["Ram Traders"].phone == "9876543210"
+    assert by_name["Ram Traders"].payment_terms_days == 15
+    assert by_name["Shree Enterprises"].phone is None  # untouched — not in the pasted lines
+
+
+@pytest.mark.asyncio
+async def test_supplier_missing_ask_later_leaves_rows_unchanged(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_supplier(db)
+
+    await _send(db, company, "later")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance  # chain continues
+    supplier = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
+    assert supplier.phone is None
+    assert supplier.payment_terms_days is None
+
+
+@pytest.mark.asyncio
+async def test_supplier_missing_one_by_one_updates_existing_row(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_supplier(db)
+    await _send(db, company, "now")
+    await _send(db, company, "one by one")
+    assert company.onboarding_state == OnboardingState.supplier_missing_phone
+
+    await _send(db, company, "9988776655")
+    assert company.onboarding_state == OnboardingState.supplier_missing_credit
+    await _send(db, company, "30")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance
+
+    assert await _count(db, Supplier, company.id) == 1  # not duplicated
+    supplier = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
+    assert supplier.phone == "9988776655"
+    assert supplier.payment_terms_days == 30
+
+
+@pytest.mark.asyncio
+async def test_supplier_missing_bulk_updates_matched_row(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_supplier(db)
+    await _send(db, company, "now")
+    await _send(db, company, "bulk")
+    assert company.onboarding_state == OnboardingState.supplier_missing_bulk
+
+    supplier_before = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
+    reply = await _send(db, company, f"{supplier_before.name}, 9988776655, 30")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance
+    assert supplier_before.name.lower() in reply.lower()  # named in the "updated" confirmation
+
+    supplier = await db.get(Supplier, supplier_before.id)
+    assert supplier.phone == "9988776655"
+    assert supplier.payment_terms_days == 30

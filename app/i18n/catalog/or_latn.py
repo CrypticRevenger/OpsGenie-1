@@ -240,6 +240,11 @@ MESSAGES: dict[str, str] = {
         "Daya kari 0 ru 100 madhyare number pathantu, jaise 18 "
         "(kimba 'not sure' pare thik karibaku)."
     ),
+    "onboarding.gst.missing_ask": (
+        "Amane apanka jyada products ra GST rates import kari deichhu. Ei {count} re abhi "
+        "nahin achi: {names}. Etiki kaun GST rate use karibaku? (jaise 5, 12, 18, kimba 0 — "
+        "kimba 'skip' pare thik karibaku)"
+    ),
     "onboarding.product.intro": (
         "Ebe apanka products add karantu. Reply 'one by one' gotie gotie, kimba 'bulk' sabu ekathi "
         "puura details saha (jaise Rice, 300, 400, kg, 100, 5). 'done' skip karibaku."
@@ -324,6 +329,25 @@ MESSAGES: dict[str, str] = {
         "{name} ku apana kete credit dina denti? (jaise 15, kimba 'skip')"
     ),
     "onboarding.dealer.added": "Dealer {name} add hela. Parabarti dealer ra naam, kimba 'done'.",
+    "onboarding.dealer.missing_ask": (
+        "Apanka import ru amaku {count} dealer(s) milila, kintu tankara phone number kimba "
+        "credit days missing achi. Ebe complete karibaku, kimba pare? (now/later)"
+    ),
+    "onboarding.dealer.missing_list": (
+        "{listing}\n\n'bulk' reply karantu sabuku ekathi paste karibaku, kimba 'one by one' "
+        "gotie gotie fill karibaku."
+    ),
+    "onboarding.dealer.missing_bulk_format": (
+        "Pratiek dealer ra details fill karibaku gotie line pathantu:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Kebala uparara list saha match hela naam update hebe."
+    ),
+    "onboarding.dealer.missing_bulk_done": "{count} dealer update hela: {names}.",
+    "onboarding.dealer.missing_bulk_unmatched": (
+        "Ei naam uparara list saha match nahin hela, sethipain update nahin hela: {names}."
+    ),
     "onboarding.suppliers.intro": (
         "Ebe apanka suppliers. Reply 'one by one' gotie gotie add karibaku, "
         "kimba 'bulk' sabu ekathi pathaibaku (jaise Metro Distributors, 9988776655, 30). "
@@ -353,6 +377,25 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.supplier.added": (
         "Supplier {name} add hela. Parabarti supplier ra naam, kimba 'done'."
+    ),
+    "onboarding.supplier.missing_ask": (
+        "Apanka import ru amaku {count} supplier(s) milila, kintu tankara phone number kimba "
+        "credit days missing achi. Ebe complete karibaku, kimba pare? (now/later)"
+    ),
+    "onboarding.supplier.missing_list": (
+        "{listing}\n\n'bulk' reply karantu sabuku ekathi paste karibaku, kimba 'one by one' "
+        "gotie gotie fill karibaku."
+    ),
+    "onboarding.supplier.missing_bulk_format": (
+        "Pratiek supplier ra details fill karibaku gotie line pathantu:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Kebala uparara list saha match hela naam update hebe."
+    ),
+    "onboarding.supplier.missing_bulk_done": "{count} supplier update hela: {names}.",
+    "onboarding.supplier.missing_bulk_unmatched": (
+        "Ei naam uparara list saha match nahin hela, sethipain update nahin hela: {names}."
     ),
     "onboarding.party.phone_ask": "{name} ra phone number? (kimba 'skip')",
     "onboarding.party.credit_invalid": (
@@ -759,16 +802,11 @@ MESSAGES: dict[str, str] = {
     "product.update_name_prompt": (
         "Kaun product ra {label} update karibaku? Naam pathantu, kimba 'cancel'."
     ),
-    "product.current_price": (
-        "{name} ra ebe price {current}. Natun price kete heba? (jaise 450)"
-    ),
+    "product.current_price": ("{name} ra ebe price {current}. Natun price kete heba? (jaise 450)"),
     "product.current_purchase": (
-        "{name} ra ebe purchase price {current}. "
-        "Natun purchase price kete heba? (jaise 300)"
+        "{name} ra ebe purchase price {current}. Natun purchase price kete heba? (jaise 300)"
     ),
-    "product.current_stock": (
-        "{name} ra ebe stock {current}. Natun stock kete heba? (jaise 100)"
-    ),
+    "product.current_stock": ("{name} ra ebe stock {current}. Natun stock kete heba? (jaise 100)"),
     "product.value_invalid": "Daya kari gotie number pathantu, jaise 450.",
     "product.value_nonneg": "Daya kari zero kimba tharu adhika number pathantu.",
     "product.gone_value": "Se product ebe available nahin.",
@@ -847,8 +885,7 @@ MESSAGES: dict[str, str] = {
     "party.edit.gone_value": "Se record aau upalabdha nahin.",
     "party.edit.phone_ask": "{name} ra bartaman ra phone {current}. Nua phone kana heba?",
     "party.edit.credit_limit_ask": (
-        "{name} ra bartaman ra credit limit {current}. Nua credit limit kana heba? "
-        "(jemiti 50000)"
+        "{name} ra bartaman ra credit limit {current}. Nua credit limit kana heba? (jemiti 50000)"
     ),
     "party.edit.payment_terms_ask": (
         "{name} ra bartaman ra payment terms {current} days. Nua terms dina re kana heba? "

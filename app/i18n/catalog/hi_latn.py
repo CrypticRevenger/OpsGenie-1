@@ -239,6 +239,11 @@ MESSAGES: dict[str, str] = {
     "onboarding.gst.rate_invalid": (
         "Kripya 0 se 100 ke beech number bhejein, jaise 18 (ya 'not sure' baad me decide karein)."
     ),
+    "onboarding.gst.missing_ask": (
+        "Humne aapke zyadatar products ke GST rates import kar liye hain. In {count} me abhi "
+        "tak nahi hai: {names}. Inke liye kaunsa GST rate use karein? (jaise 5, 12, 18, ya 0 — "
+        "ya 'skip' baad me decide karne ke liye)"
+    ),
     "onboarding.product.intro": (
         "Ab apne products add karein. Reply 'one by one' ek-ek karke, ya 'bulk' sab ek saath "
         "poore details ke saath (jaise Rice, 300, 400, kg, 100, 5). 'done' skip karne ke liye."
@@ -317,6 +322,25 @@ MESSAGES: dict[str, str] = {
         "{name} ko aap kitne credit din dete hain? (jaise 15, ya 'skip')"
     ),
     "onboarding.dealer.added": "Dealer {name} add kiya. Agle dealer ka naam, ya 'done'.",
+    "onboarding.dealer.missing_ask": (
+        "Aapke import se humein {count} dealer(s) mile, lekin unka phone number aur/ya credit "
+        "days missing hai. Abhi complete karein, ya baad me? (now/later)"
+    ),
+    "onboarding.dealer.missing_list": (
+        "{listing}\n\n'bulk' reply karein sabko ek saath paste karne ke liye, ya 'one by one' "
+        "ek-ek karke fill karne ke liye."
+    ),
+    "onboarding.dealer.missing_bulk_format": (
+        "Har dealer ki details fill karne ke liye ek line bhejein:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Sirf upar wali list se match hone wale naam hi update honge."
+    ),
+    "onboarding.dealer.missing_bulk_done": "{count} dealer update kiye: {names}.",
+    "onboarding.dealer.missing_bulk_unmatched": (
+        "Yeh naam upar ki list se match nahi hue, isliye update nahi hue: {names}."
+    ),
     "onboarding.suppliers.intro": (
         "Ab aapke suppliers. Reply 'one by one' ek-ek karke add karne ke liye, "
         "ya 'bulk' sabko ek saath bhejne ke liye (jaise Metro Distributors, 9988776655, 30). "
@@ -345,6 +369,25 @@ MESSAGES: dict[str, str] = {
         "{name} aapko pay karne ke liye kitne din deta hai? (jaise 15/'skip')"
     ),
     "onboarding.supplier.added": "Supplier {name} add kiya. Agle supplier ka naam, ya 'done'.",
+    "onboarding.supplier.missing_ask": (
+        "Aapke import se humein {count} supplier(s) mile, lekin unka phone number aur/ya "
+        "credit days missing hai. Abhi complete karein, ya baad me? (now/later)"
+    ),
+    "onboarding.supplier.missing_list": (
+        "{listing}\n\n'bulk' reply karein sabko ek saath paste karne ke liye, ya 'one by one' "
+        "ek-ek karke fill karne ke liye."
+    ),
+    "onboarding.supplier.missing_bulk_format": (
+        "Har supplier ki details fill karne ke liye ek line bhejein:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Sirf upar wali list se match hone wale naam hi update honge."
+    ),
+    "onboarding.supplier.missing_bulk_done": "{count} supplier update kiye: {names}.",
+    "onboarding.supplier.missing_bulk_unmatched": (
+        "Yeh naam upar ki list se match nahi hue, isliye update nahi hue: {names}."
+    ),
     "onboarding.party.phone_ask": "{name} ka phone number? (ya 'skip')",
     "onboarding.party.credit_invalid": "Kripya dino ka number bhejein, jaise 15 (ya 'skip').",
     "onboarding.bulk_error": "Yeh samajh nahi aaya: {error}",
@@ -638,8 +681,7 @@ MESSAGES: dict[str, str] = {
         "aur dobara banayein."
     ),
     "edit.field_ask_invoice": (
-        "Kya edit karna hai — amount, date, ya party? "
-        "Reply karein 'amount', 'date', ya 'party'."
+        "Kya edit karna hai — amount, date, ya party? Reply karein 'amount', 'date', ya 'party'."
     ),
     "edit.field_invalid_invoice": (
         "Kripya reply karein 'amount', 'date', ya 'party' — ya 'cancel'."
@@ -665,8 +707,7 @@ MESSAGES: dict[str, str] = {
     ),
     "edit.no_payments_for_party": "{name} ke liye koi payment nahi mila.",
     "edit.payment_pick_ask": (
-        "{name} ke liye {count} haal ke payments mile:\n{listing}\n"
-        "Number bhejein, ya 'cancel'."
+        "{name} ke liye {count} haal ke payments mile:\n{listing}\nNumber bhejein, ya 'cancel'."
     ),
     "edit.payment_pick_invalid": "Kripya 1 se {count} ke beech ek number bhejein, ya 'cancel'.",
     "edit.payment_gone": (
@@ -810,8 +851,7 @@ MESSAGES: dict[str, str] = {
         "Reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin'."
     ),
     "party.edit.field_invalid": (
-        "Kripya reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin' — "
-        "ya 'cancel'."
+        "Kripya reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin' — ya 'cancel'."
     ),
     "party.edit.name_ask_dealer": "Kaun sa dealer? Unka naam bhejein, ya 'cancel'.",
     "party.edit.name_ask_supplier": "Kaun sa supplier? Unka naam bhejein, ya 'cancel'.",
