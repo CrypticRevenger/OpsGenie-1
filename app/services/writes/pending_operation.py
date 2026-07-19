@@ -35,9 +35,11 @@ from app.models.pending_operation import PendingOperation, PendingOperationType
 from app.services.invoice_delivery import send_invoice_document
 from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.money_format import format_inr
+from app.services.writes.edit_invoice_payment import edit_invoice, edit_payment
 from app.services.writes.orders import create_order
 from app.services.writes.payments import record_payment
 from app.services.writes.update_gst import update_gst
+from app.services.writes.void import void_order, void_payment
 
 logger = logging.getLogger(__name__)
 
@@ -239,8 +241,112 @@ async def execute_pending_operation(
         target = t("gst.all_products", loc) if result.scope == "all" else result.product_name
         return t("pending.gst_success", loc, target=target, rate=rate_text)
 
-    # Unreachable while PendingOperationType has no other members, but never
-    # leave a company stuck on a confirmation type this code doesn't know yet.
+    if op.operation_type == PendingOperationType.void_payment:
+        payload = op.payload
+        try:
+            result = await void_payment(
+                db,
+                company,
+                payment_id=uuid.UUID(payload["payment_id"]),
+                reason=payload.get("reason"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return t("pending.void_payment_failed", loc, error=exc)
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return t(
+            "pending.void_payment_success",
+            loc,
+            amount=format_inr(result.amount),
+            invoice_number=result.invoice_number,
+            party=result.party_name,
+        )
+
+    if op.operation_type == PendingOperationType.void_order:
+        payload = op.payload
+        try:
+            result = await void_order(
+                db,
+                company,
+                invoice_id=uuid.UUID(payload["invoice_id"]),
+                reason=payload.get("reason"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return t("pending.void_order_failed", loc, error=exc)
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return t(
+            "pending.void_order_success",
+            loc,
+            invoice_number=result.invoice_number,
+            dealer=result.dealer_name,
+            total=format_inr(result.total_amount),
+        )
+
+    if op.operation_type == PendingOperationType.edit_invoice:
+        payload = op.payload
+        try:
+            result = await edit_invoice(
+                db,
+                company,
+                invoice_id=uuid.UUID(payload["invoice_id"]),
+                field=payload["field"],
+                new_value=payload["new_value"],
+                reason=payload.get("reason"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return t("pending.edit_invoice_failed", loc, error=exc)
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return t(
+            "pending.edit_invoice_success",
+            loc,
+            number=result.invoice_number,
+            field=result.field,
+            old=result.old_value,
+            new=result.new_value,
+        )
+
+    if op.operation_type == PendingOperationType.edit_payment:
+        payload = op.payload
+        try:
+            result = await edit_payment(
+                db,
+                company,
+                payment_id=uuid.UUID(payload["payment_id"]),
+                field=payload["field"],
+                new_value=payload["new_value"],
+                reason=payload.get("reason"),
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return t("pending.edit_payment_failed", loc, error=exc)
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return t(
+            "pending.edit_payment_success",
+            loc,
+            number=result.invoice_number,
+            field=result.field,
+            old=result.old_value,
+            new=result.new_value,
+        )
+
+    # Unreachable while every PendingOperationType member has a branch above,
+    # but never leave a company stuck on a confirmation type this code
+    # doesn't know yet — a future member added to the enum without a branch
+    # here degrades to this instead of raising.
     await db.delete(op)
     _clear_active_pending_operation(company)
     return t("pending.unknown", loc)

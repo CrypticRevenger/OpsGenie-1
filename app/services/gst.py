@@ -10,12 +10,35 @@ hunt across four call sites.
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from app.services.importer.normalizer import parse_amount
 
 _MIN_GST_RATE = Decimal("0")
 _MAX_GST_RATE = Decimal("100")
+
+# 15-char GSTIN: 2-digit state code, 10-char PAN (5 letters, 4 digits, 1
+# letter), 1-char entity number, literal 'Z', 1-char checksum.
+_GSTIN_FORMAT = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+_GSTIN_CHARSET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+
+
+def validate_gstin(value: str) -> bool:
+    """True if `value` is a 15-char GSTIN with a valid format and checksum
+    digit (the standard mod-36 algorithm every real GSTIN is generated
+    with). Used to reject a typo'd GSTIN at entry rather than storing junk."""
+    candidate = value.strip().upper()
+    if not _GSTIN_FORMAT.match(candidate):
+        return False
+    total = 0
+    factor = 1
+    for char in candidate[:14]:
+        product = _GSTIN_CHARSET.index(char) * factor
+        total += (product // 36) + (product % 36)
+        factor = 2 if factor == 1 else 1
+    expected_checksum = _GSTIN_CHARSET[(36 - (total % 36)) % 36]
+    return candidate[14] == expected_checksum
 
 
 def parse_gst_rate(raw: str) -> Decimal:

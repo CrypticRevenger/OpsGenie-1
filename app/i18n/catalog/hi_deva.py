@@ -24,12 +24,14 @@ _HELP_TEXT = """*OpsGenie Help*
 • overdue / overdue dealers — कितने दिन लेट और रिस्क लेवल (या 4 / /dealer_risk)
 • balance <name> — एक डीलर का बकाया, जैसे balance Ram Traders
 • add dealer (या /add_dealer) — नया dealer add करें: नाम, फ़ोन, credit दिन
+• edit dealer (या /edit_dealer) — dealer का phone, credit limit, terms, या GSTIN बदलें
 
 *सप्लायर (जिन्हें आप देते हैं)*
 • suppliers / all suppliers — हर सप्लायर फ़ोन और बकाया के साथ
 • top creditors — जिन्हें आप सबसे ज़्यादा देते हैं
 • balance <name> — एक सप्लायर का बकाया
 • add supplier (या /add_supplier) — नया supplier add करें: नाम, फ़ोन, credit दिन
+• edit supplier (या /edit_supplier) — supplier का phone, credit limit, terms, या GSTIN बदलें
 
 *आने वाला कैश फ़्लो*
 • collections / upcoming collections — डीलरों से आने वाला, अगले 7 दिन (या 2 / /collections)
@@ -55,10 +57,17 @@ _HELP_TEXT = """*OpsGenie Help*
 • update product (या /update_product) — कीमत, खरीद कीमत, या स्टॉक चुनें
 • update gst (या /update_gst) — सभी या एक प्रोडक्ट का GST बदलें
 • delete product (या /delete_product) — catalogue से आइटम हटाएँ
+• stock take (या /stock_take) — कई प्रोडक्ट का stock एक साथ recount या adjust करें
 
 *ऑर्डर और पेमेंट*
 • new order (या /create_order, या "new invoice") — डीलर को सेल दर्ज करें, प्रोडक्ट दर प्रोडक्ट
 • record payment (या /record_payment) — डीलर से आया या सप्लायर को दिया पेमेंट लॉग करें
+
+*सुधार (Corrections)*
+• undo payment (या /undo_payment) — अभी record किया payment void करें
+• undo order (या /undo_order) — अभी बनाया order void करें (सिर्फ़ अगर unpaid है)
+• edit invoice (या /edit_invoice) — invoice का amount, date, या party सुधारें (सिर्फ़ unpaid पर)
+• edit payment (या /edit_payment) — दर्ज किए payment का amount या date सुधारें
 
 *आपका डेटा*
 • export data (या /export_data) — पूरा बिज़नेस डेटा Excel में download link
@@ -380,6 +389,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.orders.button": "एक विकल्प चुनें",
     "menu.msg.statements.body": "रिपोर्ट्स और स्टेटमेंट्स — एक चुनें:",
     "menu.msg.statements.button": "स्टेटमेंट चुनें",
+    "menu.msg.corrections.body": "सुधार — पहले से record की चीज़ें undo या edit करें:",
+    "menu.msg.corrections.button": "सुधार",
     "menu.section.cash_overview": "नकद और अवलोकन",
     "menu.section.money_flow": "पैसे का प्रवाह",
     "menu.section.dealers_suppliers": "डीलर और सप्लायर",
@@ -390,6 +401,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.your_data": "आपका डेटा",
     "menu.section.full_lists": "पूरी सूचियाँ",
     "menu.section.reports_statements": "रिपोर्ट्स और स्टेटमेंट्स",
+    "menu.section.corrections": "सुधार",
     "menu.row.cash.title": "नकद स्थिति",
     "menu.row.cash.desc": "अभी नकद और 7-दिन इन/आउट",
     "menu.row.summary.title": "बिज़नेस सारांश",
@@ -462,6 +474,20 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "इस महीने के सभी इनवॉइस और पेमेंट",
     "menu.row.outstanding_report.title": "आउटस्टैंडिंग रिपोर्ट",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ दिन के बकेट",
+    "menu.row.undo_payment.title": "Undo Payment",
+    "menu.row.undo_payment.desc": "अभी record किया payment void करें",
+    "menu.row.undo_order.title": "Undo Order",
+    "menu.row.undo_order.desc": "अभी बनाया order void करें",
+    "menu.row.edit_invoice.title": "Edit Invoice",
+    "menu.row.edit_invoice.desc": "invoice का amount, date, या party सुधारें",
+    "menu.row.edit_payment.title": "Edit Payment",
+    "menu.row.edit_payment.desc": "payment का amount या date सुधारें",
+    "menu.row.edit_dealer.title": "Edit Dealer",
+    "menu.row.edit_dealer.desc": "dealer का phone, limit, terms, GSTIN बदलें",
+    "menu.row.edit_supplier.title": "Edit Supplier",
+    "menu.row.edit_supplier.desc": "supplier का phone, limit, terms, GSTIN बदलें",
+    "menu.row.stock_take.title": "Stock Take",
+    "menu.row.stock_take.desc": "कई products का stock एक साथ बदलें",
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel कर दिया।",
     "workflow.yes_no": "कृपया yes या no reply करें।",
@@ -543,6 +569,44 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "{dealer} के लिए order confirm करें:",
     "order.preview_footer": "Reply YES बनाने के लिए, NO cancel के लिए।",
+    # ── Edit invoice / edit payment (safe cases only) ───────────────────────
+    "edit.invoice_number_ask": "कौन सा invoice? उसका invoice number भेजें, या 'cancel'।",
+    "edit.invoice_not_found": (
+        "मुझे '{number}' नाम का invoice नहीं मिला। जांच कर दोबारा भेजें, या 'cancel'।"
+    ),
+    "edit.invoice_has_payment": (
+        "Invoice {number} पर पहले से payment record है — पहले उसे void करें और "
+        "दोबारा बनाएं।"
+    ),
+    "edit.field_ask_invoice": (
+        "क्या edit करना है — amount, date, या party? "
+        "Reply करें 'amount', 'date', या 'party'।"
+    ),
+    "edit.field_invalid_invoice": "कृपया reply करें 'amount', 'date', या 'party' — या 'cancel'।",
+    "edit.amount_ask": "अभी का amount {current} है। नया amount क्या हो? (जैसे 1200)",
+    "edit.date_ask": "अभी की date {current} है। नई date क्या हो? (जैसे 2026-01-15)",
+    "edit.invoice_party_ask_dealer": "अभी का dealer {current} है। नए dealer का नाम भेजें।",
+    "edit.invoice_party_ask_supplier": "अभी का supplier {current} है। नए supplier का नाम भेजें।",
+    "edit.amount_invalid": "कृपया शून्य से बड़ा एक number भेजें, जैसे 1200।",
+    "edit.date_invalid": "कृपया 2026-01-15 जैसी date भेजें।",
+    "edit.party_not_found": "मुझे '{name}' नहीं मिला। spelling जांच कर दोबारा भेजें, या 'cancel'।",
+    "edit.value_preview": "{target} का {field} बदलकर {new} करें?",
+    "edit.target_invoice": "invoice {number}",
+    "edit.target_payment": "invoice {number} का payment",
+    "edit.reason_ask": "{preview}\nक्यों? छोटा सा reason भेजें, या 'skip'।",
+    "edit.confirm_prompt": "{preview}\nConfirm करने के लिए YES भेजें, या NO cancel के लिए।",
+    "edit.party_name_ask": (
+        "किस dealer या supplier का payment edit करना है? उनका नाम भेजें, या 'cancel'।"
+    ),
+    "edit.no_payments_for_party": "{name} के लिए कोई payment नहीं मिला।",
+    "edit.payment_pick_ask": (
+        "{name} के लिए {count} हाल के payments मिले:\n{listing}\n"
+        "Number भेजें, या 'cancel'।"
+    ),
+    "edit.payment_pick_invalid": "कृपया 1 से {count} के बीच एक number भेजें, या 'cancel'।",
+    "edit.payment_gone": "वह payment अब उपलब्ध नहीं है। 'edit payment' कहकर दोबारा शुरू करें।",
+    "edit.field_ask_payment": "क्या edit करना है — amount या date? Reply करें 'amount' या 'date'।",
+    "edit.field_invalid_payment": "कृपया reply करें 'amount' या 'date' — या 'cancel'।",
     # ── Update GST ─────────────────────────────────────────────────────────
     "gst.scope_prompt": (
         "सभी products (company default) का GST update करें, या एक product का? "
@@ -621,6 +685,22 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} की price {new} की (पहले {old} थी)।",
     "product.updated_purchase": "{name} की purchase price {new} की (पहले {old} थी)।",
     "product.updated_stock": "{name} का stock {new} किया (पहले {old} था)।",
+    # ── Stock take (bulk stock recount/adjustment) ──────────────────────────
+    "stock_take.start_prompt": (
+        "चलिए stock take करते हैं। हर product के लिए, उसका नाम भेजें, फिर नया count "
+        "(जैसे 40) या adjustment (जैसे +15 मिला, -3 खराब हुआ)। खत्म होने पर 'done' भेजें, "
+        "या कभी भी 'cancel'।"
+    ),
+    "stock_take.line_prompt": "एक product का नाम भेजें, या खत्म करने के लिए 'done'।",
+    "stock_take.value_ask": "{name} — नया count भेजें (जैसे 40) या adjustment (जैसे +15, -3)।",
+    "stock_take.value_invalid": "कृपया एक number भेजें, जैसे 40, +15, या -3।",
+    "stock_take.line_added": "{name}: {old} → {new}। अगला product भेजें, या 'done'।",
+    "stock_take.nothing_to_apply": "ठीक है, कोई बदलाव नहीं हुआ।",
+    "stock_take.reason_ask": "क्यों? छोटा सा reason भेजें, या 'skip'।",
+    "stock_take.confirm_prompt": "{summary}\nApply करने के लिए YES भेजें, या NO cancel के लिए।",
+    "stock_take.failed": "Stock take apply नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
+    "stock_take.result_line": "- {name}: {new}",
+    "stock_take.success": "✅ {count} product(s) का stock update हुआ:\n{lines}{warning}",
     "party.dealer.mode_prompt": (
         "अपने dealers add करें। Reply 'one by one' एक-एक करके add करने के लिए, "
         "या 'bulk' सबको एक साथ भेजने के लिए (जैसे Ram Traders, 9876543210, 15)। "
@@ -643,6 +723,48 @@ MESSAGES: dict[str, str] = {
     "party.supplier.mode_invalid": (
         "कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।"
     ),
+    # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
+    "party.edit.field_prompt": (
+        "क्या edit करना है — phone, credit limit, payment terms, या GSTIN? "
+        "Reply करें 'phone', 'credit limit', 'payment terms', या 'gstin'।"
+    ),
+    "party.edit.field_invalid": (
+        "कृपया reply करें 'phone', 'credit limit', 'payment terms', या 'gstin' — या 'cancel'।"
+    ),
+    "party.edit.name_ask_dealer": "कौन सा dealer? उनका नाम भेजें, या 'cancel'।",
+    "party.edit.name_ask_supplier": "कौन सा supplier? उनका नाम भेजें, या 'cancel'।",
+    "party.edit.not_found": "मुझे '{name}' नहीं मिला। spelling जांच कर दोबारा भेजें, या 'cancel'।",
+    "party.edit.disambiguation": (
+        "'{name}' नाम के {count} matches मिले:\n{listing}\n"
+        "Edit करने के लिए number भेजें, या 'cancel'।"
+    ),
+    "party.edit.disambiguation_invalid": "कृपया 1 से {count} के बीच एक number भेजें, या 'cancel'।",
+    "party.edit.gone": "वह record अब उपलब्ध नहीं है। '{trigger}' कहकर दोबारा शुरू करें।",
+    "party.edit.gone_value": "वह record अब उपलब्ध नहीं है।",
+    "party.edit.phone_ask": "{name} का अभी का phone {current} है। नया phone क्या हो?",
+    "party.edit.credit_limit_ask": (
+        "{name} की अभी की credit limit {current} है। नई credit limit क्या हो? (जैसे 50000)"
+    ),
+    "party.edit.payment_terms_ask": (
+        "{name} के अभी के payment terms {current} days हैं। नए terms दिनों में क्या हों? "
+        "(जैसे 30)"
+    ),
+    "party.edit.gstin_ask": "{name} का अभी का GSTIN {current} है। नया GSTIN क्या हो?",
+    "party.edit.days_invalid": "कृपया दिनों की एक पूरी संख्या भेजें, जैसे 30।",
+    "party.edit.gstin_invalid": "वह सही GSTIN नहीं लगता। कृपया जांच कर दोबारा भेजें, या 'cancel'।",
+    "party.edit.value_preview": "{name} का {field} बदलकर {new} करें?",
+    "party.edit.success": "✅ {name} का {field} {new} हो गया (पहले {old} था)।",
+    # ── Void payment / void order ───────────────────────────────────────────
+    "void.payment_none": "Undo करने के लिए कोई WhatsApp payment नहीं मिला।",
+    "void.payment_preview": "Invoice {invoice_number} के लिए {party} का {amount} payment void करें?",
+    "void.order_none": "Undo करने के लिए कोई WhatsApp order नहीं मिला।",
+    "void.order_has_payment": (
+        "Order {invoice_number} पर पहले से payment record है — पहले payment void करें, "
+        "फिर दोबारा कोशिश करें।"
+    ),
+    "void.order_preview": "{dealer} का order {invoice_number} void करें (total {total})?",
+    "void.reason_ask": "{preview}\nक्यों? छोटा सा reason भेजें, या 'skip'।",
+    "void.confirm_prompt": "{preview}\nVoid करने के लिए YES भेजें, या cancel के लिए NO।",
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm करने के लिए या NO cancel के लिए।",
     "pending.payment_failed": "वह payment record नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
@@ -665,6 +787,20 @@ MESSAGES: dict[str, str] = {
     "pending.gst_failed": "GST update नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
     "pending.gst_success": "✅ {target} का GST {rate} set किया।",
     "pending.gst_rate_default": "company default",
+    "pending.void_payment_failed": "वह payment void नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
+    "pending.void_payment_success": (
+        "✅ Invoice {invoice_number} के लिए {party} का {amount} payment void हो गया।"
+    ),
+    "pending.void_order_failed": "वह order void नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
+    "pending.void_order_success": (
+        "✅ {dealer} का order {invoice_number} void हो गया (total {total})।"
+    ),
+    "pending.edit_invoice_failed": "वह invoice edit नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
+    "pending.edit_invoice_success": "✅ Invoice {number} का {field} {new} हो गया (पहले {old} था)।",
+    "pending.edit_payment_failed": "वह payment edit नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
+    "pending.edit_payment_success": (
+        "✅ Invoice {number} के payment का {field} {new} हो गया (पहले {old} था)।"
+    ),
     "pending.unknown": "उस confirmation में कुछ गड़बड़ हो गई। कृपया दोबारा शुरू करें।",
     # ── Menu prompt / follow-up / notifications / evening ──────────────────
     "menu.prompt": "Reply करें 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

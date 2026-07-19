@@ -35,6 +35,7 @@ class Supplier(UUIDMixin, TimestampMixin, Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     phone: Mapped[str | None] = mapped_column(String, nullable=True)
+    gst_number: Mapped[str | None] = mapped_column(String, nullable=True)
     payment_terms_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     credit_limit: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

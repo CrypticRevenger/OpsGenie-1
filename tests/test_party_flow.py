@@ -13,16 +13,22 @@ covered by tests/test_webhooks_whatsapp.py's keyword-trigger tests).
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 import pytest
+from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
 from app.models.supplier import Supplier
 from app.services.workflows.party_flow import (
     handle_add_dealer_workflow_message,
     handle_add_supplier_workflow_message,
+    handle_edit_dealer_workflow_message,
+    handle_edit_supplier_workflow_message,
     start_add_dealer_workflow,
     start_add_supplier_workflow,
+    start_edit_dealer_workflow,
+    start_edit_supplier_workflow,
 )
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -274,3 +280,176 @@ async def test_supplier_done_at_mode_step_skips_without_saving(db: AsyncSession)
     assert company.active_workflow is None
     assert await _count(db, Supplier, company.id) == 0
     assert "no suppliers" in reply.lower()
+
+
+# ── Edit dealer / edit supplier ─────────────────────────────────────────────
+
+
+async def _send_edit_dealer(db: AsyncSession, company: Company, text: str) -> str:
+    reply = await handle_edit_dealer_workflow_message(db, company, text)
+    await db.flush()
+    return reply
+
+
+async def _send_edit_supplier(db: AsyncSession, company: Company, text: str) -> str:
+    reply = await handle_edit_supplier_workflow_message(db, company, text)
+    await db.flush()
+    return reply
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_phone_full_round_trip(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders", phone="9000000000")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "phone")
+    reply = await _send_edit_dealer(db, company, "Ram Traders")
+    assert "9000000000" in reply
+    await _send_edit_dealer(db, company, "9111111111")
+    reply = await _send_edit_dealer(db, company, "typo in old number")
+    await db.commit()
+
+    assert "✅" in reply
+    assert "9111111111" in reply
+    await db.refresh(dealer)
+    assert dealer.phone == "9111111111"
+    assert company.active_workflow is None
+
+    event = await db.scalar(
+        select(BusinessEvent).where(BusinessEvent.event_type == BusinessEventType.party_edited)
+    )
+    assert event is not None
+    assert event.payload["field"] == "phone"
+    assert event.payload["reason"] == "typo in old number"
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_credit_limit_formats_as_currency(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "credit limit")
+    await _send_edit_dealer(db, company, "Ram Traders")
+    await _send_edit_dealer(db, company, "50000")
+    reply = await _send_edit_dealer(db, company, "skip")
+    await db.commit()
+
+    await db.refresh(dealer)
+    assert dealer.credit_limit == Decimal("50000.00")
+    assert "50,000" in reply or "50000" in reply
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_disambiguates_duplicate_names(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    db.add_all(
+        [
+            Dealer(company_id=company.id, name="Ram Traders", phone="1111111111"),
+            Dealer(company_id=company.id, name="Ram Traders", phone="2222222222"),
+        ]
+    )
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "phone")
+    reply = await _send_edit_dealer(db, company, "Ram Traders")
+    assert "2" in reply
+    assert company.workflow_scratch["step"] == "awaiting_disambiguation"
+
+    reply = await _send_edit_dealer(db, company, "2")
+    assert "2222222222" in reply
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_not_found_reprompts(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "phone")
+    reply = await _send_edit_dealer(db, company, "Nobody Traders")
+    assert "couldn't find" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_name"
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_cancel_mid_flow(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "phone")
+    reply = await _send_edit_dealer(db, company, "cancel")
+    assert "cancel" in reply.lower()
+    assert company.active_workflow is None
+    assert dealer.phone is None
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_gstin_accepts_valid_and_rejects_invalid(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "gstin")
+    await _send_edit_dealer(db, company, "Ram Traders")
+    reply = await _send_edit_dealer(db, company, "not-a-gstin")
+    assert "valid gstin" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_value"
+
+    await _send_edit_dealer(db, company, "27AAPFU0939F1ZV")
+    await _send_edit_dealer(db, company, "skip")
+    await db.commit()
+
+    await db.refresh(dealer)
+    assert dealer.gst_number == "27AAPFU0939F1ZV"
+
+
+@pytest.mark.asyncio
+async def test_edit_supplier_payment_terms_full_round_trip(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    supplier = Supplier(company_id=company.id, name="Metro Distributors", payment_terms_days=15)
+    db.add(supplier)
+    await db.commit()
+
+    start_edit_supplier_workflow(company)
+    await _send_edit_supplier(db, company, "payment terms")
+    await _send_edit_supplier(db, company, "Metro Distributors")
+    reply = await _send_edit_supplier(db, company, "abc")
+    assert "whole number" in reply.lower()
+
+    await _send_edit_supplier(db, company, "30")
+    reply = await _send_edit_supplier(db, company, "skip")
+    await db.commit()
+
+    assert "✅" in reply
+    await db.refresh(supplier)
+    assert supplier.payment_terms_days == 30
+
+
+@pytest.mark.asyncio
+async def test_edit_supplier_gstin_persists_on_supplier_model(db: AsyncSession) -> None:
+    # Supplier had no gst_number column before this feature — regression
+    # guard that the new migration + model field actually round-trip.
+    company = await _fresh_company(db)
+    supplier = Supplier(company_id=company.id, name="Metro Distributors")
+    db.add(supplier)
+    await db.commit()
+
+    start_edit_supplier_workflow(company)
+    await _send_edit_supplier(db, company, "gstin")
+    await _send_edit_supplier(db, company, "Metro Distributors")
+    await _send_edit_supplier(db, company, "27AAPFU0939F1ZV")
+    await _send_edit_supplier(db, company, "skip")
+    await db.commit()
+
+    await db.refresh(supplier)
+    assert supplier.gst_number == "27AAPFU0939F1ZV"

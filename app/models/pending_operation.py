@@ -40,6 +40,12 @@ class PendingOperationType(enum.StrEnum):
     # Company-wide or single-product GST rate change, see
     # app/services/workflows/gst_flow.py + app/services/writes/update_gst.py.
     update_gst = "update_gst"
+    # Correction workflows — see app/services/workflows/void_flow.py,
+    # edit_flow.py + app/services/writes/void.py, edit_invoice_payment.py.
+    void_payment = "void_payment"
+    void_order = "void_order"
+    edit_invoice = "edit_invoice"
+    edit_payment = "edit_payment"
 
 
 class PendingOperation(UUIDMixin, TimestampMixin, Base):
