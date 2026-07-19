@@ -166,7 +166,7 @@
   // own branded loader and only hand off once the backend answers (or after
   // a max wait, so a real outage doesn't strand the user here forever).
   const WAKE_POLL_MS = 2500;
-  const WAKE_MAX_WAIT_MS = 45000;
+  const WAKE_MAX_WAIT_MS = 75000;
   const WAKE_MESSAGES = [
     "Waking up your WhatsApp assistant…",
     "Just a moment — this only happens after a quiet spell.",
@@ -175,13 +175,17 @@
   ];
 
   function pingAwake(url) {
-    // no-cors: we can't read the response, but the promise resolving at all
-    // (even with an opaque result) means something answered — enough to know
-    // it's safe to navigate. Rejects on real network failure.
-    return fetch(url, { mode: "no-cors", cache: "no-store" }).then(
-      () => true,
-      () => false
-    );
+    // A real (not no-cors) fetch, so we can actually read the JSON body —
+    // /health sends an Access-Control-Allow-Origin header just for this.
+    // A no-cors fetch would resolve "successfully" the instant Render's own
+    // cold-start placeholder page answers too (it can't tell an opaque
+    // response apart from the real app), which handed users right back to
+    // the exact Render splash this overlay exists to hide. Requiring real
+    // JSON with a `status` field only matches our own /health payload.
+    return fetch(url, { cache: "no-store" })
+      .then((resp) => resp.json())
+      .then((data) => Boolean(data && typeof data.status === "string"))
+      .catch(() => false);
   }
 
   function showWakeOverlay() {
@@ -216,7 +220,33 @@
       awake = await pingAwake(healthUrl);
     }
     clearInterval(messageTimer);
-    window.location.href = targetUrl;
+
+    if (awake) {
+      window.location.href = targetUrl;
+      return;
+    }
+
+    // An unusually slow cold start (or a real outage) beyond our wait
+    // budget — navigating anyway here would hand the user straight to
+    // Render's own splash, the exact thing this overlay exists to avoid.
+    // Hand back control instead of guessing.
+    messageEl.textContent = "This is taking longer than usual.";
+    const retryRow = document.createElement("p");
+    retryRow.className = "wake-message wake-retry";
+    const keepWaiting = document.createElement("a");
+    keepWaiting.href = "#";
+    keepWaiting.textContent = "Keep waiting";
+    keepWaiting.addEventListener("click", (event) => {
+      event.preventDefault();
+      overlay.remove();
+      wakeAndGo(targetUrl, healthUrl);
+    });
+    const separator = document.createTextNode(" · ");
+    const continueAnyway = document.createElement("a");
+    continueAnyway.href = targetUrl;
+    continueAnyway.textContent = "Continue anyway";
+    retryRow.append(keepWaiting, separator, continueAnyway);
+    overlay.querySelector(".wake-card").appendChild(retryRow);
   }
 
   document.querySelectorAll("[data-wake-redirect]").forEach((link) => {
