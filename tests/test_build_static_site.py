@@ -13,7 +13,12 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.build_static_site import OUTPUT_DIR, RENDER_ONBOARD_URL, RENDER_ORIGIN, build
+from scripts.build_static_site import (  # noqa: E402
+    OUTPUT_DIR,
+    RENDER_ONBOARD_URL,
+    RENDER_ORIGIN,
+    build,
+)
 
 
 def test_build_produces_gate_html_with_render_origin() -> None:

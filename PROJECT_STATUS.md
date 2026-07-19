@@ -1,6 +1,6 @@
 # OpsGenie — Project Status
 
-_Last updated: 2026-07-18 (multilingual: all deterministic WhatsApp surfaces localized across 5 locales — commit `14d11a6`)_
+_Last updated: 2026-07-19 (Vyapar/Tally reports, bulk dealer/supplier onboarding, Render cold-start wake-gate, founder stale-digest fix — commit `d6504e8`)_
 
 A running record of everything built so far, mapped to the SPEC's version roadmap, plus what's still open. See `SPEC.md` for the original product/technical spec and `docs/api.md` for the API reference. This file is the "what actually happened / what's left" complement to those two.
 
@@ -24,7 +24,7 @@ Built solo, targeting real distributor pilots (not a demo). First real pilot dat
 | **V0.3 — Intelligence & Expansion** | Free-form AI Q&A, inventory alerts, marketing broadcast, analytics/trends | 🚧 Partial — free-form AI Q&A + inventory tracking + daily/MTD analytics done; broadcast & trend reporting not built |
 | **Post-SPEC additions** | Self-serve onboarding + subscription gating, public marketing site (Vercel), password-gated admin dashboard, per-company Excel export, FAQ, per-product GST | ✅ Done (user-driven, beyond original SPEC) |
 
-**System size today:** 17 ORM table models · 33 Alembic migrations (single linear head, DB at head `a7f3e21c9b40`) · 54 test files / **~665 tests** (LLM-network tests skip without a key) · ruff clean. Verified green against Neon **per test-file/chunk** (the multilingual work was validated file-by-file on Neon); a single-process full-suite marathon over the remote Neon endpoint hits transient socket drops (NullPool opens a fresh SSL connection per query — a CI infra concern, not a code one; see the CI item under Deployment/ops).
+**System size today:** 17 ORM table models · 34 Alembic migrations (single linear head, DB at head `b1c4d8f27a53`) · 57 test files / **731 tests** (LLM-network tests skip without a key) · ruff clean. Tests now run against a dedicated `<dbname>_test` database with a production tripwire (`tests/conftest.py`, added 2026-07-19 after the suite once populated the live Neon prod DB with 1,041 fixture companies — see Timeline); a remote DB host requires explicit `ALLOW_REMOTE_TEST_DB=1`. The multilingual work was validated file-by-file directly against Neon before that tripwire existed; a single-process full-suite marathon over a remote Postgres endpoint hits transient socket drops (NullPool opens a fresh SSL connection per query — a CI infra concern, not a code one; see the CI item under Deployment/ops).
 
 ---
 
@@ -95,13 +95,20 @@ Verified enum↔DB parity (all 6 enum types), single migration head, config↔`.
 2. **`_format_quantity` corrupted whole-number quantities** (`Decimal("50")` → `"5"`); now strips only fractional zeros.
 3. **`notify_briefing_failed` didn't dedup** (founder spammed ~4×/day during a send outage); now once-per-day like its siblings.
 
+### Post-audit polish + production incident (2026-07-18 — 2026-07-19)
+- **Multilingual phases 4–5 completed**: guided onboarding, write-workflows/`pending_operation` confirmations, follow-up, notifications, evening brief, and briefing footer all localized across the 5 locales; Unicode invoice PDF (bundled Noto Sans/Devanagari/Oriya fonts, per-cell script-aware font selection). Closes out the ⭐ Multilingual support item below.
+- **Vyapar/Tally-style reports** (`684b034`): ledger statements, GST sales/purchase registers, payment register, day book, and outstanding aging report — all period-scoped, dispatched through one signed-link endpoint, with PDF versions for ledger/aging. Wired into a new "Reports & Statements" WhatsApp list message (the original 3 lists were already at Meta's 10-row cap) and `/help` in all 5 locales.
+- **Production incident — founder WhatsApp flood + Neon pollution** (`b6e6e13`, `f500fd1`): the test suite had been running against the live Neon prod DB, leaving 1,041 never-imported fixture companies that the stale-data nudge then alerted on every scheduler tick. Fixed with two guardrails: `tests/conftest.py` now hard-refuses to run against any non-local DB host unless `ALLOW_REMOTE_TEST_DB=1` (and always targets a `<dbname>_test` database, never the working dev DB), and `send_stale_data_digest` replaces the old per-company stale alert with one founder digest per tick, hard-capped to once per ~20h regardless of how many companies are flagged. The 1,041 fixture companies were wiped from Neon prod the same day.
+- **Render cold-start wake-gate hardening** (`27281b9`, `d4dd922`, `d71ab70`): fixed the branded "waking up" overlay falsely reporting the backend awake against Render's own splash page (it used a `no-cors` fetch, which resolves on literally any response); extended wake-gate coverage to direct visits/bookmarks/refreshes of `/onboard` and `/dashboard` via a Vercel-rewritten `gate.html` (previously only click-through marketing links were covered); fixed the overlay getting stuck forever on a browser-back bfcache restore.
+- **Onboarding polish**: bulk dealer/supplier entry (one-by-one vs. paste, matching the existing product flow) with confirm-before-create for unrecognized parties (`121b815`); standalone `add dealer`/`add supplier` commands usable any time, not just during onboarding (`d6504e8`); bulk-paste GST column now correctly hidden when GST doesn't vary by product (`9f35462`); wizard "Back"/homepage links now point at the real Vercel marketing site instead of Render's own copy (`5f3c0ec`); founder-number 409 now surfaces its real reason instead of a generic error (`a6a8f69`); WhatsApp menu buttons renamed to describe their contents (`159a48c`).
+
 ---
 
 ## Current system inventory
 
 **Models (17 tables):** company, dealer, supplier, product, invoice, invoice_item, payment, business_event, activity_timeline, morning_briefing, import_log, notification_log, conversation_turn, pending_operation, faq, daily_business_snapshot, cash_snapshot _(modeled but unused — per SPEC, outstanding is always computed from invoices+payments)_.
 
-**Core services:** snapshot · party_outstanding · party_lookup · recommendations · priority_actions · briefing · llm/* (6 providers + factory) · assistant + agent/* (read tools, runner, money_guard) · command_router · query_menu · instant_reports · followup · notifications · scheduler · daily_snapshot · evening_brief · importer/* · workflows/* (payment, order, product, gst) · writes/* (payments, orders, pending_operation, update_gst) · whatsapp_client · invoice_pdf · invoice_delivery · company_export · reports/* (registry, ledger, registers, aging, period, xlsx_common, pdf_common, statuses) · onboarding_flow · activation · gst · money_format · sales_impact_parser.
+**Core services:** snapshot · party_outstanding · party_lookup · recommendations · priority_actions · briefing · llm/* (6 providers + factory) · assistant + agent/* (read tools, runner, money_guard) · command_router · query_menu · instant_reports · followup · notifications · scheduler · daily_snapshot · evening_brief · importer/* · workflows/* (payment, order, product, gst, party) · writes/* (payments, orders, pending_operation, update_gst) · whatsapp_client · invoice_pdf · invoice_delivery · company_export · reports/* (registry, ledger, registers, aging, period, xlsx_common, pdf_common, statuses) · onboarding_flow · activation · gst · money_format · sales_impact_parser.
 
 **API surface:** `/webhooks/whatsapp`, `/onboard`, public marketing site, `/health`, signed `/export`, `X-API-Key` admin API (companies, dealers, suppliers, products, invoices, payments, imports, cashflow, briefing, followup, daily_snapshot, scheduler, faq, export), and the session-authed `/dashboard/*` portal.
 
@@ -165,10 +172,10 @@ The snapshot already computes 7-day expected collections/payments and a `cash_de
 - [ ] **Consistent amount/quantity guards** — extend the existing negative/zero rejections uniformly across all write flows.
 
 ### Deployment / ops (verify & finish)
-- [ ] **Confirm production is redeployed** with the latest `master` (through `def0c1c`) and that Alembic migrations have been run on the Neon prod DB (it's a manual/one-shot step; local DB is at head).
+- [ ] **Confirm production is redeployed** with the latest `master` (through `d6504e8`) and that Alembic migrations have been run on the Neon prod DB (it's a manual/one-shot step; local DB is at head `b1c4d8f27a53`).
 - [ ] **Set production env vars** correctly — notably `PUBLIC_BASE_URL` (local `.env` currently points to `http://localhost:8000`; prod must be the real Render URL for export/onboarding links to work).
-- [ ] **Always-on scheduler**: APScheduler runs inside the web process, so on a spin-down free tier, ticks only fire while awake. For a real always-on daily 8am push, use an always-on instance or a dedicated worker (or drive `POST /admin/scheduler/tick` from an external cron).
-- [ ] **CI**: tests currently run only locally against a shared dev DB (with accumulated fixture rows, never cleaned). No CI pipeline or isolated test DB yet.
+- [x] **Always-on scheduler** — solved via external cron rather than an always-on instance: `.github/workflows/keep-alive.yml` pings `/health` and `POST /admin/scheduler/tick` every 10 minutes (comfortably inside Render's 15-minute idle timeout), so the daily 8am dispatch fires on schedule even when no real traffic wakes the process first.
+- [ ] **CI**: still no GitHub Actions (or similar) pipeline running the test suite on push/PR — the only workflow that exists is the keep-alive/scheduler-tick cron above. Tests do now run against an isolated `<dbname>_test` database with a production tripwire (fixed 2026-07-19 after a real incident, see Timeline), so the old "shared dev DB with accumulated fixture rows" problem is resolved locally — but there's still no automated run on every change.
 
 ### Meta / WhatsApp approvals (external, can't verify from repo)
 - [x] Confirm the **`opsgenie_welcome`** template is Meta-approved (now set in `.env`; was a `hello_world` stub earlier). Approved (Active - Quality) and confirmed sending in practice.
