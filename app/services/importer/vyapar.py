@@ -50,6 +50,9 @@ class VyaparImporter(BaseImporter):
         "taxable_amount": "subtotal",
         "gst_amount": "gst_amount",
         "tax_amount": "gst_amount",
+        # Amount-already-paid / still-outstanding columns are deliberately
+        # NOT listed here — see the note in tally.py's COLUMN_ALIASES;
+        # ImportEngine resolves them centrally for every format at once.
         # ── Description ─────────────────────────────────────────────────
         "description": "description",
         "item_name": "description",

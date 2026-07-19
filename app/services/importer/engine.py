@@ -24,6 +24,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import uuid
 import zipfile
 from datetime import date as date_type
@@ -39,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
+from app.models.payment import Payment, PaymentSource
 from app.models.supplier import Supplier
 from app.services.importer.detector import detect_importer
 from app.services.importer.errors import UnrecognisedFormatError, UnsupportedFileError
@@ -62,6 +64,117 @@ __all__ = [
     "parse_file",
     "run_import",
 ]
+
+
+# ── Optional per-invoice money columns (paid so far / still outstanding) ──────
+#
+# "How much of this invoice is already paid" isn't Tally- or Vyapar-specific
+# vocabulary — it's a generic bookkeeping concept every export format spells
+# differently. Resolved once, centrally, for every format, instead of
+# maintaining three near-identical alias lists in tally.py/vyapar.py/
+# canonical.py. Exact matches are tried first (deterministic, same as every
+# other canonical column); _infer_money_column() below is a narrow fallback
+# for a spelling that isn't in this list at all.
+OPTIONAL_MONEY_ALIASES: dict[str, str] = {
+    # ── Already paid ────────────────────────────────────────────────────
+    "paid_amount": "paid_amount",
+    "amount_paid": "paid_amount",
+    "amount_received": "paid_amount",
+    "received_amount": "paid_amount",
+    "recd_amount": "paid_amount",
+    "receipt_amount": "paid_amount",
+    "payment_received": "paid_amount",
+    "cleared_amount": "paid_amount",
+    "collected_amount": "paid_amount",
+    "collection_amount": "paid_amount",
+    "realised_amount": "paid_amount",
+    "realized_amount": "paid_amount",
+    "settled_amount": "paid_amount",
+    "recovered_amount": "paid_amount",
+    "advance_received": "paid_amount",
+    # ── Still outstanding ───────────────────────────────────────────────
+    "outstanding": "outstanding_amount",
+    "outstanding_amount": "outstanding_amount",
+    "outstanding_balance": "outstanding_amount",
+    "balance": "outstanding_amount",
+    "balance_amount": "outstanding_amount",
+    "balance_due": "outstanding_amount",
+    "bal_due": "outstanding_amount",
+    "closing_balance": "outstanding_amount",
+    "due_amount": "outstanding_amount",
+    "amount_due": "outstanding_amount",
+    "net_due": "outstanding_amount",
+    "pending_amount": "outstanding_amount",
+    "unpaid_amount": "outstanding_amount",
+    "remaining_amount": "outstanding_amount",
+    "remaining_balance": "outstanding_amount",
+    "open_balance": "outstanding_amount",
+    # ── When the payment happened (optional; falls back to invoice_date) ──
+    "payment_date": "payment_date",
+    "paid_date": "payment_date",
+    "receipt_date": "payment_date",
+    "received_date": "payment_date",
+    "date_paid": "payment_date",
+    "date_received": "payment_date",
+}
+
+# Whole-token, disjoint keyword sets for the fallback matcher below — never
+# substring matches, so e.g. "unpaid_invoices_count" (token "unpaid") isn't
+# confused with a description column, and a header is only ever guessed as
+# ONE of the two.
+_PAID_KEYWORDS = {
+    "paid",
+    "received",
+    "recd",
+    "realised",
+    "realized",
+    "collected",
+    "cleared",
+    "recovered",
+    "settled",
+}
+_OUTSTANDING_KEYWORDS = {"outstanding", "balance", "unpaid", "pending", "due"}
+_HEADER_TOKEN_SPLIT = re.compile(r"[_./]+")
+
+
+def _infer_money_column(header: str) -> str | None:
+    """Best-effort guess for a header that matched no known alias — used only
+    for the two *optional* per-invoice money columns, never for a required
+    field (an unrecognised required column still rejects the whole file, as
+    always).
+
+    Deliberately conservative: the header is split into whole tokens (never
+    substring-matched), the two keyword sets are disjoint, and "due" only
+    counts when "date" isn't also a token in the same header — so "Due Date"
+    is never mistaken for a "Due Amount" column. A miss just leaves the
+    column unrecognised (today's behavior, unchanged); it never overrides an
+    exact alias match from OPTIONAL_MONEY_ALIASES or the format importer's
+    own COLUMN_ALIASES.
+    """
+    tokens = set(_HEADER_TOKEN_SPLIT.split(header)) - {""}
+    if tokens & _PAID_KEYWORDS:
+        return "paid_amount"
+    if tokens & _OUTSTANDING_KEYWORDS and "date" not in tokens:
+        return "outstanding_amount"
+    return None
+
+
+def infer_optional_money_columns(
+    normalised_headers: list[str], header_map: dict[str, str]
+) -> dict[str, str]:
+    """Layer paid_amount/outstanding_amount/payment_date resolution on top of
+    a format importer's own header_map. Never overrides a header the format
+    importer already claimed for something else — e.g. Tally's "amount" ->
+    total_amount always wins over any money-column guess for that header.
+    """
+    resolved = dict(header_map)
+    for header in normalised_headers:
+        if header in resolved:
+            continue
+        canonical = OPTIONAL_MONEY_ALIASES.get(header) or _infer_money_column(header)
+        if canonical:
+            resolved[header] = canonical
+    return resolved
 
 
 # ── File parsing ─────────────────────────────────────────────────────────────
@@ -152,6 +265,38 @@ def _resolve_due_date(
     return invoice_date
 
 
+def _resolve_paid_amount(
+    canonical: dict[str, str], *, invoice_number: str, total_amount: Decimal
+) -> Decimal:
+    """An invoice file may say how much of it is already settled — either
+    directly (a "Paid Amount" column) or implicitly (an "Outstanding"
+    column). Either is enough; whichever is missing is derived from the
+    other. Absent both, the invoice is treated as fully outstanding (the
+    only safe default when the source file is silent on payment status).
+
+    Without this, every imported invoice would be recorded as 100%
+    outstanding regardless of what the source file actually said — the
+    reconciliation summary and every downstream "amount owed" figure
+    (WhatsApp balance queries, snapshots, ledger reports) would overstate
+    real outstanding by however much had already been collected/paid.
+    """
+    paid_raw = canonical.get("paid_amount", "").strip()
+    outstanding_raw = canonical.get("outstanding_amount", "").strip()
+    if paid_raw:
+        paid_amount = parse_amount(paid_raw)
+    elif outstanding_raw:
+        paid_amount = total_amount - parse_amount(outstanding_raw)
+    else:
+        return Decimal("0.00")
+
+    if paid_amount < 0 or paid_amount > total_amount:
+        raise ValueError(
+            f"invoice {invoice_number}: paid/outstanding amount is inconsistent "
+            f"with its total ({total_amount}) — got paid_amount={paid_amount}"
+        )
+    return paid_amount
+
+
 # ── Invoice import (Phase 3A) ────────────────────────────────────────────────
 
 
@@ -197,6 +342,10 @@ async def _import_invoice_row(
         else total_amount - gst_amount
     )
 
+    paid_amount = _resolve_paid_amount(
+        canonical, invoice_number=invoice_number, total_amount=total_amount
+    )
+
     party = await find_or_create_party(db, company_id, row_direction, party_name)
     due_date = _resolve_due_date(invoice_date, canonical.get("due_date", ""), party)
 
@@ -221,6 +370,13 @@ async def _import_invoice_row(
             return
         raise ValueError(f"invoice {invoice_number} already exists with different data")
 
+    if paid_amount <= 0:
+        invoice_status = InvoiceStatus.Pending
+    elif paid_amount >= total_amount:
+        invoice_status = InvoiceStatus.Paid
+    else:
+        invoice_status = InvoiceStatus.Partially_Paid
+
     invoice = Invoice(
         company_id=company_id,
         invoice_number=invoice_number,
@@ -232,7 +388,7 @@ async def _import_invoice_row(
         subtotal=subtotal,
         gst_amount=gst_amount,
         total_amount=total_amount,
-        status=InvoiceStatus.Pending,
+        status=invoice_status,
         source=InvoiceSource.csv_import,
     )
     db.add(invoice)
@@ -255,6 +411,43 @@ async def _import_invoice_row(
             created_by="import",
         )
     )
+
+    if paid_amount > 0:
+        # The file said this invoice already had money against it at import
+        # time — record it as a real Payment (not just a smaller "total_amount")
+        # so party_outstanding.py's netting, and every report built on it,
+        # reflects the true remaining balance. payment_date falls back to the
+        # invoice's own date when the source file gives no distinct one —
+        # never "today", which would misdate a historical payment.
+        payment_date_raw = canonical.get("payment_date", "").strip()
+        payment_date = parse_date(payment_date_raw) if payment_date_raw else invoice_date
+        payment = Payment(
+            company_id=company_id,
+            invoice_id=invoice.id,
+            amount=paid_amount,
+            payment_date=payment_date,
+            source=PaymentSource.csv_import,
+        )
+        db.add(payment)
+        await db.flush()
+        db.add(
+            BusinessEvent(
+                company_id=company_id,
+                event_type=BusinessEventType.payment_received,
+                entity_type="payment",
+                entity_id=payment.id,
+                payload={
+                    "invoice_number": invoice_number,
+                    "voucher_reference": voucher_reference,
+                    "source_file": source_file,
+                    "row_number": row_number,
+                    "party_name": party_name,
+                    "amount": str(paid_amount),
+                },
+                created_by="import",
+            )
+        )
+
     result.add_success()
 
 
@@ -313,6 +506,7 @@ async def run_import(
         )
     normalised_headers = [normalise_header(h) for h in headers]
     header_map = importer_cls.map_headers(normalised_headers)
+    header_map = infer_optional_money_columns(normalised_headers, header_map)
     missing = importer_cls.validate_required(header_map)
     if missing:
         raise UnrecognisedFormatError(f"Missing required columns: {', '.join(missing)}")

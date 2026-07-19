@@ -21,6 +21,7 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceStatus
+from app.models.payment import Payment
 from app.services.importer.engine import (
     UnrecognisedFormatError,
     UnsupportedFileError,
@@ -418,6 +419,211 @@ async def test_non_utf8_csv_is_rejected_cleanly_not_as_a_crash(db: AsyncSession)
         )
     except UnsupportedFileError:
         pass  # acceptable clean rejection
+
+
+# ── Regression: paid/outstanding amount from the source file must be honoured
+# (found via onboarding QA — a partially-paid invoice was imported as fully
+# outstanding because the importer silently dropped "Paid Amount"/"Outstanding"
+# columns) ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_paid_amount_column_creates_payment_and_partial_status(
+    db: AsyncSession,
+) -> None:
+    company_id = await _make_company(db)
+    # _csv() only knows the fixed CANONICAL_HEADER columns, so this one adds
+    # paid_amount directly rather than going through that helper.
+    contents = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description,paid_amount\n"
+        b"INV-PAID-1,receivable,Partial Payer,2026-01-05,2026-02-04,"
+        b"10000.00,0.00,10000.00,x,6000.00\n"
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+    assert result.rows_succeeded == 1, result.errors
+
+    invoice = await db.scalar(
+        select(Invoice).where(
+            Invoice.company_id == company_id, Invoice.invoice_number == "INV-PAID-1"
+        )
+    )
+    assert invoice.status == InvoiceStatus.Partially_Paid
+
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is not None
+    assert payment.amount == Decimal("6000.00")
+    assert payment.payment_date.isoformat() == "2026-01-05"  # falls back to invoice_date
+
+
+@pytest.mark.asyncio
+async def test_outstanding_column_derives_paid_amount_and_fully_paid_status(
+    db: AsyncSession,
+) -> None:
+    company_id = await _make_company(db)
+    contents = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description,outstanding_amount\n"
+        b"INV-PAID-2,receivable,Full Payer,2026-01-05,2026-02-04,"
+        b"5000.00,0.00,5000.00,x,0.00\n"
+    )
+
+    await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+
+    invoice = await db.scalar(
+        select(Invoice).where(
+            Invoice.company_id == company_id, Invoice.invoice_number == "INV-PAID-2"
+        )
+    )
+    assert invoice.status == InvoiceStatus.Paid
+
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment.amount == Decimal("5000.00")
+
+
+@pytest.mark.asyncio
+async def test_paid_amount_exceeding_total_fails_that_row_only(db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    contents = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description,paid_amount\n"
+        b"INV-BAD-PAID,receivable,Overpayer,2026-01-05,2026-02-04,"
+        b"1000.00,0.00,1000.00,x,5000.00\n"
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+    assert result.rows_failed == 1
+    assert result.rows_succeeded == 0
+    assert "inconsistent" in result.errors[0].reason
+
+
+@pytest.mark.asyncio
+async def test_unrecognised_paid_column_spelling_is_caught_by_keyword_fallback(
+    db: AsyncSession,
+) -> None:
+    """A header not in the exact OPTIONAL_MONEY_ALIASES list (e.g. "Amount
+    Collected") should still be recognised via the whole-token keyword
+    fallback, not silently dropped."""
+    company_id = await _make_company(db)
+    contents = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description,Amount Collected\n"
+        b"INV-FALLBACK-1,receivable,Fallback Payer,2026-01-05,2026-02-04,"
+        b"4000.00,0.00,4000.00,x,2500.00\n"
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+    assert result.rows_succeeded == 1, result.errors
+
+    invoice = await db.scalar(
+        select(Invoice).where(
+            Invoice.company_id == company_id, Invoice.invoice_number == "INV-FALLBACK-1"
+        )
+    )
+    assert invoice.status == InvoiceStatus.Partially_Paid
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment.amount == Decimal("2500.00")
+
+
+@pytest.mark.asyncio
+async def test_unclaimed_due_style_header_is_not_mistaken_for_an_outstanding_amount(
+    db: AsyncSession,
+) -> None:
+    """Regression guard for the keyword fallback: a header like "Payment Due
+    Date" tokenises to {"payment", "due", "date"} — the "due" token alone
+    would match the outstanding-amount keyword set, so the fallback must
+    exclude any header that also carries a "date" token. This column is
+    otherwise unclaimed (the real due_date column is separate and already
+    resolved via the exact alias), so it's a clean probe of the fallback
+    alone, without the exact-alias short-circuit masking a broken guard."""
+    company_id = await _make_company(db)
+    contents = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description,Payment Due Date\n"
+        b"INV-DUEDATE-1,receivable,Normal Dealer,2026-01-05,2026-02-04,"
+        b"7000.00,0.00,7000.00,x,2026-02-04\n"
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+    assert result.rows_succeeded == 1, result.errors
+
+    invoice = await db.scalar(
+        select(Invoice).where(
+            Invoice.company_id == company_id, Invoice.invoice_number == "INV-DUEDATE-1"
+        )
+    )
+    # The genuine due_date column still resolves normally, and the bogus
+    # extra "Payment Due Date" column must NOT have been read as an
+    # outstanding amount (which would have raised on "2026-02-04" failing to
+    # parse_amount(), or worse, silently produced a nonsense Payment).
+    assert invoice.due_date.isoformat() == "2026-02-04"
+    assert invoice.status == InvoiceStatus.Pending
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is None
+
+
+@pytest.mark.asyncio
+async def test_no_paid_or_outstanding_column_defaults_to_fully_outstanding(
+    db: AsyncSession,
+) -> None:
+    """Unchanged prior behavior: a file that never mentions payment status at
+    all still imports as fully outstanding — not left NULL/guessed."""
+    company_id = await _make_company(db)
+    contents = _csv(
+        "INV-NOPAY-1,receivable,Silent Payer,2026-01-05,2026-02-04,3000.00,0.00,3000.00,x"
+    )
+    await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+    invoice = await db.scalar(
+        select(Invoice).where(
+            Invoice.company_id == company_id, Invoice.invoice_number == "INV-NOPAY-1"
+        )
+    )
+    assert invoice.status == InvoiceStatus.Pending
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is None
 
 
 @pytest.mark.asyncio
