@@ -2,5 +2,10 @@
   "installCommand": "python3 -m pip install --break-system-packages jinja2",
   "buildCommand": "python3 scripts/build_static_site.py",
   "outputDirectory": "dist",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/onboard", "destination": "/gate.html" },
+    { "source": "/dashboard", "destination": "/gate.html" },
+    { "source": "/dashboard/:path*", "destination": "/gate.html" }
+  ]
 }
