@@ -29,12 +29,11 @@ import time
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from urllib.parse import urlencode
 
 from openpyxl import Workbook
 from openpyxl.cell import WriteOnlyCell
-from openpyxl.styles import Font, PatternFill
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.styles import Font
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,92 +47,15 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.party_outstanding import calculate_outstanding_for_company
+from app.services.reports.xlsx_common import row as _row
+from app.services.reports.xlsx_common import s as _s
+from app.services.reports.xlsx_common import total_row as _total_row
+from app.services.reports.xlsx_common import write_header as _write_header
 
 EXPORT_FORMAT_VERSION = "1.1"
 
 _OPEN_STATUSES = (InvoiceStatus.Pending, InvoiceStatus.Partially_Paid, InvoiceStatus.Overdue)
 _STREAM_CHUNK = 500
-
-# ── Sheet styling ────────────────────────────────────────────────────────────
-# write_only Workbooks can't be styled with the usual ws['A1'].font = ... —
-# every styled cell has to be built as a WriteOnlyCell before it's appended.
-
-_HEADER_FONT = Font(bold=True, color="FFFFFF")
-_HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
-_TOTAL_FONT = Font(bold=True)
-_TOTAL_FILL = PatternFill("solid", fgColor="D9E1F2")
-
-_MONEY_FMT = "₹#,##0.00"
-_QTY_FMT = "#,##0.##"
-_DATE_FMT = "dd-mmm-yyyy"
-_NUMBER_FORMATS = {"money": _MONEY_FMT, "qty": _QTY_FMT, "date": _DATE_FMT}
-
-# Columns that need to be wider than the default heuristic to hold their
-# typical content without truncating in the sheet view.
-_WIDE_COLUMNS = {"Details", "Notes", "Address", "Invoice Number", "Business Name"}
-
-
-def _s(value: object) -> str | None:
-    """Render an enum/UUID/None as a plain string cell value."""
-    if value is None:
-        return None
-    return str(value)
-
-
-def _autosize(ws: Worksheet, headers: list[str]) -> None:
-    for idx, header in enumerate(headers, start=1):
-        letter = get_column_letter(idx)
-        width = 34 if header in _WIDE_COLUMNS else max(len(header) + 6, 14)
-        ws.column_dimensions[letter].width = width
-
-
-def _write_header(ws: Worksheet, headers: list[str]) -> None:
-    """Bold white-on-blue header row, frozen and filterable, plus sized
-    columns — every sheet in the workbook uses this same look. In write_only
-    mode, sheet-level properties like freeze_panes only take effect if set
-    before the first append(), so this must run before the header row is
-    written.
-    """
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
-    _autosize(ws, headers)
-    cells = []
-    for header in headers:
-        cell = WriteOnlyCell(ws, value=header)
-        cell.font = _HEADER_FONT
-        cell.fill = _HEADER_FILL
-        cells.append(cell)
-    ws.append(cells)
-
-
-def _row(ws: Worksheet, values: list, formats: list[str | None]) -> None:
-    """Append a data row, wrapping only the cells that need a number format —
-    plain values pass through untouched.
-    """
-    cells = []
-    for value, fmt in zip(values, formats, strict=True):
-        if fmt is None or value is None:
-            cells.append(value)
-            continue
-        cell = WriteOnlyCell(ws, value=value)
-        cell.number_format = _NUMBER_FORMATS[fmt]
-        cells.append(cell)
-    ws.append(cells)
-
-
-def _total_row(ws: Worksheet, values: list, formats: list[str | None]) -> None:
-    """Bold, shaded total row — values/formats align positionally with the
-    sheet's header, so callers pass None for any column that isn't summed.
-    """
-    cells = []
-    for value, fmt in zip(values, formats, strict=True):
-        cell = WriteOnlyCell(ws, value=value)
-        cell.font = _TOTAL_FONT
-        cell.fill = _TOTAL_FILL
-        if fmt is not None and value is not None:
-            cell.number_format = _NUMBER_FORMATS[fmt]
-        cells.append(cell)
-    ws.append(cells)
 
 
 async def _write_company_sheet(wb: Workbook, company: Company) -> None:
@@ -621,10 +543,29 @@ async def build_company_workbook(db: AsyncSession, company: Company) -> bytes:
     return buffer.getvalue()
 
 
-def generate_export_link(company: Company, *, base_url: str) -> str:
+def generate_export_link(
+    company: Company,
+    *,
+    base_url: str,
+    report: str = "full",
+    format: str = "xlsx",
+    from_date: str | None = None,
+    to_date: str | None = None,
+    month: str | None = None,
+    party_id: uuid.UUID | None = None,
+) -> str:
     """Stateless short-lived signed link — nothing is written to the database
     to "issue" it, so there's nothing to store or revoke. Same HMAC signing
     convention already used to verify Meta's webhook payloads.
+
+    The signature only ever covers `company_id:expires_at` (unchanged from
+    the original all-time-workbook link) — `report`/`format`/period/`party`
+    ride along as plain query params, not signed. That's deliberate: a valid
+    link already grants the holder read access to everything in that
+    company's full workbook, so a report-scoped link (strictly less data)
+    doesn't need a tighter guarantee than the one that already exists.
+    Default call (no new kwargs) produces the exact same URL as before this
+    was extended.
     """
     settings = get_settings()
     if not settings.export_link_secret:
@@ -634,7 +575,24 @@ def generate_export_link(company: Company, *, base_url: str) -> str:
     signature = hmac.new(
         settings.export_link_secret.encode(), message.encode(), hashlib.sha256
     ).hexdigest()
-    return f"{base_url.rstrip('/')}/export/{company.id}/{expires_at}/{signature}"
+    url = f"{base_url.rstrip('/')}/export/{company.id}/{expires_at}/{signature}"
+
+    params: dict[str, str] = {}
+    if report != "full":
+        params["report"] = report
+    if format != "xlsx":
+        params["format"] = format
+    if month is not None:
+        params["month"] = month
+    if from_date is not None:
+        params["from"] = from_date
+    if to_date is not None:
+        params["to"] = to_date
+    if party_id is not None:
+        params["party"] = str(party_id)
+    if params:
+        url += "?" + urlencode(params)
+    return url
 
 
 def verify_export_link(company_id: uuid.UUID, expires_at: int, signature: str) -> bool:

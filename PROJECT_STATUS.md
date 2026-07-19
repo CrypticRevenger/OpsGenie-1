@@ -101,7 +101,7 @@ Verified enum↔DB parity (all 6 enum types), single migration head, config↔`.
 
 **Models (17 tables):** company, dealer, supplier, product, invoice, invoice_item, payment, business_event, activity_timeline, morning_briefing, import_log, notification_log, conversation_turn, pending_operation, faq, daily_business_snapshot, cash_snapshot _(modeled but unused — per SPEC, outstanding is always computed from invoices+payments)_.
 
-**Core services:** snapshot · party_outstanding · recommendations · priority_actions · briefing · llm/* (6 providers + factory) · assistant + agent/* (read tools, runner, money_guard) · command_router · query_menu · instant_reports · followup · notifications · scheduler · daily_snapshot · evening_brief · importer/* · workflows/* (payment, order, product, gst) · writes/* (payments, orders, pending_operation, update_gst) · whatsapp_client · invoice_pdf · invoice_delivery · company_export · onboarding_flow · activation · gst · money_format · sales_impact_parser.
+**Core services:** snapshot · party_outstanding · party_lookup · recommendations · priority_actions · briefing · llm/* (6 providers + factory) · assistant + agent/* (read tools, runner, money_guard) · command_router · query_menu · instant_reports · followup · notifications · scheduler · daily_snapshot · evening_brief · importer/* · workflows/* (payment, order, product, gst) · writes/* (payments, orders, pending_operation, update_gst) · whatsapp_client · invoice_pdf · invoice_delivery · company_export · reports/* (registry, ledger, registers, aging, period, xlsx_common, pdf_common, statuses) · onboarding_flow · activation · gst · money_format · sales_impact_parser.
 
 **API surface:** `/webhooks/whatsapp`, `/onboard`, public marketing site, `/health`, signed `/export`, `X-API-Key` admin API (companies, dealers, suppliers, products, invoices, payments, imports, cashflow, briefing, followup, daily_snapshot, scheduler, faq, export), and the session-authed `/dashboard/*` portal.
 
@@ -121,15 +121,15 @@ Locale model = **language × script** with Romanized variants as first-class, re
 - [x] **Unicode invoice PDF** — bundled OFL Noto Sans + Noto Sans Devanagari + Noto Sans Oriya (regular+bold) under `app/assets/fonts/`; `invoice_pdf.py` now renders regional-script dealer/product/business names and the real ₹ glyph, choosing the font **per cell by script** (fpdf2's global `set_fallback_fonts` state-leaked onto later Latin cells and blanked them). `_latin1()` + core Helvetica stays as a graceful fallback when a font file is absent, so a valid PDF is always produced. Fonts are SIL OFL 1.1 (redistributable) so they're committed.
 - [x] **Numerals & date formatting** — Indian digit grouping already in `money_format.py`; amounts/dates are interpolated, never translated.
 
-### ⭐ Reports & downloadable statements — Vyapar / Tally style
-Today there is one all-time Excel workbook (`company_export.py`). Distributors expect **period-scoped, standard accounting reports** they can download:
-- [ ] **Month-wise / date-range filtering** on every export (the builder already streams; add `from`/`to` params, and a "month" shortcut).
-- [ ] **Party ledger statement** — per-dealer / per-supplier running-balance ledger (opening balance → each invoice/payment → closing balance), the single most-requested Tally report. Download per party + WhatsApp "ledger <name>".
-- [ ] **Payment / receipt register** by month (a dedicated sheet, not just the transactions list).
-- [ ] **GST reports** — GSTR-1-style sales register and purchase register by month (GST is already captured per line/invoice).
-- [ ] **Sales & purchase registers**, day book, and an **outstanding (aging) report** bucketed 0–30 / 31–60 / 61–90 / 90+ days.
-- [ ] **PDF versions** of the key statements (not just Excel) for easy sharing; expose them through the same short-lived signed-link mechanism already used for the workbook.
-- [ ] **WhatsApp triggers** for each ("this month's ledger", "GST report", "outstanding report") returning a signed download link.
+### ⭐ Reports & downloadable statements — Vyapar / Tally style — complete (2026-07-19)
+Today there is one all-time Excel workbook (`company_export.py`) plus six new period-scoped reports, all dispatched through one extended signed-link endpoint via `app/services/reports/registry.py`'s `REPORTS` table (new `app/services/reports/` package: `xlsx_common`, `pdf_common`, `period`, `statuses`, `ledger`, `registers`, `aging`, `registry`). GST report = a GSTR-1-*style* register (taxable value/rate/GST amount + rate-wise summary), not a filing-ready CGST/SGST/IGST split — Dealer/Supplier have no state/place-of-supply field, confirmed out of scope for this phase.
+- [x] **Month-wise / date-range filtering** — `report`/`format`/`from`/`to`/`month`/`party` query params on the existing signed `/export/{company_id}/{expires_at}/{signature}` route (`app/api/export.py`); signature still only covers `company_id:expires_at`, unchanged. No params = identical byte-for-byte behavior to the original all-time workbook.
+- [x] **Party ledger statement** — opening → running balance → closing balance (`reports/ledger.py`), cross-checked against `calculate_party_outstanding` in tests. WhatsApp "ledger <name>" (new `app/services/party_lookup.py::find_party`, shared with `_get_party_balance`'s "balance <name>").
+- [x] **Payment / receipt register** by month, Receipts/Payments/Net cash-movement totals kept separate from any accrual figure (`reports/registers.py`).
+- [x] **GST reports** — sales/purchase register, per-invoice-line, plus a rate-wise summary sheet (`reports/registers.py`); doubles as the "sales & purchase registers" bullet below rather than building both twice.
+- [x] **Day book** (all invoices+payments per period, `reports/registers.py`) and **outstanding aging report** bucketed Not Due / 0-30 / 31-60 / 61-90 / 90+ (`reports/aging.py`).
+- [x] **PDF versions** — ledger + aging report only (the two a distributor would print/forward), reusing `invoice_pdf.py`'s per-cell Unicode-script font logic (now factored into `reports/pdf_common.py`, both modules byte-identical to before). Same signed-link mechanism, `format=pdf`.
+- [x] **WhatsApp triggers** for every report ("ledger <name>", "gst report", "sales register", "purchase register", "payment register", "day book", "outstanding report"), current-month default; aging is always as-of-today. `/help` updated in all 5 locale catalogs.
 
 ### ⭐ Proactive early-warning alerts (7 days ahead)
 The snapshot already computes 7-day expected collections/payments and a `cash_deficit` flag, but nothing sends a *forward-looking* heads-up. Wire scheduled predictive alerts on top of the existing engine:
@@ -171,8 +171,8 @@ The snapshot already computes 7-day expected collections/payments and a `cash_de
 - [ ] **CI**: tests currently run only locally against a shared dev DB (with accumulated fixture rows, never cleaned). No CI pipeline or isolated test DB yet.
 
 ### Meta / WhatsApp approvals (external, can't verify from repo)
-- [ ] Confirm the **`opsgenie_welcome`** template is Meta-approved (now set in `.env`; was a `hello_world` stub earlier).
-- [ ] Confirm the **`invoice_document`** template (document header) is Meta-approved so dealer PDF delivery works end-to-end (now set in `.env`; delivery is fail-open, so an unapproved template just skips silently).
+- [x] Confirm the **`opsgenie_welcome`** template is Meta-approved (now set in `.env`; was a `hello_world` stub earlier). Approved (Active - Quality) and confirmed sending in practice.
+- [ ] Confirm the **`invoice_document`** template (document header) is Meta-approved so dealer PDF delivery works end-to-end (now set in `.env`; delivery is fail-open, so an unapproved template just skips silently). First approval (2026-07-19) had the header component set to **Text** (literal text "Document") instead of **Document** format — `send_invoice_document()` always sends a `document`-type header parameter (`whatsapp_client.py:150-161`), so every PDF send would have failed silently against that version. Fixed the header format to Document in Meta's editor and resubmitted (2026-07-19) — back to **Pending** review. Once it flips to Active, still need one live end-to-end test (real order → real dealer phone → PDF actually arrives, or check `NotificationLog.delivery_status`/`whatsapp_message_id`) before checking this off.
 
 ### V0.3 features not yet built
 - [ ] **Marketing broadcast** to the dealer network.

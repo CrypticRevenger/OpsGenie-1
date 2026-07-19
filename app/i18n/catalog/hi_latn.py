@@ -64,6 +64,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • export data (ya /export_data) — poora business data Excel me download link
 • morning briefing (ya /morning_briefing) — aaj ki briefing dobara bhejein
 
+*Reports & Statements* (is mahine ke, Excel + PDF jahan bataya gaya hai)
+• ledger <name> — running-balance statement, Excel + PDF, jaise ledger Ram Traders
+• sales register / purchase register (ya dono ke liye "gst report") — GST register + summary
+• payment register (ya receipt register) — is mahine ki receipts & payments
+• day book — is mahine ke sabhi invoice aur payment, ek hi list me
+• outstanding report (ya aging report) — 0-30/31-60/61-90/90+ din ke buckets, Excel + PDF
+
 *Quick Access*
 • menu — type karne ki jagah options tap karein
 • help (ya /help) — yeh list kabhi bhi dobara dekhein"""
@@ -189,6 +196,10 @@ MESSAGES: dict[str, str] = {
     "reports.export.ready": (
         "Aapka latest Excel export taiyar hai.\nDownload ({ttl} min valid): {link}"
     ),
+    "reports.download.ready": (
+        "Aapka {report_name} ({period}) taiyar hai.\nDownload ({ttl} min valid):\n{links}"
+    ),
+    "reports.ledger.not_found": "'{name}' se milta koi dealer ya supplier nahi mila.",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -315,6 +326,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.inventory.button": "Ek option chunein",
     "menu.msg.orders.body": "Orders, Payments & aapka Data — ek chunein:",
     "menu.msg.orders.button": "Ek option chunein",
+    "menu.msg.statements.body": "Reports & Statements — ek chunein:",
+    "menu.msg.statements.button": "Statement chunein",
     "menu.section.cash_overview": "Cash & Overview",
     "menu.section.money_flow": "Paise ka Flow",
     "menu.section.dealers_suppliers": "Dealers & Suppliers",
@@ -323,6 +336,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.orders_payments": "Orders & Payments",
     "menu.section.your_data": "Aapka Data",
     "menu.section.full_lists": "Poori Lists",
+    "menu.section.reports_statements": "Reports & Statements",
     "menu.row.cash.title": "Cash Position",
     "menu.row.cash.desc": "Abhi cash & 7-din in/out",
     "menu.row.summary.title": "Business Summary",
@@ -379,6 +393,18 @@ MESSAGES: dict[str, str] = {
     "menu.row.all_invoices.desc": "Har invoice, sirf naye nahi",
     "menu.row.all_payments.title": "Saare Payments",
     "menu.row.all_payments.desc": "Har payment, sirf naye nahi",
+    "menu.row.gst_report.title": "GST Report",
+    "menu.row.gst_report.desc": "Sales aur purchase register, dono ke liye",
+    "menu.row.sales_register.title": "Sales Register",
+    "menu.row.sales_register.desc": "GST sales register + rate-wise summary",
+    "menu.row.purchase_register.title": "Purchase Register",
+    "menu.row.purchase_register.desc": "GST purchase register + rate-wise summary",
+    "menu.row.payment_register.title": "Payment Register",
+    "menu.row.payment_register.desc": "Is mahine ki receipts & payments",
+    "menu.row.day_book.title": "Day Book",
+    "menu.row.day_book.desc": "Is mahine ke sabhi invoice aur payment",
+    "menu.row.outstanding_report.title": "Outstanding Report",
+    "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ din ke buckets",
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel kar diya.",
     "workflow.yes_no": "Kripya yes ya no reply karein.",
