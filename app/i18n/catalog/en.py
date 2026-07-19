@@ -26,12 +26,14 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • overdue / overdue dealers — days overdue & risk level (or reply 4 / /dealer_risk)
 • balance <name> — outstanding for one dealer, e.g. balance Ram Traders
 • add dealer (or /add_dealer) — add a new dealer: name, phone, credit days
+• edit dealer (or /edit_dealer) — update a dealer's phone, credit limit, payment terms, or GSTIN
 
 *Suppliers (you owe them)*
 • suppliers / all suppliers — every supplier with phone & outstanding
 • top creditors — suppliers you owe the most
 • balance <name> — outstanding for one supplier
 • add supplier (or /add_supplier) — add a new supplier: name, phone, credit days
+• edit supplier (or /edit_supplier) — update a supplier's phone, credit limit, terms, or GSTIN
 
 *Upcoming Cash Flow*
 • collections / upcoming collections — expected from dealers, next 7 days (or 2 / /collections)
@@ -57,10 +59,17 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • update product (or /update_product) — pick price, purchase price, or stock to update
 • update gst (or /update_gst) — change GST for all products, or one specific product
 • delete product (or /delete_product) — remove a catalogue item
+• stock take (or /stock_take) — recount or adjust stock for several products in one go
 
 *Orders & Payments*
 • new order (or /create_order, or "new invoice") — record a sale to a dealer, product by product
 • record payment (or /record_payment) — log a payment received from a dealer or paid to a supplier
+
+*Corrections*
+• undo payment (or /undo_payment) — void the payment you just recorded
+• undo order (or /undo_order) — void the order you just created (only if it's still unpaid)
+• edit invoice (or /edit_invoice) — correct an invoice's amount, date, or party (only if unpaid)
+• edit payment (or /edit_payment) — correct a recorded payment's amount or date
 
 *Your Data*
 • export data (or /export_data) — a download link to your full business data as Excel
@@ -408,6 +417,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.orders.button": "Orders & Payments",
     "menu.msg.statements.body": "Reports & Statements — tap one:",
     "menu.msg.statements.button": "GST & Statements",
+    "menu.msg.corrections.body": "Corrections — undo or edit something already recorded:",
+    "menu.msg.corrections.button": "Corrections",
     "menu.section.cash_overview": "Cash & Overview",
     "menu.section.money_flow": "Money Flow",
     "menu.section.dealers_suppliers": "Dealers & Suppliers",
@@ -418,6 +429,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.your_data": "Your Data",
     "menu.section.full_lists": "Full Lists",
     "menu.section.reports_statements": "Reports & Statements",
+    "menu.section.corrections": "Corrections",
     "menu.row.cash.title": "Cash Position",
     "menu.row.cash.desc": "Current cash & 7-day in/out",
     "menu.row.summary.title": "Business Summary",
@@ -490,6 +502,20 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "Every invoice & payment, one list",
     "menu.row.outstanding_report.title": "Outstanding Report",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ day buckets",
+    "menu.row.undo_payment.title": "Undo Payment",
+    "menu.row.undo_payment.desc": "Void the payment you just recorded",
+    "menu.row.undo_order.title": "Undo Order",
+    "menu.row.undo_order.desc": "Void the order you just created",
+    "menu.row.edit_invoice.title": "Edit Invoice",
+    "menu.row.edit_invoice.desc": "Correct an invoice's amount, date, or party",
+    "menu.row.edit_payment.title": "Edit Payment",
+    "menu.row.edit_payment.desc": "Correct a recorded payment's amount or date",
+    "menu.row.edit_dealer.title": "Edit Dealer",
+    "menu.row.edit_dealer.desc": "Update a dealer's phone, limit, terms, GSTIN",
+    "menu.row.edit_supplier.title": "Edit Supplier",
+    "menu.row.edit_supplier.desc": "Update a supplier's phone, limit, terms, GSTIN",
+    "menu.row.stock_take.title": "Stock Take",
+    "menu.row.stock_take.desc": "Recount or adjust stock for several products",
     # ── Guided write-workflows (shared) ────────────────────────────────────
     "workflow.cancelled": "OK, cancelled.",
     "workflow.yes_no": "Please reply yes or no.",
@@ -569,6 +595,52 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "Confirm order for {dealer}:",
     "order.preview_footer": "Reply YES to create, NO to cancel.",
+    # ── Edit invoice / edit payment (safe cases only) ───────────────────────
+    "edit.invoice_number_ask": "Which invoice? Send its invoice number, or 'cancel'.",
+    "edit.invoice_not_found": (
+        "I couldn't find an invoice numbered '{number}'. Check and try again, or 'cancel'."
+    ),
+    "edit.invoice_has_payment": (
+        "Invoice {number} already has a payment recorded against it — void it and "
+        "recreate instead."
+    ),
+    "edit.field_ask_invoice": (
+        "What do you want to edit — amount, date, or party? "
+        "Reply 'amount', 'date', or 'party'."
+    ),
+    "edit.field_invalid_invoice": "Please reply 'amount', 'date', or 'party' — or 'cancel'.",
+    "edit.amount_ask": "Current amount is {current}. What should the new amount be? (e.g. 1200)",
+    "edit.date_ask": "Current date is {current}. What should the new date be? (e.g. 2026-01-15)",
+    "edit.invoice_party_ask_dealer": "Current dealer is {current}. Send the new dealer's name.",
+    "edit.invoice_party_ask_supplier": (
+        "Current supplier is {current}. Send the new supplier's name."
+    ),
+    "edit.amount_invalid": "Please send a number greater than zero, e.g. 1200.",
+    "edit.date_invalid": "Please send a date like 2026-01-15.",
+    "edit.party_not_found": (
+        "I couldn't find '{name}'. Check the spelling and try again, or 'cancel'."
+    ),
+    "edit.value_preview": "Change {target}'s {field} to {new}?",
+    "edit.target_invoice": "invoice {number}",
+    "edit.target_payment": "the payment on invoice {number}",
+    "edit.reason_ask": "{preview}\nWhy? Reply with a short reason, or 'skip'.",
+    "edit.confirm_prompt": "{preview}\nReply YES to confirm, NO to cancel.",
+    "edit.party_name_ask": (
+        "Which dealer or supplier's payment do you want to edit? Send their name, or 'cancel'."
+    ),
+    "edit.no_payments_for_party": "No payments on file for {name}.",
+    "edit.payment_pick_ask": (
+        "Found {count} recent payments for {name}:\n{listing}\n"
+        "Reply with the number, or 'cancel'."
+    ),
+    "edit.payment_pick_invalid": "Please reply with a number from 1 to {count}, or 'cancel'.",
+    "edit.payment_gone": (
+        "That payment is no longer available. Please start again by saying 'edit payment'."
+    ),
+    "edit.field_ask_payment": (
+        "What do you want to edit — amount or date? Reply 'amount' or 'date'."
+    ),
+    "edit.field_invalid_payment": "Please reply 'amount' or 'date' — or 'cancel'.",
     # ── Update GST ─────────────────────────────────────────────────────────
     "gst.scope_prompt": (
         "Update GST for all products (company default), or one specific product? "
@@ -651,6 +723,24 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "Updated {name}'s price to {new} (was {old}).",
     "product.updated_purchase": "Updated {name}'s purchase price to {new} (was {old}).",
     "product.updated_stock": "Updated {name}'s stock to {new} (was {old}).",
+    # ── Stock take (bulk stock recount/adjustment) ──────────────────────────
+    "stock_take.start_prompt": (
+        "Let's do a stock take. For each product, send its name, then the new count "
+        "(e.g. 40) or an adjustment (e.g. +15 found, -3 damaged). Reply 'done' when "
+        "finished, or 'cancel' anytime."
+    ),
+    "stock_take.line_prompt": "Send a product name, or 'done' to finish.",
+    "stock_take.value_ask": (
+        "{name} — send the new count (e.g. 40) or an adjustment (e.g. +15, -3)."
+    ),
+    "stock_take.value_invalid": "Please send a number, e.g. 40, +15, or -3.",
+    "stock_take.line_added": "{name}: {old} → {new}. Send the next product, or 'done'.",
+    "stock_take.nothing_to_apply": "OK, no changes made.",
+    "stock_take.reason_ask": "Why? Reply with a short reason, or 'skip'.",
+    "stock_take.confirm_prompt": "{summary}\nReply YES to apply, NO to cancel.",
+    "stock_take.failed": "Couldn't apply the stock take: {error}. Please start again.",
+    "stock_take.result_line": "- {name}: {new}",
+    "stock_take.success": "✅ Stock updated for {count} product(s):\n{lines}{warning}",
     # ── Party: add-dealer / add-supplier workflow (mode / done wording) ────
     "party.dealer.mode_prompt": (
         "Let's add dealers. Reply 'one by one' to add them individually, "
@@ -672,6 +762,59 @@ MESSAGES: dict[str, str] = {
         "Send the supplier's name (e.g. Metro Distributors), or 'done' to stop."
     ),
     "party.supplier.mode_invalid": "Please reply 'one by one' or 'bulk' — or 'done' to stop.",
+    # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
+    "party.edit.field_prompt": (
+        "What do you want to edit — phone, credit limit, payment terms, or GSTIN? "
+        "Reply 'phone', 'credit limit', 'payment terms', or 'gstin'."
+    ),
+    "party.edit.field_invalid": (
+        "Please reply 'phone', 'credit limit', 'payment terms', or 'gstin' — or 'cancel'."
+    ),
+    "party.edit.name_ask_dealer": "Which dealer? Send their name, or 'cancel'.",
+    "party.edit.name_ask_supplier": "Which supplier? Send their name, or 'cancel'.",
+    "party.edit.not_found": (
+        "I couldn't find '{name}'. Check the spelling and try again, or 'cancel'."
+    ),
+    "party.edit.disambiguation": (
+        "Found {count} matches named '{name}':\n{listing}\n"
+        "Reply with the number to edit, or 'cancel'."
+    ),
+    "party.edit.disambiguation_invalid": (
+        "Please reply with a number from 1 to {count}, or 'cancel'."
+    ),
+    "party.edit.gone": (
+        "That record is no longer available. Please start again by saying '{trigger}'."
+    ),
+    "party.edit.gone_value": "That record is no longer available.",
+    "party.edit.phone_ask": "{name}'s current phone is {current}. What should the new phone be?",
+    "party.edit.credit_limit_ask": (
+        "{name}'s current credit limit is {current}. What should the new credit limit be? "
+        "(e.g. 50000)"
+    ),
+    "party.edit.payment_terms_ask": (
+        "{name}'s current payment terms are {current} days. What should the new terms be, "
+        "in days? (e.g. 30)"
+    ),
+    "party.edit.gstin_ask": "{name}'s current GSTIN is {current}. What should the new GSTIN be?",
+    "party.edit.days_invalid": "Please send a whole number of days, e.g. 30.",
+    "party.edit.gstin_invalid": (
+        "That doesn't look like a valid GSTIN. Please check and try again, or 'cancel'."
+    ),
+    "party.edit.value_preview": "Change {name}'s {field} to {new}?",
+    "party.edit.success": "✅ {name}'s {field} updated to {new} (was {old}).",
+    # ── Void payment / void order ───────────────────────────────────────────
+    "void.payment_none": "No WhatsApp-recorded payment to undo.",
+    "void.payment_preview": (
+        "Void payment of {amount} against invoice {invoice_number} for {party}?"
+    ),
+    "void.order_none": "No WhatsApp-recorded order to undo.",
+    "void.order_has_payment": (
+        "Order {invoice_number} already has a payment recorded against it — "
+        "void the payment first, then try again."
+    ),
+    "void.order_preview": "Void order {invoice_number} for {dealer} (total {total})?",
+    "void.reason_ask": "{preview}\nWhy? Reply with a short reason, or 'skip'.",
+    "void.confirm_prompt": "{preview}\nReply YES to void, or NO to cancel.",
     # ── Pending-operation confirm/execute results ──────────────────────────
     "pending.reply_yes_no": "Reply YES to confirm or NO to cancel.",
     "pending.payment_failed": "Couldn't record that payment: {error}. Please start again.",
@@ -694,6 +837,18 @@ MESSAGES: dict[str, str] = {
     "pending.gst_failed": "Couldn't update GST: {error}. Please start again.",
     "pending.gst_success": "✅ GST for {target} set to {rate}.",
     "pending.gst_rate_default": "the company default",
+    "pending.void_payment_failed": "Couldn't void that payment: {error}. Please start again.",
+    "pending.void_payment_success": (
+        "✅ Voided payment of {amount} against invoice {invoice_number} for {party}."
+    ),
+    "pending.void_order_failed": "Couldn't void that order: {error}. Please start again.",
+    "pending.void_order_success": "✅ Voided order {invoice_number} for {dealer} (total {total}).",
+    "pending.edit_invoice_failed": "Couldn't edit that invoice: {error}. Please start again.",
+    "pending.edit_invoice_success": "✅ Invoice {number}'s {field} updated to {new} (was {old}).",
+    "pending.edit_payment_failed": "Couldn't edit that payment: {error}. Please start again.",
+    "pending.edit_payment_success": (
+        "✅ Payment on invoice {number}: {field} updated to {new} (was {old})."
+    ),
     "pending.unknown": "Something went wrong with that confirmation. Please start again.",
     # ── Numbered-menu prompt (shared: follow-up fallback, briefing footer) ──
     "menu.prompt": "Reply 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

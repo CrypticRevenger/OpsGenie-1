@@ -25,12 +25,14 @@ _HELP_TEXT = """*OpsGenie Help*
 • overdue / overdue dealers — kete dina late & risk level (kimba 4 / /dealer_risk)
 • balance <name> — gotie dealer ra baki, jaise balance Ram Traders
 • add dealer (kimba /add_dealer) — natun dealer add karantu: naam, phone, credit dina
+• edit dealer (kimba /edit_dealer) — dealer ra phone, credit limit, terms, kimba GSTIN badalantu
 
 *Suppliers (jieman ku apana denti)*
 • suppliers / all suppliers — pratyeka supplier phone & baki saha
 • top creditors — jieman ku apana sabuthu besi denti
 • balance <name> — gotie supplier ra baki
 • add supplier (kimba /add_supplier) — natun supplier add karantu: naam, phone, credit dina
+• edit supplier (kimba /edit_supplier) — supplier ra phone, credit limit, terms, kimba GSTIN
 
 *Asuthiba Cash Flow*
 • collections / upcoming collections — dealers thu asiba, asanta 7 dina (kimba 2 / /collections)
@@ -56,10 +58,17 @@ _HELP_TEXT = """*OpsGenie Help*
 • update product (kimba /update_product) — price, purchase price, kimba stock bachantu
 • update gst (kimba /update_gst) — sabu kimba gotie product ra GST badalantu
 • delete product (kimba /delete_product) — catalogue ru item hatantu
+• stock take (kimba /stock_take) — bohut product ra stock ekathi recount kimba adjust karantu
 
 *Orders & Payments*
 • new order (kimba /create_order, kimba "new invoice") — dealer ku sale record karantu
 • record payment (kimba /record_payment) — dealer thu asiba kimba supplier ku deba payment log
+
+*Corrections*
+• undo payment (kimba /undo_payment) — ebe record kariba payment void karantu
+• undo order (kimba /undo_order) — ebe tiari kariba order void karantu (jadi unpaid achi)
+• edit invoice (kimba /edit_invoice) — invoice ra amount, date, kimba party sudharantu (unpaid re)
+• edit payment (kimba /edit_payment) — record hoithiba payment ra amount kimba date sudharantu
 
 *Apanka Data*
 • export data (kimba /export_data) — puura business data Excel re download link
@@ -402,6 +411,10 @@ MESSAGES: dict[str, str] = {
     "menu.msg.orders.button": "Option bachantu",
     "menu.msg.statements.body": "Reports & Statements — gotie bachantu:",
     "menu.msg.statements.button": "Statement bachantu",
+    "menu.msg.corrections.body": (
+        "Corrections — purbaru record hoithiba kichi undo kimba edit karantu:"
+    ),
+    "menu.msg.corrections.button": "Corrections",
     "menu.section.cash_overview": "Cash & Overview",
     "menu.section.money_flow": "Paisa Flow",
     "menu.section.dealers_suppliers": "Dealers & Suppliers",
@@ -412,6 +425,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.your_data": "Aapanka Data",
     "menu.section.full_lists": "Puura Lists",
     "menu.section.reports_statements": "Reports & Statements",
+    "menu.section.corrections": "Corrections",
     "menu.row.cash.title": "Cash Position",
     "menu.row.cash.desc": "Ebe cash & 7-dina in/out",
     "menu.row.summary.title": "Business Summary",
@@ -484,6 +498,20 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "E mahara sabu invoice o payment",
     "menu.row.outstanding_report.title": "Outstanding Report",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ dina bucket",
+    "menu.row.undo_payment.title": "Undo Payment",
+    "menu.row.undo_payment.desc": "Ebe record kariba payment void karantu",
+    "menu.row.undo_order.title": "Undo Order",
+    "menu.row.undo_order.desc": "Ebe tiari kariba order void karantu",
+    "menu.row.edit_invoice.title": "Edit Invoice",
+    "menu.row.edit_invoice.desc": "Invoice ra amount, date, kimba party sudharantu",
+    "menu.row.edit_payment.title": "Edit Payment",
+    "menu.row.edit_payment.desc": "Payment ra amount kimba date sudharantu",
+    "menu.row.edit_dealer.title": "Edit Dealer",
+    "menu.row.edit_dealer.desc": "Dealer ra phone, limit, terms, GSTIN badalantu",
+    "menu.row.edit_supplier.title": "Edit Supplier",
+    "menu.row.edit_supplier.desc": "Supplier ra phone, limit, terms, GSTIN badalantu",
+    "menu.row.stock_take.title": "Stock Take",
+    "menu.row.stock_take.desc": "Bohut products ra stock ekathi badalantu",
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel karidela.",
     "workflow.yes_no": "Daya kari yes kimba no reply karantu.",
@@ -569,6 +597,57 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "{dealer} paain order confirm karantu:",
     "order.preview_footer": "Reply YES tiari karibaku, NO cancel karibaku.",
+    # ── Edit invoice / edit payment (safe cases only) ───────────────────────
+    "edit.invoice_number_ask": "Kauna invoice? Ehara invoice number pathantu, kimba 'cancel'.",
+    "edit.invoice_not_found": (
+        "Mote '{number}' naamara invoice milila nahin. Jaanch kari puni pathantu, kimba 'cancel'."
+    ),
+    "edit.invoice_has_payment": (
+        "Invoice {number} re purbaru payment record achi — prathame eha void karantu "
+        "ebong puni tiari karantu."
+    ),
+    "edit.field_ask_invoice": (
+        "Kana edit karibe — amount, date, kimba party? "
+        "Reply karantu 'amount', 'date', kimba 'party'."
+    ),
+    "edit.field_invalid_invoice": (
+        "Daya kari reply karantu 'amount', 'date', kimba 'party' — kimba 'cancel'."
+    ),
+    "edit.amount_ask": "Bartaman ra amount {current}. Nua amount kana heba? (jemiti 1200)",
+    "edit.date_ask": "Bartaman ra date {current}. Nua date kana heba? (jemiti 2026-01-15)",
+    "edit.invoice_party_ask_dealer": "Bartaman ra dealer {current}. Nua dealer ra naam pathantu.",
+    "edit.invoice_party_ask_supplier": (
+        "Bartaman ra supplier {current}. Nua supplier ra naam pathantu."
+    ),
+    "edit.amount_invalid": "Daya kari shunyaru bada eka number pathantu, jemiti 1200.",
+    "edit.date_invalid": "Daya kari 2026-01-15 pari eka date pathantu.",
+    "edit.party_not_found": (
+        "Mote '{name}' milila nahin. Spelling jaanch kari puni pathantu, kimba 'cancel'."
+    ),
+    "edit.value_preview": "{target} ra {field} badalei {new} karibe?",
+    "edit.target_invoice": "invoice {number}",
+    "edit.target_payment": "invoice {number} ra payment",
+    "edit.reason_ask": "{preview}\nKahinki? Eka chota reason pathantu, kimba 'skip'.",
+    "edit.confirm_prompt": "{preview}\nConfirm karibaku YES pathantu, kimba cancel karibaku NO.",
+    "edit.party_name_ask": (
+        "Kauna dealer kimba supplier ra payment edit karibe? Semananka naam pathantu, "
+        "kimba 'cancel'."
+    ),
+    "edit.no_payments_for_party": "{name} paain kono payment milila nahin.",
+    "edit.payment_pick_ask": (
+        "{name} paain {count} sampratika payments milila:\n{listing}\n"
+        "Number pathantu, kimba 'cancel'."
+    ),
+    "edit.payment_pick_invalid": (
+        "Daya kari 1 ru {count} madhyare eka number pathantu, kimba 'cancel'."
+    ),
+    "edit.payment_gone": (
+        "Se payment aau upalabdha nahin. 'edit payment' kahi puni arambha karantu."
+    ),
+    "edit.field_ask_payment": (
+        "Kana edit karibe — amount kimba date? Reply karantu 'amount' kimba 'date'."
+    ),
+    "edit.field_invalid_payment": "Daya kari reply karantu 'amount' kimba 'date' — kimba 'cancel'.",
     # ── Update GST ─────────────────────────────────────────────────────────
     "gst.scope_prompt": (
         "Sabu products (company default) ra GST update karantu, kimba gotie product ra? "
@@ -654,6 +733,26 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} ra price {new} kala (aage {old} thila).",
     "product.updated_purchase": "{name} ra purchase price {new} kala (aage {old} thila).",
     "product.updated_stock": "{name} ra stock {new} kala (aage {old} thila).",
+    # ── Stock take (bulk stock recount/adjustment) ──────────────────────────
+    "stock_take.start_prompt": (
+        "Asantu stock take karibaa. Pratyeka product paain, ehara naam pathantu, tapare "
+        "nua count (jemiti 40) kimba adjustment (jemiti +15 milila, -3 kharap hela). "
+        "Sarile pare 'done' pathantu, kimba jekauna samayare 'cancel'."
+    ),
+    "stock_take.line_prompt": "Eka product ra naam pathantu, kimba saribaku 'done'.",
+    "stock_take.value_ask": (
+        "{name} — nua count pathantu (jemiti 40) kimba adjustment (jemiti +15, -3)."
+    ),
+    "stock_take.value_invalid": "Daya kari eka number pathantu, jemiti 40, +15, kimba -3.",
+    "stock_take.line_added": "{name}: {old} → {new}. Parabartee product pathantu, kimba 'done'.",
+    "stock_take.nothing_to_apply": "Thik achi, kono paribartana hela nahin.",
+    "stock_take.reason_ask": "Kahinki? Eka chota reason pathantu, kimba 'skip'.",
+    "stock_take.confirm_prompt": (
+        "{summary}\nApply karibaku YES pathantu, kimba cancel karibaku NO."
+    ),
+    "stock_take.failed": "Stock take apply heli nahin: {error}. Daya kari puni arambha karantu.",
+    "stock_take.result_line": "- {name}: {new}",
+    "stock_take.success": "✅ {count} product(s) ra stock update hela:\n{lines}{warning}",
     "party.dealer.mode_prompt": (
         "Apanka dealers add karantu. Reply 'one by one' gotie gotie add karibaku, "
         "kimba 'bulk' sabu ekathi pathaibaku (jaise Ram Traders, 9876543210, 15). "
@@ -680,6 +779,58 @@ MESSAGES: dict[str, str] = {
     "party.supplier.mode_invalid": (
         "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba rahibaku 'done'."
     ),
+    # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
+    "party.edit.field_prompt": (
+        "Kana edit karibe — phone, credit limit, payment terms, kimba GSTIN? "
+        "Reply karantu 'phone', 'credit limit', 'payment terms', kimba 'gstin'."
+    ),
+    "party.edit.field_invalid": (
+        "Daya kari reply karantu 'phone', 'credit limit', 'payment terms', kimba 'gstin' — "
+        "kimba 'cancel'."
+    ),
+    "party.edit.name_ask_dealer": "Kauna dealer? Semananka naam pathantu, kimba 'cancel'.",
+    "party.edit.name_ask_supplier": "Kauna supplier? Semananka naam pathantu, kimba 'cancel'.",
+    "party.edit.not_found": (
+        "Mote '{name}' milila nahin. Spelling jaanch kari puni pathantu, kimba 'cancel'."
+    ),
+    "party.edit.disambiguation": (
+        "'{name}' naam re {count} matches milila:\n{listing}\n"
+        "Edit karibaku number pathantu, kimba 'cancel'."
+    ),
+    "party.edit.disambiguation_invalid": (
+        "Daya kari 1 ru {count} madhyare eka number pathantu, kimba 'cancel'."
+    ),
+    "party.edit.gone": "Se record aau upalabdha nahin. '{trigger}' kahi puni arambha karantu.",
+    "party.edit.gone_value": "Se record aau upalabdha nahin.",
+    "party.edit.phone_ask": "{name} ra bartaman ra phone {current}. Nua phone kana heba?",
+    "party.edit.credit_limit_ask": (
+        "{name} ra bartaman ra credit limit {current}. Nua credit limit kana heba? "
+        "(jemiti 50000)"
+    ),
+    "party.edit.payment_terms_ask": (
+        "{name} ra bartaman ra payment terms {current} days. Nua terms dina re kana heba? "
+        "(jemiti 30)"
+    ),
+    "party.edit.gstin_ask": "{name} ra bartaman ra GSTIN {current}. Nua GSTIN kana heba?",
+    "party.edit.days_invalid": "Daya kari dina ra eka purna sankhya pathantu, jemiti 30.",
+    "party.edit.gstin_invalid": (
+        "Seha thik GSTIN pari lagunahin. Daya kari jaanch kari puni pathantu, kimba 'cancel'."
+    ),
+    "party.edit.value_preview": "{name} ra {field} badalei {new} karibe?",
+    "party.edit.success": "✅ {name} ra {field} {new} hela (purbaru {old} thila).",
+    # ── Void payment / void order ───────────────────────────────────────────
+    "void.payment_none": "Undo karibaku kono WhatsApp payment milila nahin.",
+    "void.payment_preview": (
+        "Invoice {invoice_number} paain {party} ra {amount} payment void karibe?"
+    ),
+    "void.order_none": "Undo karibaku kono WhatsApp order milila nahin.",
+    "void.order_has_payment": (
+        "Order {invoice_number} re purbaru payment record achi — prathame payment "
+        "void karantu, tapare puni cesta karantu."
+    ),
+    "void.order_preview": "{dealer} ra order {invoice_number} void karibe (total {total})?",
+    "void.reason_ask": "{preview}\nKahinki? Eka chota reason pathantu, kimba 'skip'.",
+    "void.confirm_prompt": "{preview}\nVoid karibaku YES pathantu, kimba cancel karibaku NO.",
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm karibaku kimba NO cancel karibaku.",
     "pending.payment_failed": (
@@ -705,6 +856,30 @@ MESSAGES: dict[str, str] = {
     "pending.gst_failed": "GST update heli nahin: {error}. Daya kari puni arambha karantu.",
     "pending.gst_success": "✅ {target} ra GST {rate} set hela.",
     "pending.gst_rate_default": "company default",
+    "pending.void_payment_failed": (
+        "Se payment void heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.void_payment_success": (
+        "✅ Invoice {invoice_number} paain {party} ra {amount} payment void hela."
+    ),
+    "pending.void_order_failed": (
+        "Se order void heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.void_order_success": (
+        "✅ {dealer} ra order {invoice_number} void hela (total {total})."
+    ),
+    "pending.edit_invoice_failed": (
+        "Se invoice edit heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.edit_invoice_success": (
+        "✅ Invoice {number} ra {field} {new} hela (purbaru {old} thila)."
+    ),
+    "pending.edit_payment_failed": (
+        "Se payment edit heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.edit_payment_success": (
+        "✅ Invoice {number} ra payment ra {field} {new} hela (purbaru {old} thila)."
+    ),
     "pending.unknown": "Se confirmation re kichi bhul heigala. Daya kari puni arambha karantu.",
     # ── Menu prompt / follow-up / notifications / evening ──────────────────
     "menu.prompt": "Reply karantu 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

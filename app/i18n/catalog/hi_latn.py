@@ -26,12 +26,14 @@ _HELP_TEXT = """*OpsGenie Help*
 • overdue / overdue dealers — kitne din late & risk level (ya 4 / /dealer_risk)
 • balance <name> — ek dealer ka baaki, jaise balance Ram Traders
 • add dealer (ya /add_dealer) — naya dealer add karein: naam, phone, credit din
+• edit dealer (ya /edit_dealer) — dealer ka phone, credit limit, terms, ya GSTIN badlein
 
 *Suppliers (jinhe aap dete hain)*
 • suppliers / all suppliers — har supplier phone & baaki ke saath
 • top creditors — jinhe aap sabse zyada dete hain
 • balance <name> — ek supplier ka baaki
 • add supplier (ya /add_supplier) — naya supplier add karein: naam, phone, credit din
+• edit supplier (ya /edit_supplier) — supplier ka phone, credit limit, terms, ya GSTIN badlein
 
 *Aane wala Cash Flow*
 • collections / upcoming collections — dealers se aane wala, agle 7 din (ya 2 / /collections)
@@ -57,10 +59,17 @@ _HELP_TEXT = """*OpsGenie Help*
 • update product (ya /update_product) — price, purchase price, ya stock chunein
 • update gst (ya /update_gst) — sabhi ya ek product ka GST badlein
 • delete product (ya /delete_product) — catalogue se item hatayein
+• stock take (ya /stock_take) — kai products ka stock ek saath recount ya adjust karein
 
 *Orders & Payments*
 • new order (ya /create_order, ya "new invoice") — dealer ko sale record karein, product by product
 • record payment (ya /record_payment) — dealer se aaya ya supplier ko diya payment log karein
+
+*Corrections*
+• undo payment (ya /undo_payment) — abhi record kiya payment void karein
+• undo order (ya /undo_order) — abhi banaya order void karein (sirf agar unpaid hai)
+• edit invoice (ya /edit_invoice) — invoice ka amount, date, ya party sudharein (sirf unpaid par)
+• edit payment (ya /edit_payment) — record kiye payment ka amount ya date sudharein
 
 *Aapka Data*
 • export data (ya /export_data) — poora business data Excel me download link
@@ -390,6 +399,8 @@ MESSAGES: dict[str, str] = {
     "menu.msg.orders.button": "Ek option chunein",
     "menu.msg.statements.body": "Reports & Statements — ek chunein:",
     "menu.msg.statements.button": "Statement chunein",
+    "menu.msg.corrections.body": "Corrections — pehle se record kiya kuch undo ya edit karein:",
+    "menu.msg.corrections.button": "Corrections",
     "menu.section.cash_overview": "Cash & Overview",
     "menu.section.money_flow": "Paise ka Flow",
     "menu.section.dealers_suppliers": "Dealers & Suppliers",
@@ -400,6 +411,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.your_data": "Aapka Data",
     "menu.section.full_lists": "Poori Lists",
     "menu.section.reports_statements": "Reports & Statements",
+    "menu.section.corrections": "Corrections",
     "menu.row.cash.title": "Cash Position",
     "menu.row.cash.desc": "Abhi cash & 7-din in/out",
     "menu.row.summary.title": "Business Summary",
@@ -472,6 +484,20 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "Is mahine ke sabhi invoice aur payment",
     "menu.row.outstanding_report.title": "Outstanding Report",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ din ke buckets",
+    "menu.row.undo_payment.title": "Undo Payment",
+    "menu.row.undo_payment.desc": "Abhi record kiya payment void karein",
+    "menu.row.undo_order.title": "Undo Order",
+    "menu.row.undo_order.desc": "Abhi banaya order void karein",
+    "menu.row.edit_invoice.title": "Edit Invoice",
+    "menu.row.edit_invoice.desc": "Invoice ka amount, date, ya party sudharein",
+    "menu.row.edit_payment.title": "Edit Payment",
+    "menu.row.edit_payment.desc": "Payment ka amount ya date sudharein",
+    "menu.row.edit_dealer.title": "Edit Dealer",
+    "menu.row.edit_dealer.desc": "Dealer ka phone, limit, terms, GSTIN badlein",
+    "menu.row.edit_supplier.title": "Edit Supplier",
+    "menu.row.edit_supplier.desc": "Supplier ka phone, limit, terms, GSTIN badlein",
+    "menu.row.stock_take.title": "Stock Take",
+    "menu.row.stock_take.desc": "Kai products ka stock ek saath badlein",
     # ── Workflows (shared) ─────────────────────────────────────────────────
     "workflow.cancelled": "OK, cancel kar diya.",
     "workflow.yes_no": "Kripya yes ya no reply karein.",
@@ -559,6 +585,54 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "{dealer} ke liye order confirm karein:",
     "order.preview_footer": "Reply YES banane ke liye, NO cancel ke liye.",
+    # ── Edit invoice / edit payment (safe cases only) ───────────────────────
+    "edit.invoice_number_ask": "Kaun sa invoice? Uska invoice number bhejein, ya 'cancel'.",
+    "edit.invoice_not_found": (
+        "Mujhe '{number}' naam ka invoice nahi mila. Jaanch kar dobara bhejein, ya 'cancel'."
+    ),
+    "edit.invoice_has_payment": (
+        "Invoice {number} par pehle se payment record hai — pehle use void karein "
+        "aur dobara banayein."
+    ),
+    "edit.field_ask_invoice": (
+        "Kya edit karna hai — amount, date, ya party? "
+        "Reply karein 'amount', 'date', ya 'party'."
+    ),
+    "edit.field_invalid_invoice": (
+        "Kripya reply karein 'amount', 'date', ya 'party' — ya 'cancel'."
+    ),
+    "edit.amount_ask": "Abhi ka amount {current} hai. Naya amount kya ho? (jaise 1200)",
+    "edit.date_ask": "Abhi ki date {current} hai. Nayi date kya ho? (jaise 2026-01-15)",
+    "edit.invoice_party_ask_dealer": "Abhi ka dealer {current} hai. Naye dealer ka naam bhejein.",
+    "edit.invoice_party_ask_supplier": (
+        "Abhi ka supplier {current} hai. Naye supplier ka naam bhejein."
+    ),
+    "edit.amount_invalid": "Kripya shunya se bada ek number bhejein, jaise 1200.",
+    "edit.date_invalid": "Kripya 2026-01-15 jaisi date bhejein.",
+    "edit.party_not_found": (
+        "Mujhe '{name}' nahi mila. Spelling jaanch kar dobara bhejein, ya 'cancel'."
+    ),
+    "edit.value_preview": "{target} ka {field} badal kar {new} karein?",
+    "edit.target_invoice": "invoice {number}",
+    "edit.target_payment": "invoice {number} ka payment",
+    "edit.reason_ask": "{preview}\nKyun? Chota sa reason bhejein, ya 'skip'.",
+    "edit.confirm_prompt": "{preview}\nConfirm karne ke liye YES bhejein, ya NO cancel ke liye.",
+    "edit.party_name_ask": (
+        "Kis dealer ya supplier ka payment edit karna hai? Unka naam bhejein, ya 'cancel'."
+    ),
+    "edit.no_payments_for_party": "{name} ke liye koi payment nahi mila.",
+    "edit.payment_pick_ask": (
+        "{name} ke liye {count} haal ke payments mile:\n{listing}\n"
+        "Number bhejein, ya 'cancel'."
+    ),
+    "edit.payment_pick_invalid": "Kripya 1 se {count} ke beech ek number bhejein, ya 'cancel'.",
+    "edit.payment_gone": (
+        "Woh payment ab available nahi hai. 'edit payment' kahkar dobara shuru karein."
+    ),
+    "edit.field_ask_payment": (
+        "Kya edit karna hai — amount ya date? Reply karein 'amount' ya 'date'."
+    ),
+    "edit.field_invalid_payment": "Kripya reply karein 'amount' ya 'date' — ya 'cancel'.",
     # ── Update GST ─────────────────────────────────────────────────────────
     "gst.scope_prompt": (
         "Sabhi products (company default) ka GST update karein, ya ek product ka? "
@@ -641,6 +715,26 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} ki price {new} ki (pehle {old} thi).",
     "product.updated_purchase": "{name} ki purchase price {new} ki (pehle {old} thi).",
     "product.updated_stock": "{name} ka stock {new} kiya (pehle {old} tha).",
+    # ── Stock take (bulk stock recount/adjustment) ──────────────────────────
+    "stock_take.start_prompt": (
+        "Chaliye stock take karte hain. Har product ke liye, uska naam bhejein, phir naya "
+        "count (jaise 40) ya adjustment (jaise +15 mila, -3 kharab hua). Khatam hone par "
+        "'done' bhejein, ya kabhi bhi 'cancel'."
+    ),
+    "stock_take.line_prompt": "Ek product ka naam bhejein, ya khatam karne ke liye 'done'.",
+    "stock_take.value_ask": (
+        "{name} — naya count bhejein (jaise 40) ya adjustment (jaise +15, -3)."
+    ),
+    "stock_take.value_invalid": "Kripya ek number bhejein, jaise 40, +15, ya -3.",
+    "stock_take.line_added": "{name}: {old} → {new}. Agla product bhejein, ya 'done'.",
+    "stock_take.nothing_to_apply": "OK, koi badlav nahi hua.",
+    "stock_take.reason_ask": "Kyun? Chota sa reason bhejein, ya 'skip'.",
+    "stock_take.confirm_prompt": (
+        "{summary}\nApply karne ke liye YES bhejein, ya NO cancel ke liye."
+    ),
+    "stock_take.failed": "Stock take apply nahi ho paya: {error}. Kripya dobara shuru karein.",
+    "stock_take.result_line": "- {name}: {new}",
+    "stock_take.success": "✅ {count} product(s) ka stock update hua:\n{lines}{warning}",
     "party.dealer.mode_prompt": (
         "Apne dealers add karein. Reply 'one by one' ek-ek karke add karne ke liye, "
         "ya 'bulk' sabko ek saath bhejne ke liye (jaise Ram Traders, 9876543210, 15). "
@@ -667,6 +761,57 @@ MESSAGES: dict[str, str] = {
     "party.supplier.mode_invalid": (
         "Kripya reply karein 'one by one' ya 'bulk' — ya rukne ke liye 'done'."
     ),
+    # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
+    "party.edit.field_prompt": (
+        "Kya edit karna hai — phone, credit limit, payment terms, ya GSTIN? "
+        "Reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin'."
+    ),
+    "party.edit.field_invalid": (
+        "Kripya reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin' — "
+        "ya 'cancel'."
+    ),
+    "party.edit.name_ask_dealer": "Kaun sa dealer? Unka naam bhejein, ya 'cancel'.",
+    "party.edit.name_ask_supplier": "Kaun sa supplier? Unka naam bhejein, ya 'cancel'.",
+    "party.edit.not_found": (
+        "Mujhe '{name}' nahi mila. Spelling jaanch kar dobara bhejein, ya 'cancel'."
+    ),
+    "party.edit.disambiguation": (
+        "'{name}' naam ke {count} matches mile:\n{listing}\n"
+        "Edit karne ke liye number bhejein, ya 'cancel'."
+    ),
+    "party.edit.disambiguation_invalid": (
+        "Kripya 1 se {count} ke beech ek number bhejein, ya 'cancel'."
+    ),
+    "party.edit.gone": "Woh record ab available nahi hai. '{trigger}' kahkar dobara shuru karein.",
+    "party.edit.gone_value": "Woh record ab available nahi hai.",
+    "party.edit.phone_ask": "{name} ka abhi ka phone {current} hai. Naya phone kya ho?",
+    "party.edit.credit_limit_ask": (
+        "{name} ki abhi ki credit limit {current} hai. Nayi credit limit kya ho? (jaise 50000)"
+    ),
+    "party.edit.payment_terms_ask": (
+        "{name} ke abhi ke payment terms {current} days hain. Naye terms din mein kya hon? "
+        "(jaise 30)"
+    ),
+    "party.edit.gstin_ask": "{name} ka abhi ka GSTIN {current} hai. Naya GSTIN kya ho?",
+    "party.edit.days_invalid": "Kripya dinon ki ek puri sankhya bhejein, jaise 30.",
+    "party.edit.gstin_invalid": (
+        "Woh sahi GSTIN nahi lagta. Kripya jaanch kar dobara bhejein, ya 'cancel'."
+    ),
+    "party.edit.value_preview": "{name} ka {field} badal kar {new} karein?",
+    "party.edit.success": "✅ {name} ka {field} {new} ho gaya (pehle {old} tha).",
+    # ── Void payment / void order ───────────────────────────────────────────
+    "void.payment_none": "Undo karne ke liye koi WhatsApp payment nahi mila.",
+    "void.payment_preview": (
+        "Invoice {invoice_number} ke liye {party} ka {amount} payment void karein?"
+    ),
+    "void.order_none": "Undo karne ke liye koi WhatsApp order nahi mila.",
+    "void.order_has_payment": (
+        "Order {invoice_number} par pehle se payment record hai — pehle payment void "
+        "karein, phir dobara koshish karein."
+    ),
+    "void.order_preview": "{dealer} ka order {invoice_number} void karein (total {total})?",
+    "void.reason_ask": "{preview}\nKyun? Chota sa reason bhejein, ya 'skip'.",
+    "void.confirm_prompt": "{preview}\nVoid karne ke liye YES bhejein, ya cancel ke liye NO.",
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm karne ke liye ya NO cancel ke liye.",
     "pending.payment_failed": (
@@ -691,6 +836,30 @@ MESSAGES: dict[str, str] = {
     "pending.gst_failed": "GST update nahi ho paya: {error}. Kripya dobara shuru karein.",
     "pending.gst_success": "✅ {target} ka GST {rate} set kiya.",
     "pending.gst_rate_default": "company default",
+    "pending.void_payment_failed": (
+        "Woh payment void nahi ho paya: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.void_payment_success": (
+        "✅ Invoice {invoice_number} ke liye {party} ka {amount} payment void ho gaya."
+    ),
+    "pending.void_order_failed": (
+        "Woh order void nahi ho paya: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.void_order_success": (
+        "✅ {dealer} ka order {invoice_number} void ho gaya (total {total})."
+    ),
+    "pending.edit_invoice_failed": (
+        "Woh invoice edit nahi ho paya: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.edit_invoice_success": (
+        "✅ Invoice {number} ka {field} {new} ho gaya (pehle {old} tha)."
+    ),
+    "pending.edit_payment_failed": (
+        "Woh payment edit nahi ho paya: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.edit_payment_success": (
+        "✅ Invoice {number} ke payment ka {field} {new} ho gaya (pehle {old} tha)."
+    ),
     "pending.unknown": "Us confirmation me kuch gadbad ho gayi. Kripya dobara shuru karein.",
     # ── Menu prompt / follow-up / notifications / evening ──────────────────
     "menu.prompt": "Reply karein 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

@@ -72,6 +72,12 @@ from app.services.whatsapp_client import (
     send_interactive_list_message,
     send_text_message,
 )
+from app.services.workflows.edit_flow import (
+    handle_edit_invoice_workflow_message,
+    handle_edit_payment_workflow_message,
+    start_edit_invoice_workflow,
+    start_edit_payment_workflow,
+)
 from app.services.workflows.gst_flow import (
     handle_update_gst_workflow_message,
     start_update_gst_workflow,
@@ -83,8 +89,12 @@ from app.services.workflows.order_flow import (
 from app.services.workflows.party_flow import (
     handle_add_dealer_workflow_message,
     handle_add_supplier_workflow_message,
+    handle_edit_dealer_workflow_message,
+    handle_edit_supplier_workflow_message,
     start_add_dealer_workflow,
     start_add_supplier_workflow,
+    start_edit_dealer_workflow,
+    start_edit_supplier_workflow,
 )
 from app.services.workflows.payment_flow import (
     handle_payment_workflow_message,
@@ -100,6 +110,16 @@ from app.services.workflows.product_flow import (
     start_update_product_workflow,
     start_update_purchase_price_workflow,
     start_update_stock_workflow,
+)
+from app.services.workflows.stock_take_flow import (
+    handle_stock_take_workflow_message,
+    start_stock_take_workflow,
+)
+from app.services.workflows.void_flow import (
+    handle_void_order_workflow_message,
+    handle_void_payment_workflow_message,
+    start_void_order_workflow,
+    start_void_payment_workflow,
 )
 from app.services.writes.pending_operation import (
     get_pending_operation,
@@ -119,6 +139,13 @@ _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[s
     "update_gst": handle_update_gst_workflow_message,
     "add_dealer": handle_add_dealer_workflow_message,
     "add_supplier": handle_add_supplier_workflow_message,
+    "void_payment": handle_void_payment_workflow_message,
+    "void_order": handle_void_order_workflow_message,
+    "edit_invoice": handle_edit_invoice_workflow_message,
+    "edit_payment": handle_edit_payment_workflow_message,
+    "edit_dealer": handle_edit_dealer_workflow_message,
+    "edit_supplier": handle_edit_supplier_workflow_message,
+    "stock_take": handle_stock_take_workflow_message,
 }
 
 # Registry: exact-match keyword -> starter that sets active_workflow and
@@ -188,6 +215,23 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "add supplier": start_add_supplier_workflow,
     "add a supplier": start_add_supplier_workflow,
     "new supplier": start_add_supplier_workflow,
+    "edit invoice": start_edit_invoice_workflow,
+    "edit an invoice": start_edit_invoice_workflow,
+    "correct invoice": start_edit_invoice_workflow,
+    "edit payment": start_edit_payment_workflow,
+    "edit a payment": start_edit_payment_workflow,
+    "correct payment": start_edit_payment_workflow,
+    "edit dealer": start_edit_dealer_workflow,
+    "update dealer": start_edit_dealer_workflow,
+    "edit a dealer": start_edit_dealer_workflow,
+    "edit customer": start_edit_dealer_workflow,
+    "edit supplier": start_edit_supplier_workflow,
+    "update supplier": start_edit_supplier_workflow,
+    "edit a supplier": start_edit_supplier_workflow,
+    "stock take": start_stock_take_workflow,
+    "stock count": start_stock_take_workflow,
+    "bulk stock update": start_stock_take_workflow,
+    "stocktake": start_stock_take_workflow,
     # Slash-command shortcuts — same handlers as the phrases above, just a
     # fixed, guessable form so a user can lean on /help's list instead of
     # having to phrase the request naturally.
@@ -203,6 +247,11 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "/update_gst": start_update_gst_workflow,
     "/add_dealer": start_add_dealer_workflow,
     "/add_supplier": start_add_supplier_workflow,
+    "/edit_invoice": start_edit_invoice_workflow,
+    "/edit_payment": start_edit_payment_workflow,
+    "/edit_dealer": start_edit_dealer_workflow,
+    "/edit_supplier": start_edit_supplier_workflow,
+    "/stock_take": start_stock_take_workflow,
 }
 
 
@@ -504,6 +553,40 @@ _MENU_LAYOUT: list[dict] = [
             ),
         ],
     },
+    {
+        "body_key": "menu.msg.corrections.body",
+        "button_key": "menu.msg.corrections.button",
+        "sections": [
+            (
+                "menu.section.corrections",
+                [
+                    (
+                        "undo payment",
+                        "menu.row.undo_payment.title",
+                        "menu.row.undo_payment.desc",
+                    ),
+                    ("undo order", "menu.row.undo_order.title", "menu.row.undo_order.desc"),
+                    (
+                        "/edit_invoice",
+                        "menu.row.edit_invoice.title",
+                        "menu.row.edit_invoice.desc",
+                    ),
+                    (
+                        "/edit_payment",
+                        "menu.row.edit_payment.title",
+                        "menu.row.edit_payment.desc",
+                    ),
+                    ("/edit_dealer", "menu.row.edit_dealer.title", "menu.row.edit_dealer.desc"),
+                    (
+                        "/edit_supplier",
+                        "menu.row.edit_supplier.title",
+                        "menu.row.edit_supplier.desc",
+                    ),
+                    ("/stock_take", "menu.row.stock_take.title", "menu.row.stock_take.desc"),
+                ],
+            ),
+        ],
+    },
 ]
 
 
@@ -613,6 +696,21 @@ async def _try_deterministic_free_text(db: AsyncSession, company: Company, text:
 # the free-form assistant can resolve from context. Only the unambiguous
 # full phrases are claimed.
 _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] = {
+    # Correction workflows — void the single most-recently WhatsApp-recorded
+    # payment/order. Instant (not a _WORKFLOW_START_TRIGGERS entry) because
+    # the lookup needs `db`, which that dict's starters don't receive; each
+    # opens its own tiny active_workflow just for the optional reason step —
+    # see app/services/workflows/void_flow.py.
+    "undo payment": start_void_payment_workflow,
+    "undo last payment": start_void_payment_workflow,
+    "void payment": start_void_payment_workflow,
+    "void last payment": start_void_payment_workflow,
+    "/undo_payment": start_void_payment_workflow,
+    "undo order": start_void_order_workflow,
+    "undo last order": start_void_order_workflow,
+    "void order": start_void_order_workflow,
+    "void last order": start_void_order_workflow,
+    "/undo_order": start_void_order_workflow,
     "export data": _export_link_reply,
     "get my excel": _export_link_reply,
     "send my excel": _export_link_reply,

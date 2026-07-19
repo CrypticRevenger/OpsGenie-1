@@ -58,6 +58,16 @@ class BusinessEventType(enum.StrEnum):
     # actually downloaded — via the admin API, the dashboard, or a signed
     # WhatsApp link. payload.source distinguishes which entry point.
     export_downloaded = "export_downloaded"
+    # Correction workflows — see app/services/workflows/void_flow.py,
+    # edit_flow.py, party_flow.py (edit_dealer/edit_supplier),
+    # stock_take_flow.py. payload always carries {field, old, new, reason}
+    # (reason is optional/user-supplied) so these double as the audit trail.
+    payment_voided = "payment_voided"
+    invoice_voided = "invoice_voided"
+    invoice_edited = "invoice_edited"
+    payment_edited = "payment_edited"
+    party_edited = "party_edited"
+    stock_adjusted = "stock_adjusted"
 
 
 class BusinessEvent(UUIDMixin, Base):
