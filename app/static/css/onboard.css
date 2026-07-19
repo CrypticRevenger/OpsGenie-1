@@ -70,7 +70,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 40px;
 }
 
@@ -238,7 +238,102 @@
   color: #fcd34d;
 }
 
-/* Step 3 — Import your data */
+/* Step 3 — Setup method */
+
+.choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.choice-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.choice-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.choice-card:focus-within {
+  outline: 2px solid var(--brand-bright);
+  outline-offset: 2px;
+}
+
+.choice-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.choice-radio::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--brand-bright);
+  transform: scale(0);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.choice-radio:checked {
+  border-color: var(--brand-bright);
+}
+
+.choice-radio:checked::after {
+  transform: scale(1);
+}
+
+.choice-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.choice-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.choice-desc {
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.choice-card.is-selected {
+  border-color: var(--brand-bright);
+  background: rgba(52, 211, 153, 0.06);
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.12);
+}
+
+.choice-card.is-selected .choice-radio {
+  border-color: var(--brand-bright);
+}
+
+.choice-card.is-selected .choice-radio::after {
+  transform: scale(1);
+}
+
+/* Step 4 — Import your data */
 
 .import-intro {
   font-size: 14px;
@@ -269,7 +364,7 @@
   background: var(--brand-bright);
 }
 
-/* Step 4 — Activate Your Business */
+/* Step 5 — Activate Your Business */
 
 .activate-card {
   border: 2px solid var(--brand);

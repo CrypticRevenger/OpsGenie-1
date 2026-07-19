@@ -39,6 +39,8 @@
         <div class="dot" data-step="3">3</div>
         <div class="bar"></div>
         <div class="dot" data-step="4">4</div>
+        <div class="bar"></div>
+        <div class="dot" data-step="5">5</div>
       </div>
 
       <form id="wizardForm" novalidate>
@@ -102,12 +104,41 @@
           </div>
         </section>
 
-        <!-- Step 3 — Import your data (optional) -->
+        <!-- Step 3 — Setup method -->
         <section class="wizard-step" data-step="3">
+          <p class="import-intro">How would you like to set up your business?</p>
+
+          <div class="choice-list">
+            <label class="choice-card">
+              <input type="radio" name="setup_method" value="new" class="choice-radio">
+              <span class="choice-body">
+                <span class="choice-title">Start a new business</span>
+                <span class="choice-desc">You'll add your products, dealers, and suppliers on
+                  WhatsApp as you go.</span>
+              </span>
+            </label>
+            <label class="choice-card">
+              <input type="radio" name="setup_method" value="import" class="choice-radio">
+              <span class="choice-body">
+                <span class="choice-title">Import existing data</span>
+                <span class="choice-desc">Tally, Vyapar, or an Excel sheet — upload it and skip
+                  typing everything into WhatsApp.</span>
+              </span>
+            </label>
+          </div>
+
+          <div class="wizard-banner is-error" id="step3Banner"></div>
+          <div class="wizard-actions">
+            <button type="button" class="btn btn-secondary" data-action="back">Back</button>
+            <button type="button" class="btn btn-primary" id="setupMethodBtn" data-action="choose-setup"
+              disabled>Continue</button>
+          </div>
+        </section>
+
+        <!-- Step 4 — Import your data -->
+        <section class="wizard-step" data-step="4">
           <p class="import-intro">
-            Already track your business in Tally, Vyapar, or an Excel sheet? Upload it and
-            skip typing everything into WhatsApp — or skip this step and enter it all there
-            instead.
+            Upload your Tally, Vyapar, or Excel export below.
           </p>
 
           <div id="importUploadFields">
@@ -132,7 +163,7 @@
             </div>
           </div>
 
-          <div class="wizard-banner is-error" id="step3Banner"></div>
+          <div class="wizard-banner is-error" id="step4Banner"></div>
           <div class="success-summary" id="importSummary" style="display:none;"></div>
 
           <div class="wizard-actions">
@@ -140,12 +171,10 @@
             <button type="button" class="btn btn-primary" id="importBtn" data-action="import">Import &amp;
               Continue</button>
           </div>
-          <p class="wizard-foot"><a href="#" data-action="skip-import">Skip — I'll enter everything through WhatsApp
-              instead</a></p>
         </section>
 
-        <!-- Step 4 — Activate Your Business -->
-        <section class="wizard-step" data-step="4">
+        <!-- Step 5 — Activate Your Business -->
+        <section class="wizard-step" data-step="5">
           <div class="activate-card">
             <div class="plan-name">Starter</div>
             <div class="plan-price">₹999<span>/month</span></div>
@@ -161,7 +190,7 @@
             <span>Payment method</span>
             <span class="badge">Coming soon</span>
           </div>
-          <div class="wizard-banner is-error" id="step4Banner"></div>
+          <div class="wizard-banner is-error" id="step5Banner"></div>
           <div class="wizard-actions">
             <button type="button" class="btn btn-secondary" data-action="back">Back</button>
             <button type="button" class="btn btn-primary" id="activateBtn" data-action="activate">Activate
@@ -169,8 +198,8 @@
           </div>
         </section>
 
-        <!-- Step 5 — Success -->
-        <section class="wizard-step" data-step="5">
+        <!-- Step 6 — Success -->
+        <section class="wizard-step" data-step="6">
           <div class="success-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
               <path
