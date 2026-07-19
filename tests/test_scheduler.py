@@ -88,7 +88,7 @@ def spies(monkeypatch):
         calls["notify"].append(company_id)
         from app.services.notifications import NotificationRunResult
 
-        return NotificationRunResult(supplier_reminders=0, dealer_alerts=0, stale_data_alert=False)
+        return NotificationRunResult(supplier_reminders=0, dealer_alerts=0)
 
     async def _briefing_failed(db, company):
         calls["briefing_failed"].append(company.id)

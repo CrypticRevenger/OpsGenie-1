@@ -8,6 +8,10 @@ scheduler tick because each dedups against its own recent-activity window:
 2. Dealer flagged High Risk with no follow-up in 3 days → prompt to the
    distributor.
 3. No data received in 24h → internal ops alert to the *founder's* number.
+   Aggregated: every stale company is collapsed into ONE founder digest per
+   scheduler tick (send_stale_data_digest) rather than one WhatsApp per
+   company — a founder with many clients must never get 30 separate nudges in
+   one pass. Still deduped once per company per business day.
 4. Morning briefing delivery failed after retry → founder alert (this one is
    driven by the scheduler's retry path, which calls send_founder_alert
    directly rather than going through run_notification_checks).
@@ -35,7 +39,13 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
 from app.models.notification_log import NotificationLog
 from app.services.money_format import format_inr
-from app.services.snapshot import Snapshot, build_snapshot, business_now, is_cash_sufficient
+from app.services.snapshot import (
+    Snapshot,
+    build_snapshot,
+    business_now,
+    data_freshness_hours,
+    is_cash_sufficient,
+)
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
@@ -54,12 +64,28 @@ _STALE_DATA_HOURS = 24
 _STALE_DATA_REASON = "stale_data"
 _BRIEFING_FAILED_REASON = "briefing_failed"
 
+# Cap how many company names are itemised in a single founder digest so the
+# WhatsApp message stays readable; any beyond this are summarised as a count.
+_DIGEST_MAX_LISTED = 25
+
 
 @dataclass(frozen=True)
 class NotificationRunResult:
     supplier_reminders: int
     dealer_alerts: int
-    stale_data_alert: bool
+
+
+@dataclass(frozen=True)
+class StaleCompany:
+    company_id: uuid.UUID
+    business_name: str
+    freshness_hours: float | None  # None = never imported
+
+
+@dataclass(frozen=True)
+class StaleDataDigestResult:
+    companies_flagged: int  # newly-stale companies this pass (before send)
+    sent: bool  # whether the single founder digest message actually went out
 
 
 async def _send_and_log(
@@ -316,27 +342,124 @@ async def send_founder_alert(
     return True
 
 
-async def check_stale_data_alert(
-    db: AsyncSession, company: Company, snapshot: Snapshot, now: datetime
-) -> bool:
-    fresh = (
-        snapshot.data_freshness_hours is not None
-        and snapshot.data_freshness_hours <= _STALE_DATA_HOURS
-    )
-    if fresh:
-        return False
-    # Once per company per business day.
-    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if await _founder_alert_sent_since(db, company.id, _STALE_DATA_REASON, day_start):
-        return False
+def _format_stale_age(freshness_hours: float | None) -> str:
+    if freshness_hours is None:
+        return "no export received yet"
+    days = int(freshness_hours // 24)
+    if days >= 1:
+        return f"last export {days} day{'s' if days != 1 else ''} ago"
+    return f"last export {int(round(freshness_hours))}h ago"
 
-    message = (
-        f"📂 Data Update Needed — {company.business_name}\n\n"
-        f"No Tally export received today from {company.business_name}.\n"
-        "Tomorrow's briefing will be based on stale data.\n"
-        "Nudge the operator to send today's export."
+
+def _build_stale_digest_message(companies: list[StaleCompany]) -> str:
+    count = len(companies)
+    noun = "company" if count == 1 else "companies"
+    listed = companies[:_DIGEST_MAX_LISTED]
+    lines = [f"• {c.business_name} — {_format_stale_age(c.freshness_hours)}" for c in listed]
+    remaining = count - len(listed)
+    if remaining > 0:
+        lines.append(f"…and {remaining} more")
+    return (
+        f"📂 Data Update Needed — {count} {noun}\n\n"
+        f"No Tally export received today from {'this' if count == 1 else 'these'} {noun}, "
+        "so tomorrow's briefing will be based on stale data:\n\n"
+        + "\n".join(lines)
+        + f"\n\nNudge {'the' if count == 1 else 'each'} operator to send today's export."
     )
-    return await send_founder_alert(db, company=company, reason=_STALE_DATA_REASON, message=message)
+
+
+async def _detect_stale_companies(
+    db: AsyncSession, now: datetime | None
+) -> list[StaleCompany]:
+    """Every subscription-active company whose data is stale (no import within
+    _STALE_DATA_HOURS, or none ever) and that hasn't already been reported to
+    the founder today. Evaluated at each company's own business-local time and
+    skipped while that local hour is before the company's briefing hour — the
+    founder shouldn't be nudged about a company in the middle of its night
+    (this preserves the pre-digest per-company gate: stale alerts only after
+    the business day has started).
+    """
+    settings = get_settings()
+    companies = (
+        await db.scalars(select(Company).where(Company.subscription_active.is_(True)))
+    ).all()
+
+    stale: list[StaleCompany] = []
+    for company in companies:
+        local_now = now or business_now(company.timezone)
+        briefing_hour = (
+            company.briefing_hour if company.briefing_hour is not None else settings.briefing_hour
+        )
+        if local_now.hour < briefing_hour:
+            continue
+        hours = await data_freshness_hours(db, company.id, local_now)
+        if hours is not None and hours <= _STALE_DATA_HOURS:
+            continue  # fresh
+        day_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if await _founder_alert_sent_since(db, company.id, _STALE_DATA_REASON, day_start):
+            continue  # already in a digest today
+        stale.append(StaleCompany(company.id, company.business_name, hours))
+    return stale
+
+
+async def send_stale_data_digest(
+    db: AsyncSession, now: datetime | None = None
+) -> StaleDataDigestResult:
+    """Rule 3, aggregated. Collapses every newly-stale company into a SINGLE
+    founder WhatsApp message per pass instead of one-per-company. Deduped once
+    per company per business day (a company already in today's digest is never
+    re-listed). Caller (the scheduler, once per tick) owns the commit.
+
+    Delivery failure still records the per-company dedup markers — same
+    fail-open rule as the other founder alerts, so a transient Meta error
+    doesn't re-blast the founder on the next tick. An unset
+    FOUNDER_WHATSAPP_NUMBER skips silently WITHOUT marking, so the digest can
+    still go out if the number is configured later the same day.
+    """
+    stale = await _detect_stale_companies(db, now)
+    if not stale:
+        return StaleDataDigestResult(companies_flagged=0, sent=False)
+
+    founder_number = get_settings().founder_whatsapp_number
+    if not founder_number:
+        logger.info(
+            "Stale-data digest for %d company(ies) skipped — FOUNDER_WHATSAPP_NUMBER unset.",
+            len(stale),
+        )
+        return StaleDataDigestResult(companies_flagged=len(stale), sent=False)
+
+    message = _build_stale_digest_message(stale)
+    send_result = None
+    try:
+        send_result = await send_text_message(founder_number, message)
+    except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
+        logger.warning("Stale-data digest to %s not sent: %s", founder_number, exc)
+
+    status = "sent" if send_result else "failed_to_send"
+    for i, sc in enumerate(stale):
+        db.add(
+            NotificationLog(
+                company_id=sc.company_id,
+                notification_type=f"founder_alert:{_STALE_DATA_REASON}",
+                recipient_whatsapp=founder_number,
+                message_text=message,
+                # One physical send → one wamid; NotificationLog.whatsapp_message_id
+                # is UNIQUE, so only the first per-company row can carry it.
+                whatsapp_message_id=send_result.message_id if (send_result and i == 0) else None,
+                delivery_status=status,
+            )
+        )
+        db.add(
+            BusinessEvent(
+                company_id=sc.company_id,
+                event_type=BusinessEventType.founder_alert_sent,
+                entity_type="company",
+                entity_id=sc.company_id,
+                payload={"reason": _STALE_DATA_REASON, "recipient": founder_number, "digest": True},
+                created_by="notification_engine",
+            )
+        )
+    return StaleDataDigestResult(companies_flagged=len(stale), sent=send_result is not None)
 
 
 async def notify_briefing_failed(db: AsyncSession, company: Company) -> bool:
@@ -347,7 +470,7 @@ async def notify_briefing_failed(db: AsyncSession, company: Company) -> bool:
     reason — the retry hour is polled several times (every
     SCHEDULER_POLL_INTERVAL_MINUTES), so a briefing that keeps failing to send
     would otherwise re-alert the founder on every tick in that hour. Same guard
-    notify_briefing_generation_failed and check_stale_data_alert already apply.
+    notify_briefing_generation_failed and the stale-data digest already apply.
     """
     day_start = business_now(company.timezone).replace(hour=0, minute=0, second=0, microsecond=0)
     if await _founder_alert_sent_since(db, company.id, _BRIEFING_FAILED_REASON, day_start):
@@ -399,9 +522,13 @@ async def notify_briefing_generation_failed(
 async def run_notification_checks(
     db: AsyncSession, company_id: uuid.UUID, now: datetime | None = None
 ) -> NotificationRunResult:
-    """Build one snapshot and run rules 1-3 for a company. Rule 4 (briefing
-    failure) is scheduler-driven, not part of this poll. `now` is overridable
-    so the scheduler/tests can pin business time deterministically.
+    """Build one snapshot and run the two per-company (distributor-facing)
+    rules for a company: supplier payment reminders and dealer overdue alerts.
+    Rule 3 (stale data) is now a founder-facing, cross-company digest
+    (send_stale_data_digest, driven once per scheduler tick) rather than a
+    per-company send, and Rule 4 (briefing failure) is scheduler-driven — so
+    neither is part of this poll. `now` is overridable so the scheduler/tests
+    can pin business time deterministically.
     """
     company = await db.get(Company, company_id)
     if company is None:
@@ -412,7 +539,4 @@ async def run_notification_checks(
     snapshot = await build_snapshot(db, company_id)
     supplier = await check_supplier_payment_reminders(db, company, snapshot, now)
     dealer = await check_dealer_overdue_alerts(db, company, snapshot, now)
-    stale = await check_stale_data_alert(db, company, snapshot, now)
-    return NotificationRunResult(
-        supplier_reminders=supplier, dealer_alerts=dealer, stale_data_alert=stale
-    )
+    return NotificationRunResult(supplier_reminders=supplier, dealer_alerts=dealer)
