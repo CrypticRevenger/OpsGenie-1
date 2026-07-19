@@ -24,11 +24,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • top debtors / who owes most — sabuthu besi baki thiba dealers
 • overdue / overdue dealers — kete dina late & risk level (kimba 4 / /dealer_risk)
 • balance <name> — gotie dealer ra baki, jaise balance Ram Traders
+• add dealer (kimba /add_dealer) — natun dealer add karantu: naam, phone, credit dina
 
 *Suppliers (jieman ku apana denti)*
 • suppliers / all suppliers — pratyeka supplier phone & baki saha
 • top creditors — jieman ku apana sabuthu besi denti
 • balance <name> — gotie supplier ra baki
+• add supplier (kimba /add_supplier) — natun supplier add karantu: naam, phone, credit dina
 
 *Asuthiba Cash Flow*
 • collections / upcoming collections — dealers thu asiba, asanta 7 dina (kimba 2 / /collections)
@@ -406,6 +408,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.inventory_transactions": "Inventory & Transactions",
     "menu.section.manage_products": "Products Manage karantu",
     "menu.section.orders_payments": "Orders & Payments",
+    "menu.section.manage_parties": "Party Paricalana",
     "menu.section.your_data": "Aapanka Data",
     "menu.section.full_lists": "Puura Lists",
     "menu.section.reports_statements": "Reports & Statements",
@@ -455,6 +458,10 @@ MESSAGES: dict[str, str] = {
     "menu.row.record_payment.desc": "Asithiba kimba dithiba payment log karantu",
     "menu.row.update_gst.title": "GST Update karantu",
     "menu.row.update_gst.desc": "Sabu kimba gotie product ra GST badalantu",
+    "menu.row.add_dealer.title": "Dealer Add Karantu",
+    "menu.row.add_dealer.desc": "Natun dealer add karantu",
+    "menu.row.add_supplier.title": "Supplier Add Karantu",
+    "menu.row.add_supplier.desc": "Natun supplier add karantu",
     "menu.row.export_data.title": "Data Export karantu",
     "menu.row.export_data.desc": "Nija Excel data download karantu",
     "menu.row.morning_briefing.title": "Morning Briefing",
@@ -647,6 +654,32 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} ra price {new} kala (aage {old} thila).",
     "product.updated_purchase": "{name} ra purchase price {new} kala (aage {old} thila).",
     "product.updated_stock": "{name} ra stock {new} kala (aage {old} thila).",
+    "party.dealer.mode_prompt": (
+        "Apanka dealers add karantu. Reply 'one by one' gotie gotie add karibaku, "
+        "kimba 'bulk' sabu ekathi pathaibaku (jaise Ram Traders, 9876543210, 15). "
+        "Jekaunasi samaya re rahibaku 'done'."
+    ),
+    "party.dealer.no_added": "Thik achi, kono dealer add hela nahin.",
+    "party.dealer.all_done": "Sabu dealers add hoigala.",
+    "party.dealer.name_or_done": (
+        "Dealer ra naam pathantu (jaise Ram Traders), kimba rahibaku 'done'."
+    ),
+    "party.dealer.mode_invalid": (
+        "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba rahibaku 'done'."
+    ),
+    "party.supplier.mode_prompt": (
+        "Apanka suppliers add karantu. Reply 'one by one' gotie gotie add karibaku, "
+        "kimba 'bulk' sabu ekathi pathaibaku (jaise Metro Distributors, 9988776655, 30). "
+        "Jekaunasi samaya re rahibaku 'done'."
+    ),
+    "party.supplier.no_added": "Thik achi, kono supplier add hela nahin.",
+    "party.supplier.all_done": "Sabu suppliers add hoigala.",
+    "party.supplier.name_or_done": (
+        "Supplier ra naam pathantu (jaise Metro Distributors), kimba rahibaku 'done'."
+    ),
+    "party.supplier.mode_invalid": (
+        "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba rahibaku 'done'."
+    ),
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm karibaku kimba NO cancel karibaku.",
     "pending.payment_failed": (

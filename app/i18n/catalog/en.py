@@ -25,11 +25,13 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • top debtors / who owes most — dealers with the largest outstanding
 • overdue / overdue dealers — days overdue & risk level (or reply 4 / /dealer_risk)
 • balance <name> — outstanding for one dealer, e.g. balance Ram Traders
+• add dealer (or /add_dealer) — add a new dealer: name, phone, credit days
 
 *Suppliers (you owe them)*
 • suppliers / all suppliers — every supplier with phone & outstanding
 • top creditors — suppliers you owe the most
 • balance <name> — outstanding for one supplier
+• add supplier (or /add_supplier) — add a new supplier: name, phone, credit days
 
 *Upcoming Cash Flow*
 • collections / upcoming collections — expected from dealers, next 7 days (or 2 / /collections)
@@ -412,6 +414,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.inventory_transactions": "Inventory & Transactions",
     "menu.section.manage_products": "Manage Products",
     "menu.section.orders_payments": "Orders & Payments",
+    "menu.section.manage_parties": "Manage Parties",
     "menu.section.your_data": "Your Data",
     "menu.section.full_lists": "Full Lists",
     "menu.section.reports_statements": "Reports & Statements",
@@ -461,6 +464,10 @@ MESSAGES: dict[str, str] = {
     "menu.row.record_payment.desc": "Log a payment received or paid",
     "menu.row.update_gst.title": "Update GST",
     "menu.row.update_gst.desc": "Change GST for all products, or one product",
+    "menu.row.add_dealer.title": "Add Dealer",
+    "menu.row.add_dealer.desc": "Add a new dealer (customer)",
+    "menu.row.add_supplier.title": "Add Supplier",
+    "menu.row.add_supplier.desc": "Add a new supplier",
     "menu.row.export_data.title": "Export Data",
     "menu.row.export_data.desc": "Download your Excel data",
     "menu.row.morning_briefing.title": "Morning Briefing",
@@ -644,6 +651,27 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "Updated {name}'s price to {new} (was {old}).",
     "product.updated_purchase": "Updated {name}'s purchase price to {new} (was {old}).",
     "product.updated_stock": "Updated {name}'s stock to {new} (was {old}).",
+    # ── Party: add-dealer / add-supplier workflow (mode / done wording) ────
+    "party.dealer.mode_prompt": (
+        "Let's add dealers. Reply 'one by one' to add them individually, "
+        "or 'bulk' to send them all at once (e.g. Ram Traders, 9876543210, 15). "
+        "Reply 'done' to stop anytime."
+    ),
+    "party.dealer.no_added": "OK, no dealers added.",
+    "party.dealer.all_done": "All done adding dealers.",
+    "party.dealer.name_or_done": "Send the dealer's name (e.g. Ram Traders), or 'done' to stop.",
+    "party.dealer.mode_invalid": "Please reply 'one by one' or 'bulk' — or 'done' to stop.",
+    "party.supplier.mode_prompt": (
+        "Let's add suppliers. Reply 'one by one' to add them individually, "
+        "or 'bulk' to send them all at once (e.g. Metro Distributors, 9988776655, 30). "
+        "Reply 'done' to stop anytime."
+    ),
+    "party.supplier.no_added": "OK, no suppliers added.",
+    "party.supplier.all_done": "All done adding suppliers.",
+    "party.supplier.name_or_done": (
+        "Send the supplier's name (e.g. Metro Distributors), or 'done' to stop."
+    ),
+    "party.supplier.mode_invalid": "Please reply 'one by one' or 'bulk' — or 'done' to stop.",
     # ── Pending-operation confirm/execute results ──────────────────────────
     "pending.reply_yes_no": "Reply YES to confirm or NO to cancel.",
     "pending.payment_failed": "Couldn't record that payment: {error}. Please start again.",

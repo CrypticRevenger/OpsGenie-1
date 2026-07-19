@@ -23,11 +23,13 @@ _HELP_TEXT = """*OpsGenie Help*
 • top debtors / who owes most — ସବୁଠୁ ଅଧିକ ବାକି ଥିବା ଡିଲର
 • overdue / overdue dealers — କେତେ ଦିନ ବିଳମ୍ବ ଓ ରିସ୍କ ଲେଭଲ୍ (କିମ୍ବା 4 / /dealer_risk)
 • balance <name> — ଗୋଟିଏ ଡିଲରର ବାକି, ଯେମିତି balance Ram Traders
+• add dealer (କିମ୍ବା /add_dealer) — ନୂଆ dealer add କରନ୍ତୁ: ନାମ, ଫୋନ୍, credit ଦିନ
 
 *ସପ୍ଲାୟର (ଯେଉଁମାନଙ୍କୁ ଆପଣ ଦିଅନ୍ତି)*
 • suppliers / all suppliers — ପ୍ରତ୍ୟେକ ସପ୍ଲାୟର ଫୋନ୍ ଓ ବାକି ସହ
 • top creditors — ଯେଉଁମାନଙ୍କୁ ଆପଣ ସବୁଠୁ ଅଧିକ ଦିଅନ୍ତି
 • balance <name> — ଗୋଟିଏ ସପ୍ଲାୟରର ବାକି
+• add supplier (କିମ୍ବା /add_supplier) — ନୂଆ supplier add କରନ୍ତୁ: ନାମ, ଫୋନ୍, credit ଦିନ
 
 *ଆସୁଥିବା କ୍ୟାସ ଫ୍ଲୋ*
 • collections / upcoming collections — ଡିଲରଙ୍କଠାରୁ ଆସିବ, ଆସନ୍ତା 7 ଦିନ (କିମ୍ବା 2 / /collections)
@@ -392,6 +394,7 @@ MESSAGES: dict[str, str] = {
     "menu.section.inventory_transactions": "ଇନଭେଣ୍ଟୋରୀ ଓ ଲେଣଦେଣ",
     "menu.section.manage_products": "ପ୍ରୋଡକ୍ଟ ପରିଚାଳନା",
     "menu.section.orders_payments": "ଅର୍ଡର ଓ ପେମେଣ୍ଟ",
+    "menu.section.manage_parties": "ପାର୍ଟି ପରିଚାଳନା",
     "menu.section.your_data": "ଆପଣଙ୍କ ଡାଟା",
     "menu.section.full_lists": "ପୂର୍ଣ୍ଣ ତାଲିକା",
     "menu.section.reports_statements": "ରିପୋର୍ଟ ଓ ଷ୍ଟେଟମେଣ୍ଟ",
@@ -441,6 +444,10 @@ MESSAGES: dict[str, str] = {
     "menu.row.record_payment.desc": "ଆସିଥିବା କିମ୍ବା ଦେଇଥିବା ପେମେଣ୍ଟ ଲଗ୍ କରନ୍ତୁ",
     "menu.row.update_gst.title": "GST ଅପଡେଟ୍ କରନ୍ତୁ",
     "menu.row.update_gst.desc": "ସମସ୍ତ କିମ୍ବା ଗୋଟିଏ ପ୍ରୋଡକ୍ଟର GST ବଦଳାନ୍ତୁ",
+    "menu.row.add_dealer.title": "Dealer Add କରନ୍ତୁ",
+    "menu.row.add_dealer.desc": "ନୂଆ dealer add କରନ୍ତୁ",
+    "menu.row.add_supplier.title": "Supplier Add କରନ୍ତୁ",
+    "menu.row.add_supplier.desc": "ନୂଆ supplier add କରନ୍ତୁ",
     "menu.row.export_data.title": "ଡାଟା ଏକ୍ସପୋର୍ଟ କରନ୍ତୁ",
     "menu.row.export_data.desc": "ନିଜ Excel ଡାଟା ଡାଉନଲୋଡ୍ କରନ୍ତୁ",
     "menu.row.morning_briefing.title": "ମର୍ନିଂ ବ୍ରିଫିଂ",
@@ -630,6 +637,32 @@ MESSAGES: dict[str, str] = {
     "product.updated_price": "{name} ର price {new} କଲା (ଆଗେ {old} ଥିଲା)।",
     "product.updated_purchase": "{name} ର purchase price {new} କଲା (ଆଗେ {old} ଥିଲା)।",
     "product.updated_stock": "{name} ର stock {new} କଲା (ଆଗେ {old} ଥିଲା)।",
+    "party.dealer.mode_prompt": (
+        "ଆପଣଙ୍କ dealers add କରନ୍ତୁ। Reply 'one by one' ଗୋଟିଏ ଗୋଟିଏ add କରିବାକୁ, "
+        "କିମ୍ବା 'bulk' ସବୁ ଏକାଠି ପଠାଇବାକୁ (ଯେମିତି Ram Traders, 9876543210, 15)। "
+        "ଯେକୌଣସି ସମୟରେ ରହିବାକୁ 'done'।"
+    ),
+    "party.dealer.no_added": "ଠିକ୍ ଅଛି, କୌଣସି dealer add ହେଲା ନାହିଁ।",
+    "party.dealer.all_done": "ସବୁ dealers add ହୋଇଗଲା।",
+    "party.dealer.name_or_done": (
+        "Dealer ର ନାମ ପଠାନ୍ତୁ (ଯେମିତି Ram Traders), କିମ୍ବା ରହିବାକୁ 'done'।"
+    ),
+    "party.dealer.mode_invalid": (
+        "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା ରହିବାକୁ 'done'।"
+    ),
+    "party.supplier.mode_prompt": (
+        "ଆପଣଙ୍କ suppliers add କରନ୍ତୁ। Reply 'one by one' ଗୋଟିଏ ଗୋଟିଏ add କରିବାକୁ, "
+        "କିମ୍ବା 'bulk' ସବୁ ଏକାଠି ପଠାଇବାକୁ (ଯେମିତି Metro Distributors, 9988776655, 30)। "
+        "ଯେକୌଣସି ସମୟରେ ରହିବାକୁ 'done'।"
+    ),
+    "party.supplier.no_added": "ଠିକ୍ ଅଛି, କୌଣସି supplier add ହେଲା ନାହିଁ।",
+    "party.supplier.all_done": "ସବୁ suppliers add ହୋଇଗଲା।",
+    "party.supplier.name_or_done": (
+        "Supplier ର ନାମ ପଠାନ୍ତୁ (ଯେମିତି Metro Distributors), କିମ୍ବା ରହିବାକୁ 'done'।"
+    ),
+    "party.supplier.mode_invalid": (
+        "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା ରହିବାକୁ 'done'।"
+    ),
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm କରିବାକୁ କିମ୍ବା NO cancel କରିବାକୁ।",
     "pending.payment_failed": "ସେ payment record ହେଲା ନାହିଁ: {error}। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",

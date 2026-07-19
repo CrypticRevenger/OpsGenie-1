@@ -80,6 +80,12 @@ from app.services.workflows.order_flow import (
     handle_order_workflow_message,
     start_order_workflow,
 )
+from app.services.workflows.party_flow import (
+    handle_add_dealer_workflow_message,
+    handle_add_supplier_workflow_message,
+    start_add_dealer_workflow,
+    start_add_supplier_workflow,
+)
 from app.services.workflows.payment_flow import (
     handle_payment_workflow_message,
     start_payment_workflow,
@@ -111,6 +117,8 @@ _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[s
     "delete_product": handle_delete_product_workflow_message,
     "update_product": handle_update_product_workflow_message,
     "update_gst": handle_update_gst_workflow_message,
+    "add_dealer": handle_add_dealer_workflow_message,
+    "add_supplier": handle_add_supplier_workflow_message,
 }
 
 # Registry: exact-match keyword -> starter that sets active_workflow and
@@ -172,6 +180,14 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "update gst rate": start_update_gst_workflow,
     "change gst": start_update_gst_workflow,
     "edit gst": start_update_gst_workflow,
+    "add dealer": start_add_dealer_workflow,
+    "add a dealer": start_add_dealer_workflow,
+    "new dealer": start_add_dealer_workflow,
+    "add customer": start_add_dealer_workflow,
+    "new customer": start_add_dealer_workflow,
+    "add supplier": start_add_supplier_workflow,
+    "add a supplier": start_add_supplier_workflow,
+    "new supplier": start_add_supplier_workflow,
     # Slash-command shortcuts — same handlers as the phrases above, just a
     # fixed, guessable form so a user can lean on /help's list instead of
     # having to phrase the request naturally.
@@ -185,6 +201,8 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "/update_purchase_price": start_update_purchase_price_workflow,
     "/update_stock": start_update_stock_workflow,
     "/update_gst": start_update_gst_workflow,
+    "/add_dealer": start_add_dealer_workflow,
+    "/add_supplier": start_add_supplier_workflow,
 }
 
 
@@ -419,6 +437,13 @@ _MENU_LAYOUT: list[dict] = [
                         "menu.row.record_payment.desc",
                     ),
                     ("/update_gst", "menu.row.update_gst.title", "menu.row.update_gst.desc"),
+                ],
+            ),
+            (
+                "menu.section.manage_parties",
+                [
+                    ("/add_dealer", "menu.row.add_dealer.title", "menu.row.add_dealer.desc"),
+                    ("/add_supplier", "menu.row.add_supplier.title", "menu.row.add_supplier.desc"),
                 ],
             ),
             (
