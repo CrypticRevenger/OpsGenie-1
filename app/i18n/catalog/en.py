@@ -264,7 +264,6 @@ MESSAGES: dict[str, str] = {
     "onboarding.product.mode_invalid": (
         "Please reply 'one by one' or 'bulk' — or 'done' to skip adding products."
     ),
-    "onboarding.product.bulk_error": "Couldn't read that: {error}",
     "onboarding.product.bulk_added": (
         "Added {count} product(s): {names}. Send more, or reply 'done' when finished."
     ),
@@ -292,12 +291,54 @@ MESSAGES: dict[str, str] = {
     ),
     # Dealers
     "onboarding.dealers.intro": (
-        "Let's add your dealers (customers). Send the first dealer's name, or 'done'."
+        "Let's add your dealers (customers). Reply 'one by one' to add them individually, "
+        "or 'bulk' to send them all at once (e.g. Ram Traders, 9876543210, 15). "
+        "Reply 'done' to skip."
+    ),
+    "onboarding.dealer.bulk_format": (
+        "Send your dealers one per line, in this format:\n"
+        "Name, Phone, Credit Days\n"
+        "e.g.\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Shree Enterprises, 9123456780, 30\n"
+        "Use 'skip' for any field you don't want to set "
+        "(e.g. Ram Traders, skip, 15). Reply 'done' when finished."
+    ),
+    "onboarding.dealer.first_name": (
+        "Send your first dealer's name (e.g. Ram Traders), or 'done' to skip."
+    ),
+    "onboarding.dealer.mode_invalid": (
+        "Please reply 'one by one' or 'bulk' — or 'done' to skip adding dealers."
+    ),
+    "onboarding.dealer.bulk_added": (
+        "Added {count} dealer(s): {names}. Send more, or reply 'done' when finished."
     ),
     "onboarding.dealer.credit_ask": "How many credit days do you give {name}? (e.g. 15, or 'skip')",
     "onboarding.dealer.added": "Added dealer {name}. Next dealer's name, or 'done'.",
     # Suppliers
-    "onboarding.suppliers.intro": "Now your suppliers. Send the first supplier's name, or 'done'.",
+    "onboarding.suppliers.intro": (
+        "Now your suppliers. Reply 'one by one' to add them individually, "
+        "or 'bulk' to send them all at once (e.g. Metro Distributors, 9988776655, 30). "
+        "Reply 'done' to skip."
+    ),
+    "onboarding.supplier.bulk_format": (
+        "Send your suppliers one per line, in this format:\n"
+        "Name, Phone, Credit Days\n"
+        "e.g.\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Suresh Wholesale, 9871234560, 15\n"
+        "Use 'skip' for any field you don't want to set "
+        "(e.g. Metro Distributors, skip, 30). Reply 'done' when finished."
+    ),
+    "onboarding.supplier.first_name": (
+        "Send your first supplier's name (e.g. Metro Distributors), or 'done' to skip."
+    ),
+    "onboarding.supplier.mode_invalid": (
+        "Please reply 'one by one' or 'bulk' — or 'done' to skip adding suppliers."
+    ),
+    "onboarding.supplier.bulk_added": (
+        "Added {count} supplier(s): {names}. Send more, or reply 'done' when finished."
+    ),
     "onboarding.supplier.credit_ask": (
         "How many days does {name} give you to pay? (e.g. 15/'skip')"
     ),
@@ -305,12 +346,17 @@ MESSAGES: dict[str, str] = {
     # Shared party fields
     "onboarding.party.phone_ask": "Phone number for {name}? (or 'skip')",
     "onboarding.party.credit_invalid": "Please send a number of days, e.g. 15 (or 'skip').",
+    # Shared bulk-paste error (products, dealers, suppliers)
+    "onboarding.bulk_error": "Couldn't read that: {error}",
     # Opening cash
     "onboarding.opening.ask": "How much cash is currently in your business? (e.g. 320000)",
     "onboarding.opening.invalid": "Please send an amount, e.g. 320000.",
     # Receivables
     "onboarding.receivable.ask": "Do any dealers currently owe you money? (yes/no)",
     "onboarding.receivable.which": "Which dealer owes you? (name)",
+    "onboarding.receivable.confirm_new": (
+        "I don't have a dealer named '{name}' yet — add them as a new dealer? (yes/no)"
+    ),
     "onboarding.receivable.amount_ask": "How much does {party} owe you? (e.g. 42000)",
     "onboarding.receivable.amount_invalid": "Please send an amount, e.g. 42000.",
     "onboarding.receivable.date_ask": (
@@ -322,6 +368,9 @@ MESSAGES: dict[str, str] = {
     # Payables
     "onboarding.payable.ask": "Do you have any supplier payments pending? (yes/no)",
     "onboarding.payable.which": "Which supplier do you owe? (name)",
+    "onboarding.payable.confirm_new": (
+        "I don't have a supplier named '{name}' yet — add them as a new supplier? (yes/no)"
+    ),
     "onboarding.payable.amount_ask": "How much do you owe {party}? (e.g. 82000)",
     "onboarding.payable.amount_invalid": "Please send an amount, e.g. 82000.",
     "onboarding.payable.date_ask": (

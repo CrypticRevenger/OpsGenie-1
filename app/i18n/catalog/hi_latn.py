@@ -256,7 +256,6 @@ MESSAGES: dict[str, str] = {
     "onboarding.product.mode_invalid": (
         "Kripya reply karein 'one by one' ya 'bulk' — ya 'done' products skip karne ke liye."
     ),
-    "onboarding.product.bulk_error": "Yeh samajh nahi aaya: {error}",
     "onboarding.product.bulk_added": (
         "{count} product add kiye: {names}. Aur bhejein, ya ho jaye to 'done' bhejein."
     ),
@@ -281,23 +280,71 @@ MESSAGES: dict[str, str] = {
         "Product add kiya: {name} ({stock} stock me). Aur bhejein, ya 'done'."
     ),
     "onboarding.dealers.intro": (
-        "Ab apne dealers (customers) add karein. Pehle dealer ka naam bhejein, ya 'done'."
+        "Ab apne dealers (customers) add karein. Reply 'one by one' ek-ek karke add karne ke liye, "
+        "ya 'bulk' sabko ek saath bhejne ke liye (jaise Ram Traders, 9876543210, 15). "
+        "'done' skip karne ke liye."
+    ),
+    "onboarding.dealer.bulk_format": (
+        "Apne dealers ek line me ek, is format me bhejein:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Shree Enterprises, 9123456780, 30\n"
+        "Jo field set nahi karni uske liye 'skip' likhein "
+        "(jaise Ram Traders, skip, 15). Ho jaye to 'done' bhejein."
+    ),
+    "onboarding.dealer.first_name": (
+        "Apne pehle dealer ka naam bhejein (jaise Ram Traders), ya 'done' skip karne ke liye."
+    ),
+    "onboarding.dealer.mode_invalid": (
+        "Kripya reply karein 'one by one' ya 'bulk' — ya 'done' dealers skip karne ke liye."
+    ),
+    "onboarding.dealer.bulk_added": (
+        "{count} dealer add kiye: {names}. Aur bhejein, ya ho jaye to 'done' bhejein."
     ),
     "onboarding.dealer.credit_ask": (
         "{name} ko aap kitne credit din dete hain? (jaise 15, ya 'skip')"
     ),
     "onboarding.dealer.added": "Dealer {name} add kiya. Agle dealer ka naam, ya 'done'.",
-    "onboarding.suppliers.intro": "Ab aapke suppliers. Pehle supplier ka naam bhejein, ya 'done'.",
+    "onboarding.suppliers.intro": (
+        "Ab aapke suppliers. Reply 'one by one' ek-ek karke add karne ke liye, "
+        "ya 'bulk' sabko ek saath bhejne ke liye (jaise Metro Distributors, 9988776655, 30). "
+        "'done' skip karne ke liye."
+    ),
+    "onboarding.supplier.bulk_format": (
+        "Apne suppliers ek line me ek, is format me bhejein:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Suresh Wholesale, 9871234560, 15\n"
+        "Jo field set nahi karni uske liye 'skip' likhein "
+        "(jaise Metro Distributors, skip, 30). Ho jaye to 'done' bhejein."
+    ),
+    "onboarding.supplier.first_name": (
+        "Apne pehle supplier ka naam bhejein (jaise Metro Distributors), "
+        "ya 'done' skip karne ke liye."
+    ),
+    "onboarding.supplier.mode_invalid": (
+        "Kripya reply karein 'one by one' ya 'bulk' — ya 'done' suppliers skip karne ke liye."
+    ),
+    "onboarding.supplier.bulk_added": (
+        "{count} supplier add kiye: {names}. Aur bhejein, ya ho jaye to 'done' bhejein."
+    ),
     "onboarding.supplier.credit_ask": (
         "{name} aapko pay karne ke liye kitne din deta hai? (jaise 15/'skip')"
     ),
     "onboarding.supplier.added": "Supplier {name} add kiya. Agle supplier ka naam, ya 'done'.",
     "onboarding.party.phone_ask": "{name} ka phone number? (ya 'skip')",
     "onboarding.party.credit_invalid": "Kripya dino ka number bhejein, jaise 15 (ya 'skip').",
+    "onboarding.bulk_error": "Yeh samajh nahi aaya: {error}",
     "onboarding.opening.ask": "Abhi aapke business me kitna cash hai? (jaise 320000)",
     "onboarding.opening.invalid": "Kripya ek amount bhejein, jaise 320000.",
     "onboarding.receivable.ask": "Kya kisi dealer par abhi aapka paisa baaki hai? (yes/no)",
     "onboarding.receivable.which": "Kaun sa dealer aapko dena hai? (naam)",
+    "onboarding.receivable.confirm_new": (
+        "Mere paas '{name}' naam ka dealer abhi nahi hai — naye dealer ke roop me add karein? "
+        "(yes/no)"
+    ),
     "onboarding.receivable.amount_ask": "{party} ko aapko kitna dena hai? (jaise 42000)",
     "onboarding.receivable.amount_invalid": "Kripya ek amount bhejein, jaise 42000.",
     "onboarding.receivable.date_ask": (
@@ -308,6 +355,10 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.payable.ask": "Kya koi supplier payment pending hai? (yes/no)",
     "onboarding.payable.which": "Kis supplier ko aap dena hai? (naam)",
+    "onboarding.payable.confirm_new": (
+        "Mere paas '{name}' naam ka supplier abhi nahi hai — naye supplier ke roop me add karein? "
+        "(yes/no)"
+    ),
     "onboarding.payable.amount_ask": "Aapko {party} ko kitna dena hai? (jaise 82000)",
     "onboarding.payable.amount_invalid": "Kripya ek amount bhejein, jaise 82000.",
     "onboarding.payable.date_ask": (

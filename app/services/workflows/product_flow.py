@@ -32,7 +32,7 @@ from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import (
-    _classify_product_mode,
+    _classify_entry_mode,
     _describe_product,
     _format_quantity,
     _is,
@@ -104,7 +104,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
             company.active_workflow = None
             company.workflow_scratch = None
             return t("product.no_products_added", loc)
-        mode = _classify_product_mode(stripped)
+        mode = _classify_entry_mode(stripped)
         if mode == "bulk":
             scratch["step"] = "awaiting_bulk"
             company.workflow_scratch = scratch
@@ -129,7 +129,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
                 parsed_items.append(_parse_bulk_line(line))
             except ValueError as exc:
                 return (
-                    t("onboarding.product.bulk_error", loc, error=exc)
+                    t("onboarding.bulk_error", loc, error=exc)
                     + "\n\n"
                     + t("onboarding.product.bulk_format", loc)
                 )
