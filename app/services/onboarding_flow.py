@@ -13,6 +13,13 @@ suppliers -> opening cash -> outstanding receivables -> outstanding payables ->
 briefing time -> completed. Everything is deterministic (no LLM); the free-form
 natural-language assistant is a separate module (app/services/assistant.py)
 that only runs once onboarding is completed.
+
+Two typed commands work from any in-flight business-setup state (not the
+language pre-step): "progress"/"status" shows an 8-section checklist + %
+complete so a distributor returning after a break can reorient without
+scrolling back through the chat; "restart" (confirm-gated) wipes everything
+this conversation has created so far and starts the 8 steps over, for anyone
+who'd rather begin fresh than continue with what they've already entered.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.i18n import Locale, compose_locale, resolve_locale, t
@@ -297,6 +305,152 @@ def _bulk_format_message(company: Company, loc: Locale) -> str:
     return t(key, loc)
 
 
+# ── Resume: progress checklist & restart (any in-flight business-setup state) ─
+# The state machine above is already resumable by construction — it's all
+# durable Company columns, so a distributor can close WhatsApp mid-flow and
+# reply days later and just pick up where they left off. What's missing is
+# visibility (which step am I on, out of how many) and an escape hatch (what
+# if I don't want to continue with what I've already entered and would rather
+# start clean). Both are typed commands, same convention as "done"/"skip"/
+# "bulk" elsewhere in this file — English trigger words regardless of locale,
+# only the replies are localized.
+_PROGRESS_WORDS = {"progress", "status"}
+_RESTART_WORDS = {"restart", "start over", "start fresh", "reset"}
+
+# Every state gets grouped under one of the 8 numbered sections so the
+# checklist can mark it done / current / pending. Deliberately exhaustive
+# (every non-language, non-terminal OnboardingState member appears exactly
+# once) rather than a fallback default — a state silently missing from this
+# map would make the checklist misreport progress instead of failing loudly.
+_SECTION_KEYS: list[tuple[int, str]] = [
+    (1, "onboarding.section.business_type"),
+    (2, "onboarding.section.products"),
+    (3, "onboarding.section.dealers"),
+    (4, "onboarding.section.suppliers"),
+    (5, "onboarding.section.opening_balance"),
+    (6, "onboarding.section.receivables"),
+    (7, "onboarding.section.payables"),
+    (8, "onboarding.section.briefing_hour"),
+]
+
+_STEP_OF_STATE: dict[OnboardingState, int] = {
+    OnboardingState.awaiting_business_type: 1,
+    OnboardingState.gst_mode_ask: 1,
+    OnboardingState.gst_rate_same: 1,
+    OnboardingState.product_awaiting_mode: 2,
+    OnboardingState.product_awaiting_bulk: 2,
+    OnboardingState.product_awaiting_bulk_unit: 2,
+    OnboardingState.product_awaiting_bulk_purchase_price: 2,
+    OnboardingState.product_awaiting_name: 2,
+    OnboardingState.product_awaiting_quantity: 2,
+    OnboardingState.product_awaiting_unit: 2,
+    OnboardingState.product_awaiting_price: 2,
+    OnboardingState.product_awaiting_purchase_price: 2,
+    OnboardingState.product_awaiting_gst_rate: 2,
+    OnboardingState.dealer_awaiting_mode: 3,
+    OnboardingState.dealer_awaiting_bulk: 3,
+    OnboardingState.dealer_awaiting_name: 3,
+    OnboardingState.dealer_awaiting_phone: 3,
+    OnboardingState.dealer_awaiting_credit: 3,
+    OnboardingState.supplier_awaiting_mode: 4,
+    OnboardingState.supplier_awaiting_bulk: 4,
+    OnboardingState.supplier_awaiting_name: 4,
+    OnboardingState.supplier_awaiting_phone: 4,
+    OnboardingState.supplier_awaiting_credit: 4,
+    OnboardingState.awaiting_opening_balance: 5,
+    OnboardingState.receivable_ask: 6,
+    OnboardingState.receivable_dealer: 6,
+    OnboardingState.receivable_new_party_confirm: 6,
+    OnboardingState.receivable_amount: 6,
+    OnboardingState.receivable_date: 6,
+    OnboardingState.payable_ask: 7,
+    OnboardingState.payable_supplier: 7,
+    OnboardingState.payable_new_party_confirm: 7,
+    OnboardingState.payable_amount: 7,
+    OnboardingState.payable_date: 7,
+    OnboardingState.awaiting_briefing_hour: 8,
+}
+
+# Only the states whose prompt is a static (or company-mode-dependent, not
+# scratch-dependent) string can be safely re-shown verbatim — the same t()
+# key/helper the original question used. Mid-entry states (e.g. "what unit is
+# this measured in?" mid product-loop) depend on scratch fields typed earlier
+# in that sub-conversation; _reprompt falls back to a generic continue line
+# for those rather than half-reconstructing them.
+_STATIC_REPROMPT_KEY: dict[OnboardingState, str] = {
+    OnboardingState.gst_mode_ask: "onboarding.gst.mode_ask",
+    OnboardingState.gst_rate_same: "onboarding.gst.rate_ask",
+    OnboardingState.product_awaiting_name: "onboarding.product.first_name",
+    OnboardingState.dealer_awaiting_mode: "onboarding.dealers.intro",
+    OnboardingState.dealer_awaiting_bulk: "onboarding.dealer.bulk_format",
+    OnboardingState.dealer_awaiting_name: "onboarding.dealer.first_name",
+    OnboardingState.supplier_awaiting_mode: "onboarding.suppliers.intro",
+    OnboardingState.supplier_awaiting_bulk: "onboarding.supplier.bulk_format",
+    OnboardingState.supplier_awaiting_name: "onboarding.supplier.first_name",
+    OnboardingState.awaiting_opening_balance: "onboarding.opening.ask",
+    OnboardingState.receivable_ask: "onboarding.receivable.ask",
+    OnboardingState.payable_ask: "onboarding.payable.ask",
+    OnboardingState.awaiting_briefing_hour: "onboarding.briefing.ask",
+}
+
+
+def _reprompt(company: Company, state: OnboardingState, loc: Locale) -> str | None:
+    """The current question, re-shown verbatim — or None if `state` is a
+    mid-entry sub-step with no safe static re-ask (caller falls back to a
+    generic continue line)."""
+    if state == OnboardingState.product_awaiting_mode:
+        # Not _product_intro() — that prefixes the "Step 1 of 8 done" line
+        # the checklist above already shows; here just the question itself.
+        return t("onboarding.product.intro", loc)
+    if state == OnboardingState.product_awaiting_bulk:
+        return _bulk_format_message(company, loc)
+    key = _STATIC_REPROMPT_KEY.get(state)
+    return t(key, loc) if key else None
+
+
+def _checklist_reply(company: Company, state: OnboardingState, loc: Locale) -> str:
+    current_step = _STEP_OF_STATE.get(state, _TOTAL_STEPS)
+    lines = []
+    for step, key in _SECTION_KEYS:
+        name = t(key, loc)
+        if step < current_step:
+            status_key = "onboarding.status.section_done"
+        elif step == current_step:
+            status_key = "onboarding.status.section_current"
+        else:
+            status_key = "onboarding.status.section_pending"
+        lines.append(t(status_key, loc, name=name))
+    percent = round((current_step - 1) / _TOTAL_STEPS * 100)
+    header = t("onboarding.status.title", loc, percent=percent)
+    footer = _reprompt(company, state, loc) or t("onboarding.status.footer_generic", loc)
+    return (
+        f"{header}\n\n"
+        + "\n".join(lines)
+        + f"\n\n{footer}\n\n{t('onboarding.status.restart_hint', loc)}"
+    )
+
+
+async def _wipe_business_setup(db: AsyncSession, company: Company) -> None:
+    """Erase everything the guided setup has created so far and reset the
+    business fields it collects, for the "restart" confirm's "yes" branch.
+
+    Invoices must be deleted before dealers/suppliers: Invoice.dealer_id/
+    supplier_id are ON DELETE SET NULL (not CASCADE — see app/models/
+    invoice.py), so deleting the party first would silently orphan its
+    opening-balance invoice instead of removing it. Deleting Invoice first
+    cascades InvoiceItem and Payment for free.
+    """
+    await db.execute(delete(Invoice).where(Invoice.company_id == company.id))
+    await db.execute(delete(Dealer).where(Dealer.company_id == company.id))
+    await db.execute(delete(Supplier).where(Supplier.company_id == company.id))
+    await db.execute(delete(Product).where(Product.company_id == company.id))
+    company.business_type = None
+    company.gst_rate = Decimal("0")
+    company.gst_varies_by_product = False
+    company.opening_balance = Decimal("0")
+    company.briefing_hour = None
+
+
 async def handle_onboarding_message(db: AsyncSession, company: Company, text: str) -> str:
     """Advance the guided setup by one message and return the reply. Only
     mutates state/rows — the caller commits.
@@ -340,6 +494,35 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             return "Please reply 1 (Romanized) or 2 (Native script)."
         company.preferred_language = compose_locale(language, romanized=romanized)
         return _after_language_selected(company, scratch)
+
+    # ── Restart confirm (reached via the "restart" keyword below) ───────────
+    if state == OnboardingState.restart_confirm:
+        prev_value = scratch.get("restart_prev_state", OnboardingState.awaiting_business_type.value)
+        prev_state = OnboardingState(prev_value)
+        if _is(stripped, "yes", "y"):
+            await _wipe_business_setup(db, company)
+            company.onboarding_scratch = None
+            company.onboarding_state = OnboardingState.awaiting_business_type
+            return t("onboarding.restart.done", loc)
+        if _is(stripped, "no", "n"):
+            scratch.pop("restart_prev_state", None)
+            company.onboarding_scratch = scratch or None
+            company.onboarding_state = prev_state
+            return t("onboarding.restart.cancelled", loc)
+        return t("onboarding.yes_no_invalid", loc)
+
+    # ── Cross-cutting: progress checklist & restart, any in-flight
+    # business-setup state. Checked ahead of every per-field handler below so
+    # neither word is ever swallowed as data (e.g. a dealer name) — same
+    # precedence "done"/"skip" already get.
+    if state in _STEP_OF_STATE:
+        if _is(stripped, *_RESTART_WORDS):
+            scratch["restart_prev_state"] = state.value
+            company.onboarding_scratch = scratch
+            company.onboarding_state = OnboardingState.restart_confirm
+            return t("onboarding.restart.confirm", loc)
+        if _is(stripped, *_PROGRESS_WORDS):
+            return _checklist_reply(company, state, loc)
 
     # ── 1. Business type ─────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_business_type:

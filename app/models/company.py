@@ -129,6 +129,11 @@ class OnboardingState(enum.StrEnum):
     # Only reached when gst_mode_ask answered "varies" — asked once per
     # product in the one-by-one loop, right after purchase price.
     product_awaiting_gst_rate = "product_awaiting_gst_rate"
+    # Reached from any other in-flight business-setup state via the "restart"
+    # keyword (see app/services/onboarding_flow.py) — confirms before wiping
+    # everything entered so far and starting the 8-step sequence over. Not
+    # reachable from awaiting_language/awaiting_script (nothing to erase yet).
+    restart_confirm = "restart_confirm"
 
 
 class Company(UUIDMixin, TimestampMixin, Base):

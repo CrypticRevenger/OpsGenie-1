@@ -806,3 +806,133 @@ async def test_payable_confirmation_no_reasks_for_name(db: AsyncSession) -> None
     assert company.onboarding_state == OnboardingState.payable_supplier
     assert "which supplier" in reply.lower()
     assert await _count(db, Supplier, company.id) == 0
+
+
+# ── Resume: progress checklist & restart ─────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_progress_shows_checklist_without_advancing_state(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "Pharma Distributor")
+    await _send(db, company, "same")
+    await _send(db, company, "12")  # -> product_awaiting_mode (step 2)
+
+    reply = await _send(db, company, "progress")
+    # "progress" is a query, not an answer — state must be unchanged.
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+    assert "business type" in reply.lower()
+    assert "products" in reply.lower()
+    assert "12%" in reply  # 1 of 8 sections done
+    assert "restart" in reply.lower()
+
+    # Still mid-flow afterwards — the next real answer is processed normally.
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode
+
+
+@pytest.mark.asyncio
+async def test_progress_not_recognized_before_business_setup_starts(db: AsyncSession) -> None:
+    company = await _bare_company(db)
+    await _send(db, company, "hi")  # not_started -> awaiting_language
+    reply = await _send(db, company, "progress")  # swallowed as a language choice
+    assert company.onboarding_state == OnboardingState.awaiting_language
+    assert "please reply 1" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_restart_word_is_not_swallowed_as_data(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    reply = await _send(db, company, "restart")  # would otherwise become business_type
+    assert company.onboarding_state == OnboardingState.restart_confirm
+    assert company.business_type is None
+    assert "yes/no" in reply or "(yes/no)" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_restart_no_resumes_exactly_where_left_off(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "Pharma Distributor")
+    await _send(db, company, "same")
+    await _send(db, company, "12")
+    await _send(db, company, "one by one")
+    await _send(db, company, "Paracetamol")  # mid product entry, scratch has "name"
+    assert company.onboarding_state == OnboardingState.product_awaiting_quantity
+
+    await _send(db, company, "restart")
+    assert company.onboarding_state == OnboardingState.restart_confirm
+    reply = await _send(db, company, "no")
+    assert company.onboarding_state == OnboardingState.product_awaiting_quantity
+    assert "continuing" in reply.lower()
+
+    # The in-progress product's scratch survived the detour — answering the
+    # quantity question still finishes that same product, not a new one.
+    await _send(db, company, "100")
+    assert company.onboarding_state == OnboardingState.product_awaiting_unit
+    await _send(db, company, "kg")
+    await _send(db, company, "skip")
+    await _send(db, company, "skip")
+    assert await _count(db, Product, company.id) == 1
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.name == "Paracetamol"
+    # Nothing was wiped — company-level fields from before the detour stand.
+    assert company.business_type == "Pharma Distributor"
+    assert company.gst_rate == Decimal("12.00")
+
+
+@pytest.mark.asyncio
+async def test_restart_yes_wipes_everything_and_starts_over(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "Pharma Distributor")
+    await _send(db, company, "same")
+    await _send(db, company, "12")
+    await _send(db, company, "one by one")
+    await _send(db, company, "Paracetamol")
+    await _send(db, company, "100")
+    await _send(db, company, "kg")
+    await _send(db, company, "12")
+    await _send(db, company, "8")
+    await _send(db, company, "done")  # -> dealer_awaiting_mode
+    await _send(db, company, "one by one")
+    await _send(db, company, "Ram Traders")
+    await _send(db, company, "skip")
+    await _send(db, company, "15")  # dealer created
+    assert await _count(db, Product, company.id) == 1
+    assert await _count(db, Dealer, company.id) == 1
+
+    await _send(db, company, "restart")
+    assert company.onboarding_state == OnboardingState.restart_confirm
+    reply = await _send(db, company, "yes")
+
+    assert company.onboarding_state == OnboardingState.awaiting_business_type
+    assert company.onboarding_scratch is None
+    assert company.business_type is None
+    assert company.gst_rate == Decimal("0")
+    assert company.gst_varies_by_product is False
+    assert await _count(db, Product, company.id) == 0
+    assert await _count(db, Dealer, company.id) == 0
+    assert "what kind of business" in reply.lower()
+
+    # A full onboarding attempt can now run again from a clean slate.
+    await _send(db, company, "FMCG Distributor")
+    assert company.business_type == "FMCG Distributor"
+    assert company.onboarding_state == OnboardingState.gst_mode_ask
+
+
+@pytest.mark.asyncio
+async def test_restart_yes_removes_opening_receivable_invoice(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_receivable_ask(db, company)
+    await _send(db, company, "yes")
+    await _send(db, company, "New Dealer Co")
+    await _send(db, company, "yes")  # confirm creating the new dealer
+    await _send(db, company, "42000")
+    await _send(db, company, "friday")
+    assert await _count(db, Invoice, company.id) == 1
+    assert await _count(db, Dealer, company.id) == 1
+
+    await _send(db, company, "restart")
+    await _send(db, company, "yes")
+    assert await _count(db, Invoice, company.id) == 0
+    assert await _count(db, Dealer, company.id) == 0
+    assert company.opening_balance == Decimal("0")

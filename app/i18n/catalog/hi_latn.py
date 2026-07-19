@@ -389,6 +389,33 @@ MESSAGES: dict[str, str] = {
     "onboarding.briefing.range": (
         "Kripya subah 5 se 11 ke beech ka ghanta chunein (jaise 7, 8, ya 9)."
     ),
+    # Resume: progress checklist ("progress"/"status") and restart ("restart")
+    "onboarding.section.business_type": "Business type",
+    "onboarding.section.products": "Products",
+    "onboarding.section.dealers": "Dealers",
+    "onboarding.section.suppliers": "Suppliers",
+    "onboarding.section.opening_balance": "Opening balance",
+    "onboarding.section.receivables": "Dealer baaki",
+    "onboarding.section.payables": "Supplier baaki",
+    "onboarding.section.briefing_hour": "Briefing time",
+    "onboarding.status.title": "📋 Setup progress — {percent}% pura ho gaya.",
+    "onboarding.status.section_done": "✅ {name}",
+    "onboarding.status.section_current": "▶️ {name} (aap yahan hain)",
+    "onboarding.status.section_pending": "⬜ {name}",
+    "onboarding.status.footer_generic": "Continue karne ke liye apna agla jawab reply karein.",
+    "onboarding.status.restart_hint": "Setup phir se shuru karne ke liye 'restart' bhejein.",
+    "onboarding.restart.confirm": (
+        "⚠️ Isse ab tak bhari gayi saari jaankari (products, dealers, suppliers, opening "
+        "balance) mit jayegi aur setup shuruaat se phir hoga. Pakka karna chahte hain? (yes/no)"
+    ),
+    "onboarding.restart.cancelled": (
+        "Theek hai — aapka setup jaari hai. Upar wale aakhri sawaal ka jawab bhejein."
+    ),
+    "onboarding.restart.done": (
+        "🔄 Sab kuch mit gaya. Chaliye phir se shuruaat se aapka business set up karte hain.\n\n"
+        "Pehla sawaal: aap kis tarah ka business chalate hain? (jaise FMCG Distributor, Pharma "
+        "Distributor)"
+    ),
     # ── Interactive menu ───────────────────────────────────────────────────
     "menu.fallback": "Neeche se ek option tap karein, ya poori list ke liye /help bhejein.",
     "menu.msg.reports.body": "Reports & Overview — ek chunein:",
