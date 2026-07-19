@@ -11,12 +11,13 @@ transition and the rows the conversation creates.
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from decimal import Decimal
 
 import pytest
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
-from app.models.invoice import Invoice, InvoiceDirection
+from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.onboarding_flow import handle_onboarding_message
@@ -936,3 +937,147 @@ async def test_restart_yes_removes_opening_receivable_invoice(db: AsyncSession) 
     assert await _count(db, Invoice, company.id) == 0
     assert await _count(db, Dealer, company.id) == 0
     assert company.opening_balance == Decimal("0")
+
+
+# ── Skip already-imported sections ───────────────────────────────────────────
+# Simulates a company seeded via the website's "seed from an existing export"
+# step (POST /onboard/{id}/import, tested end-to-end in
+# test_onboarding_import.py) — that endpoint runs entirely before WhatsApp
+# ever starts, so from this state machine's point of view a seeded company
+# just already has Dealer/Supplier/Invoice rows in place before it reaches
+# the corresponding section.
+
+
+async def _to_product_mode(db: AsyncSession, company: Company) -> None:
+    await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")  # decide GST setup later
+
+
+async def _to_opening_balance(db: AsyncSession, company: Company) -> None:
+    await _to_supplier_mode(db, company)
+    await _send(db, company, "done")  # skip suppliers -> awaiting_opening_balance
+
+
+async def _seed_invoice(db: AsyncSession, company: Company, direction: InvoiceDirection) -> None:
+    if direction == InvoiceDirection.receivable:
+        party = Dealer(company_id=company.id, name=f"Seed Dealer {uuid.uuid4().hex[:6]}")
+    else:
+        party = Supplier(company_id=company.id, name=f"Seed Supplier {uuid.uuid4().hex[:6]}")
+    db.add(party)
+    await db.flush()
+    db.add(
+        Invoice(
+            company_id=company.id,
+            invoice_number=f"SEED-{uuid.uuid4().hex[:10]}",
+            direction=direction,
+            dealer_id=party.id if direction == InvoiceDirection.receivable else None,
+            supplier_id=party.id if direction == InvoiceDirection.payable else None,
+            invoice_date=date(2026, 1, 1),
+            due_date=date(2026, 2, 1),
+            subtotal=Decimal("1000.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("1000.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.flush()
+
+
+@pytest.mark.asyncio
+async def test_products_done_asks_dealers_normally_with_no_import(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_product_mode(db, company)
+
+    reply = await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode
+    assert "found" not in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_products_done_skips_dealers_and_suppliers_when_both_imported(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    await _to_product_mode(db, company)
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+
+    db.add(Dealer(company_id=company.id, name="Imported Dealer 1"))
+    db.add(Dealer(company_id=company.id, name="Imported Dealer 2"))
+    db.add(Supplier(company_id=company.id, name="Imported Supplier"))
+    await db.flush()
+
+    reply = await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance
+    assert "2 dealer" in reply.lower()
+    assert "1 supplier" in reply.lower()
+    assert "how much cash" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_products_done_skips_only_dealers_when_only_dealers_imported(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    await _to_product_mode(db, company)
+
+    db.add(Dealer(company_id=company.id, name="Imported Dealer"))
+    await db.flush()
+
+    reply = await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode
+    assert "1 dealer" in reply.lower()
+    assert await _count(db, Supplier, company.id) == 0
+
+    # Suppliers weren't imported, so this section still asks normally.
+    await _send(db, company, "one by one")
+    await _send(db, company, "New Supplier")
+    await _send(db, company, "skip")
+    await _send(db, company, "skip")
+    assert await _count(db, Supplier, company.id) == 1
+
+
+@pytest.mark.asyncio
+async def test_opening_balance_skips_receivables_and_payables_when_both_imported(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    await _to_opening_balance(db, company)
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance
+
+    await _seed_invoice(db, company, InvoiceDirection.receivable)
+    await _seed_invoice(db, company, InvoiceDirection.payable)
+
+    reply = await _send(db, company, "50000")
+    assert company.onboarding_state == OnboardingState.awaiting_briefing_hour
+    assert company.opening_balance == Decimal("50000")
+    assert "1 outstanding receivable" in reply.lower()
+    assert "1 outstanding payable" in reply.lower()
+    assert "briefing" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_opening_balance_skips_only_receivables_when_only_receivables_imported(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    await _to_opening_balance(db, company)
+    await _seed_invoice(db, company, InvoiceDirection.receivable)
+
+    reply = await _send(db, company, "50000")
+    assert company.onboarding_state == OnboardingState.payable_ask
+    assert "1 outstanding receivable" in reply.lower()
+
+    # Payables weren't imported, so this section still asks normally.
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.payable_supplier
+
+
+@pytest.mark.asyncio
+async def test_opening_balance_asks_receivables_normally_with_no_import(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_opening_balance(db, company)
+
+    reply = await _send(db, company, "50000")
+    assert company.onboarding_state == OnboardingState.receivable_ask
+    assert "found" not in reply.lower()

@@ -388,6 +388,20 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "डीलर बकाया",
     "onboarding.section.payables": "सप्लायर बकाया",
     "onboarding.section.briefing_hour": "ब्रीफिंग टाइम",
+    "onboarding.skip.dealers_imported": (
+        "✅ आपके import से {count} डीलर मिले — दोबारा भरने की ज़रूरत नहीं "
+        "(बाद में भी 'add dealer' से और जोड़ सकते हैं)।"
+    ),
+    "onboarding.skip.suppliers_imported": (
+        "✅ आपके import से {count} सप्लायर मिले — दोबारा भरने की ज़रूरत नहीं "
+        "(बाद में भी 'add supplier' से और जोड़ सकते हैं)।"
+    ),
+    "onboarding.skip.receivables_imported": (
+        "✅ आपके import से {count} outstanding receivable invoice मिले — दोबारा भरने की ज़रूरत नहीं।"
+    ),
+    "onboarding.skip.payables_imported": (
+        "✅ आपके import से {count} outstanding payable invoice मिले — दोबारा भरने की ज़रूरत नहीं।"
+    ),
     "onboarding.status.title": "📋 Setup progress — {percent}% पूरा हो गया।",
     "onboarding.status.section_done": "✅ {name}",
     "onboarding.status.section_current": "▶️ {name} (आप यहाँ हैं)",

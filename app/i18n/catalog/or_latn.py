@@ -410,6 +410,22 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "Dealer baki",
     "onboarding.section.payables": "Supplier baki",
     "onboarding.section.briefing_hour": "Briefing samaya",
+    "onboarding.skip.dealers_imported": (
+        "✅ Apanka import ru {count} dealer milila — puni bharibara abasyaka nahi "
+        "(pare bi 'add dealer' re au jodi paribe)."
+    ),
+    "onboarding.skip.suppliers_imported": (
+        "✅ Apanka import ru {count} supplier milila — puni bharibara abasyaka nahi "
+        "(pare bi 'add supplier' re au jodi paribe)."
+    ),
+    "onboarding.skip.receivables_imported": (
+        "✅ Apanka import ru {count} outstanding receivable invoice milila — "
+        "puni bharibara abasyaka nahi."
+    ),
+    "onboarding.skip.payables_imported": (
+        "✅ Apanka import ru {count} outstanding payable invoice milila — "
+        "puni bharibara abasyaka nahi."
+    ),
     "onboarding.status.title": "📋 Setup progress — {percent}% sampurna heigala.",
     "onboarding.status.section_done": "✅ {name}",
     "onboarding.status.section_current": "▶️ {name} (apana ethare achanti)",
