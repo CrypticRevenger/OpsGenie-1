@@ -276,9 +276,29 @@
   // path/query is read from the (rewrite-masked) address bar at runtime,
   // since Vercel serves this same content for every path under the rewrite.
   const gateBody = document.body.hasAttribute("data-wake-gate") ? document.body : null;
-  if (gateBody) {
+
+  function runAutoGate() {
+    if (!gateBody) return;
     const renderOrigin = gateBody.dataset.renderOrigin;
     const targetUrl = renderOrigin + window.location.pathname + window.location.search;
     wakeAndGo(targetUrl, `${renderOrigin}/health`);
   }
+  runAutoGate();
+
+  // bfcache fix: a full navigation away (the data-wake-redirect handler's
+  // eventual window.location.href, or gate.html handing off to Render) never
+  // unloads the page in the traditional sense on most browsers — it freezes
+  // it in the back/forward cache instead, mid-poll overlay and all, with no
+  // running code left to ever resolve it. Hitting Back then restores that
+  // exact frozen snapshot verbatim, so the "Getting things ready" overlay
+  // sits there stuck until a hard refresh. `pageshow`'s `persisted` flag is
+  // the standard way to detect a bfcache restore rather than a fresh load.
+  window.addEventListener("pageshow", (event) => {
+    if (!event.persisted) return;
+    document.querySelectorAll(".wake-overlay").forEach((overlay) => overlay.remove());
+    // gate.html has no content of its own besides the overlay — leaving it
+    // removed would show a blank page, so the whole wake-and-go dance needs
+    // to restart rather than just clearing the stale UI.
+    runAutoGate();
+  });
 })();
