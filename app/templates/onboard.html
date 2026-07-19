@@ -25,7 +25,7 @@
   <div class="wizard-wrap">
     <div class="wizard-card" id="wizardCard" data-wa-number="{{ whatsapp_business_display_number }}">
 
-      <a href="/" class="wizard-brand">
+      <a href="{{ marketing_site_url }}" class="wizard-brand">
         {% include "_logo.html" %}
         <span>OpsGenie</span>
       </a>
@@ -66,7 +66,7 @@
               placeholder="e.g. rajesh@example.com">
           </div>
           <div class="wizard-actions">
-            <a href="/" class="btn btn-secondary">Back</a>
+            <a href="{{ marketing_site_url }}" class="btn btn-secondary">Back</a>
             <button type="button" class="btn btn-primary" data-action="next">Continue</button>
           </div>
         </section>
@@ -141,7 +141,7 @@
             <a class="btn btn-primary btn-block" id="waContinueBtn" href="#" target="_blank" rel="noopener"
               style="display:none;">Continue on WhatsApp</a>
           </div>
-          <p class="wizard-foot"><a href="/">← Back to homepage</a></p>
+          <p class="wizard-foot"><a href="{{ marketing_site_url }}">← Back to homepage</a></p>
         </section>
 
       </form>

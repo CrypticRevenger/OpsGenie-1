@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     whatsapp_business_display_number: str | None = Field(
         default=None, alias="WHATSAPP_BUSINESS_DISPLAY_NUMBER"
     )
+    # The public marketing site's real URL (the always-warm Vercel deployment
+    # — see scripts/build_static_site.py) — used for the /onboard wizard's
+    # "Back"/"Back to homepage" links. The wizard itself only ever runs here
+    # on Render, so a bare relative "/" would resolve to Render's OWN copy of
+    # the marketing pages (app/api/site.py) rather than send a distributor
+    # back to the actual public site. None falls back to relative "/" so
+    # local dev (no Vercel deployment to point at) still works.
+    marketing_site_url: str | None = Field(default=None, alias="MARKETING_SITE_URL")
 
     # V0.2 — invoice PDF delivery to a dealer's WhatsApp (see
     # app/services/invoice_delivery.py). A dealer has essentially never
