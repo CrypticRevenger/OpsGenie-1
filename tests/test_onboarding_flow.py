@@ -422,6 +422,45 @@ async def test_product_bulk_paste_with_gst(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_product_bulk_format_omits_gst_column_when_same(db: AsyncSession) -> None:
+    """Regression test: gst_mode_ask "same" (or "not sure") already answers
+    GST for every product — the bulk-paste format shown afterward must not
+    re-ask for a per-product GST% column, matching the one-by-one flow's own
+    skip of the extra GST question in that case.
+    """
+    company = await _fresh_company(db)
+    await _send(db, company, "Kirana")
+    await _send(db, company, "same")
+    reply = await _send(db, company, "5")  # GST rate
+    assert company.onboarding_state == OnboardingState.product_awaiting_mode
+
+    reply = await _send(db, company, "bulk")
+    assert company.onboarding_state == OnboardingState.product_awaiting_bulk
+    assert "GST%" not in reply
+    assert "Name, Purchase Price, Selling Price, Unit, Stock\n" in reply
+
+    # A line without a GST field parses fine and leaves gst_rate unset (falls
+    # back to the company default set above at query time, not stored here).
+    await _send(db, company, "Rice, 300, 400, kg, 100")
+    rice = await db.scalar(
+        select(Product).where(Product.company_id == company.id, Product.name == "Rice")
+    )
+    assert rice.gst_rate is None
+    assert rice.stock_quantity == Decimal("100")
+
+
+@pytest.mark.asyncio
+async def test_product_bulk_format_includes_gst_column_when_varies(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "Kirana")
+    await _send(db, company, "varies")
+
+    reply = await _send(db, company, "bulk")
+    assert "GST%" in reply
+    assert "Name, Purchase Price, Selling Price, Unit, Stock, GST%" in reply
+
+
+@pytest.mark.asyncio
 async def test_product_bulk_paste_missing_name_reasks(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "Kirana")

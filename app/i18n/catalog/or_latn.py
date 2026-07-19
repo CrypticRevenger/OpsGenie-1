@@ -242,6 +242,15 @@ MESSAGES: dict[str, str] = {
         "Je field set karibaku chahanti nahin sethipain 'skip' lekhantu "
         "(jaise Rice, skip, 400, kg, 100, skip). Sarile 'done' pathantu."
     ),
+    "onboarding.product.bulk_format_no_gst": (
+        "Apanka products gotie line re gotie, ei format re pathantu:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock\n"
+        "jaise\n"
+        "Rice, 300, 400, kg, 100\n"
+        "Dal, 320, 450, kg, 50\n"
+        "Je field set karibaku chahanti nahin sethipain 'skip' lekhantu "
+        "(jaise Rice, skip, 400, kg, 100). Sarile 'done' pathantu."
+    ),
     "onboarding.product.first_name": (
         "Apanka prathama product ra naam pathantu (jaise Rice), kimba 'done' skip karibaku."
     ),

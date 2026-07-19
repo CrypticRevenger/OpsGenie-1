@@ -247,6 +247,17 @@ MESSAGES: dict[str, str] = {
         "Use 'skip' for any field you don't want to set "
         "(e.g. Rice, skip, 400, kg, 100, skip). Reply 'done' when finished."
     ),
+    # GST already answered "same"/"not sure" at gst_mode_ask — no per-product
+    # GST% column here (that's only asked when it varies by product).
+    "onboarding.product.bulk_format_no_gst": (
+        "Send your products one per line, in this format:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock\n"
+        "e.g.\n"
+        "Rice, 300, 400, kg, 100\n"
+        "Dal, 320, 450, kg, 50\n"
+        "Use 'skip' for any field you don't want to set "
+        "(e.g. Rice, skip, 400, kg, 100). Reply 'done' when finished."
+    ),
     "onboarding.product.first_name": (
         "Send your first product's name (e.g. Rice), or 'done' to skip."
     ),
