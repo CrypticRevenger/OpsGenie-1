@@ -120,6 +120,12 @@ class TallyImporter(BaseImporter):
         "cgst_amount": "gst_amount",
         "total_gst": "gst_amount",
         "gst": "gst_amount",
+        # Amount-already-paid / still-outstanding columns are deliberately
+        # NOT listed here — they're not Tally-specific jargon, they're a
+        # generic invoice concept every format shares, so ImportEngine
+        # resolves them once, centrally (see OPTIONAL_MONEY_ALIASES and
+        # infer_optional_money_columns in engine.py) instead of maintaining
+        # three near-identical copies of the same alias list.
         # ── Description / narration (optional) ─────────────────────────
         "narration": "description",
         "description": "description",
