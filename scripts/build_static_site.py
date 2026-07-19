@@ -11,6 +11,17 @@ API/scheduler logic) stays on Render — everything else (anchors, /privacy,
 /terms, /contact) stays relative because this build carries the full set of
 marketing pages too.
 
+gate.html is the odd one out: it's not a marketing page, it's the target of
+vercel.json's /onboard and /dashboard/* rewrites — a direct visit, bookmark,
+or refresh of either path (never a click on a data-wake-redirect link, which
+already handles its own wake-and-go) would otherwise hit Render directly and
+show Render's own cold-start splash before this static site ever gets a
+chance to. Vercel serves gate.html's content for those paths while leaving
+the browser's address bar showing the originally-requested path, so
+gate.html's own script reads window.location.pathname at runtime to know
+exactly where to forward to once Render answers (see app/static/js/main.js's
+"Auto wake-gate" block).
+
 Usage: python scripts/build_static_site.py
 """
 
@@ -26,9 +37,10 @@ TEMPLATES_DIR = REPO_ROOT / "app" / "templates"
 STATIC_DIR = REPO_ROOT / "app" / "static"
 OUTPUT_DIR = REPO_ROOT / "dist"
 
-RENDER_ONBOARD_URL = "https://opsgenie.onrender.com/onboard"
+RENDER_ORIGIN = "https://opsgenie.onrender.com"
+RENDER_ONBOARD_URL = f"{RENDER_ORIGIN}/onboard"
 
-PAGES = ["index.html", "privacy.html", "terms.html", "contact.html"]
+PAGES = ["index.html", "privacy.html", "terms.html", "contact.html", "gate.html"]
 
 
 def build() -> None:
@@ -52,6 +64,7 @@ def build() -> None:
         "pricing_features": PRICING_FEATURES,
         "faq": FAQ,
         "onboard_url": RENDER_ONBOARD_URL,
+        "render_origin": RENDER_ORIGIN,
     }
 
     if OUTPUT_DIR.exists():

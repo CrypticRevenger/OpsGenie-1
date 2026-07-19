@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>OpsGenie — Getting things ready</title>
+<link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<!--
+  Never linked to directly — this is the destination of vercel.json's
+  /onboard and /dashboard/* rewrites, so Vercel serves it (always warm) for
+  any direct visit, bookmark, or refresh of those paths, which would
+  otherwise hit Render directly while cold and show Render's own splash
+  before this static site ever gets a chance to. The rewrite is a mask: the
+  browser's address bar keeps showing the originally-requested path, so
+  main.js's "Auto wake-gate" block reads window.location.pathname/search at
+  runtime to know exactly where on Render to forward to once it answers.
+  Body has no content of its own — main.js's showWakeOverlay() covers the
+  full viewport as soon as it runs.
+-->
+<body data-wake-gate data-render-origin="{{ render_origin }}">
+<script src="/static/js/main.js" defer></script>
+</body>
+</html>

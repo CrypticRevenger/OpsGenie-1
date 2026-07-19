@@ -268,4 +268,17 @@
       wakeAndGo(target.href, `${target.origin}/health`);
     });
   });
+
+  // Auto wake-gate: gate.html itself (see scripts/build_static_site.py and
+  // vercel.json's /onboard + /dashboard/* rewrites) — for a direct visit,
+  // bookmark, or refresh of either path, which never fires the click handler
+  // above. body[data-wake-gate] marks this as that page; the real target
+  // path/query is read from the (rewrite-masked) address bar at runtime,
+  // since Vercel serves this same content for every path under the rewrite.
+  const gateBody = document.body.hasAttribute("data-wake-gate") ? document.body : null;
+  if (gateBody) {
+    const renderOrigin = gateBody.dataset.renderOrigin;
+    const targetUrl = renderOrigin + window.location.pathname + window.location.search;
+    wakeAndGo(targetUrl, `${renderOrigin}/health`);
+  }
 })();
