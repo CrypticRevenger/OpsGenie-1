@@ -312,9 +312,15 @@ async def _late_payment_counts(
     return dict(rows)
 
 
-async def _data_freshness_hours(
+async def data_freshness_hours(
     db: AsyncSession, company_id: uuid.UUID, now: datetime
 ) -> float | None:
+    """Hours since this company's most recent Tally import, or None if it has
+    never imported. The single source of truth for "how stale is this company's
+    data" — reused by build_snapshot below and by the NotificationEngine's
+    founder stale-data digest, so the briefing footer and the founder nudge can
+    never disagree about freshness.
+    """
     latest = await db.scalar(
         select(func.max(ImportLog.imported_at)).where(ImportLog.company_id == company_id)
     )
@@ -335,7 +341,7 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
     collections = await _expected_collections_7d(db, company_id, today)
     payments = await _expected_payments_7d(db, company_id, today)
     overdue_dealers = await _overdue_dealers(db, company_id, today)
-    freshness_hours = await _data_freshness_hours(db, company_id, now)
+    freshness_hours = await data_freshness_hours(db, company_id, now)
 
     collections_total = sum((c.amount for c in collections), Decimal("0.00"))
     payments_total = sum((p.amount for p in payments), Decimal("0.00"))

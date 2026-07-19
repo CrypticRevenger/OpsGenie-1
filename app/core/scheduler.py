@@ -45,6 +45,7 @@ from app.services.notifications import (
     notify_briefing_failed,
     notify_briefing_generation_failed,
     run_notification_checks,
+    send_stale_data_digest,
 )
 from app.services.snapshot import business_now
 from app.services.whatsapp_client import (
@@ -212,8 +213,7 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
             await db.commit()
             diagnostics["actions"]["notifications"] = (
                 f"checked (supplier_reminders={result.supplier_reminders}, "
-                f"dealer_alerts={result.dealer_alerts}, "
-                f"stale_data_alert={result.stale_data_alert})"
+                f"dealer_alerts={result.dealer_alerts})"
             )
 
         return diagnostics
@@ -266,10 +266,29 @@ async def run_scheduled_tick(now: datetime | None = None) -> dict:
                 except Exception as exc:  # noqa: BLE001 - one company's failure must not stop the rest
                     logger.exception("Scheduled dispatch failed for company %s", company_id)
                     results.append({"company_id": str(company_id), "error": str(exc)})
+
+            # Founder stale-data digest runs ONCE per tick, across all companies,
+            # in its own session — so N stale companies produce one founder
+            # WhatsApp message, not N. Isolated in its own try so a digest
+            # failure never aborts an otherwise-successful pass.
+            stale_digest: dict = {"status": "skipped"}
+            try:
+                async with async_session_factory() as digest_db:
+                    digest = await send_stale_data_digest(digest_db, now=now)
+                    await digest_db.commit()
+                stale_digest = {
+                    "companies_flagged": digest.companies_flagged,
+                    "sent": digest.sent,
+                }
+            except Exception as exc:  # noqa: BLE001 - digest failure must not fail the pass
+                logger.exception("Stale-data digest failed")
+                stale_digest = {"error": str(exc)}
+
             return {
                 "server_time_utc": server_time_utc,
                 "lock_acquired": True,
                 "companies": results,
+                "stale_data_digest": stale_digest,
             }
         finally:
             await lock_db.scalar(select(func.pg_advisory_unlock(_TICK_ADVISORY_LOCK_KEY)))

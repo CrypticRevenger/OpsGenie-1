@@ -1,4 +1,5 @@
 import asyncio
+import os
 from logging.config import fileConfig
 
 import app.models  # noqa: F401 — registers all ORM models with Base.metadata
@@ -34,7 +35,18 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # Opt-in (default off, so production upgrades keep their single-transaction,
+    # all-or-nothing semantics): commit each migration separately. Only needed
+    # when applying the whole chain to a brand-new database in one go — e.g. the
+    # test-DB bootstrap — where a migration that adds an enum value and a later
+    # migration that USES it would otherwise share one transaction and trip
+    # Postgres' "new enum values must be committed before they can be used".
+    transaction_per_migration = os.getenv("ALEMBIC_TRANSACTION_PER_MIGRATION") == "1"
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        transaction_per_migration=transaction_per_migration,
+    )
 
     with context.begin_transaction():
         context.run_migrations()
