@@ -1,11 +1,13 @@
-// Onboarding wizard: 5 steps in one page (Account, Business, Import, Activate,
-// Success). Step 2's "Continue" is the only call that creates the company
-// (POST /onboard); step 3's "Import & Continue" optionally uploads a
-// dealer-invoices and/or supplier-invoices file (POST /onboard/{id}/import,
-// once per file present) and shows a reconciliation summary before letting
-// the distributor move on; step 4's "Activate Account" is the only call that
-// turns the company on (POST /onboard/{id}/activate). Everything else is
-// client-side.
+// Onboarding wizard: 6 steps in one page (Account, Business, Setup method,
+// Import, Activate, Success). Step 2's "Continue" is the only call that
+// creates the company (POST /onboard); step 3 branches on whether the
+// distributor is starting fresh or importing existing data — "Start a new
+// business" skips straight to Activate, "Import existing data" continues to
+// step 4; step 4's "Import & Continue" optionally uploads a dealer-invoices
+// and/or supplier-invoices file (POST /onboard/{id}/import, once per file
+// present) and shows a reconciliation summary before letting the distributor
+// move on; step 5's "Activate Account" is the only call that turns the
+// company on (POST /onboard/{id}/activate). Everything else is client-side.
 (function () {
   const LANGUAGE_LABELS = { en: "English", hi: "Hindi" };
 
@@ -14,7 +16,13 @@
   const form = document.getElementById("wizardForm");
   const progress = document.getElementById("wizardProgress");
 
-  const state = { step: 1, companyId: null, importSummaryShown: false, importSummary: null };
+  const state = {
+    step: 1,
+    companyId: null,
+    setupMethod: null,
+    importSummaryShown: false,
+    importSummary: null,
+  };
 
   function showStep(step) {
     state.step = step;
@@ -184,12 +192,12 @@
 
     if (rowProblems.length > 0) {
       showBanner(
-        "step3Banner",
+        "step4Banner",
         `${rowProblems.length} row(s) couldn't be imported and were skipped — you can add those individually later.`,
         "warning"
       );
     } else {
-      showBanner("step3Banner", "");
+      showBanner("step4Banner", "");
     }
 
     state.importSummaryShown = true;
@@ -200,17 +208,17 @@
 
   async function handleImportAction() {
     if (state.importSummaryShown) {
-      showStep(4);
+      showStep(5);
       return;
     }
     const receivableFile = form.elements["import_receivable_file"].files[0];
     const payableFile = form.elements["import_payable_file"].files[0];
     const productFile = form.elements["import_product_file"].files[0];
     if (!receivableFile && !payableFile && !productFile) {
-      showStep(4);
+      showStep(5);
       return;
     }
-    showBanner("step3Banner", "");
+    showBanner("step4Banner", "");
     const btn = document.getElementById("importBtn");
     btn.disabled = true;
     btn.textContent = "Importing…";
@@ -231,20 +239,22 @@
       }
       renderImportSummary(lastResponse.summary, rowProblems);
     } catch (err) {
-      showBanner("step3Banner", err.message || "Network error. Please try again.");
+      showBanner("step4Banner", err.message || "Network error. Please try again.");
       btn.textContent = "Import & Continue";
     } finally {
       btn.disabled = false;
     }
   }
 
-  function skipImport() {
-    showBanner("step3Banner", "");
-    showStep(4);
+  function chooseSetupMethod() {
+    const selected = form.querySelector('input[name="setup_method"]:checked');
+    if (!selected) return;
+    state.setupMethod = selected.value;
+    showStep(state.setupMethod === "import" ? 4 : 5);
   }
 
   async function activateAccount() {
-    showBanner("step4Banner", "");
+    showBanner("step5Banner", "");
     const btn = document.getElementById("activateBtn");
     btn.disabled = true;
     btn.textContent = "Activating…";
@@ -253,14 +263,14 @@
       const data = await resp.json();
       if (resp.ok) {
         renderSuccess();
-        showStep(5);
+        showStep(6);
       } else {
-        showBanner("step4Banner", data.detail || "Something went wrong. Please try again.");
+        showBanner("step5Banner", data.detail || "Something went wrong. Please try again.");
         btn.disabled = false;
         btn.textContent = "Activate Account";
       }
     } catch (err) {
-      showBanner("step4Banner", "Network error. Please try again.");
+      showBanner("step5Banner", "Network error. Please try again.");
       btn.disabled = false;
       btn.textContent = "Activate Account";
     }
@@ -299,6 +309,14 @@
     }
   }
 
+  form.addEventListener("change", (event) => {
+    if (event.target.name !== "setup_method") return;
+    form.querySelectorAll(".choice-card").forEach((el) => {
+      el.classList.toggle("is-selected", el.contains(event.target) && event.target.checked);
+    });
+    document.getElementById("setupMethodBtn").disabled = false;
+  });
+
   form.addEventListener("click", (event) => {
     const action = event.target.dataset.action;
     if (!action) return;
@@ -306,14 +324,21 @@
     if (action === "next") {
       if (validateStep1()) showStep(2);
     } else if (action === "back") {
-      showStep(state.step - 1);
+      // Activate (5) is reached straight from the setup-method choice (3) when
+      // "Start a new business" skipped Import (4) — a plain decrement would
+      // land on the never-visited Import step.
+      if (state.step === 5 && state.setupMethod !== "import") {
+        showStep(3);
+      } else {
+        showStep(state.step - 1);
+      }
     } else if (action === "register") {
       if (validateStep1()) registerCompany();
       else showStep(1);
+    } else if (action === "choose-setup") {
+      chooseSetupMethod();
     } else if (action === "import") {
       handleImportAction();
-    } else if (action === "skip-import") {
-      skipImport();
     } else if (action === "activate") {
       activateAccount();
     }
