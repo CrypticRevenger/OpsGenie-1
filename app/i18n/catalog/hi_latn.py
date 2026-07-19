@@ -241,6 +241,15 @@ MESSAGES: dict[str, str] = {
         "Jo field set nahi karni uske liye 'skip' likhein "
         "(jaise Rice, skip, 400, kg, 100, skip). Ho jaye to 'done' bhejein."
     ),
+    "onboarding.product.bulk_format_no_gst": (
+        "Apne products ek line me ek, is format me bhejein:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock\n"
+        "jaise\n"
+        "Rice, 300, 400, kg, 100\n"
+        "Dal, 320, 450, kg, 50\n"
+        "Jo field set nahi karni uske liye 'skip' likhein "
+        "(jaise Rice, skip, 400, kg, 100). Ho jaye to 'done' bhejein."
+    ),
     "onboarding.product.first_name": (
         "Apne pehle product ka naam bhejein (jaise Rice), ya 'done' skip karne ke liye."
     ),

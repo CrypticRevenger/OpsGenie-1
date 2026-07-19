@@ -236,6 +236,15 @@ MESSAGES: dict[str, str] = {
         "ଯେଉଁ field set କରିବାକୁ ଚାହାନ୍ତି ନାହିଁ ସେଥିପାଇଁ 'skip' ଲେଖନ୍ତୁ "
         "(ଯେମିତି Rice, skip, 400, kg, 100, skip)। ସରିଲେ 'done' ପଠାନ୍ତୁ।"
     ),
+    "onboarding.product.bulk_format_no_gst": (
+        "ଆପଣଙ୍କ products ଗୋଟିଏ line ରେ ଗୋଟିଏ, ଏହି format ରେ ପଠାନ୍ତୁ:\n"
+        "Name, Purchase Price, Selling Price, Unit, Stock\n"
+        "ଯେମିତି\n"
+        "Rice, 300, 400, kg, 100\n"
+        "Dal, 320, 450, kg, 50\n"
+        "ଯେଉଁ field set କରିବାକୁ ଚାହାନ୍ତି ନାହିଁ ସେଥିପାଇଁ 'skip' ଲେଖନ୍ତୁ "
+        "(ଯେମିତି Rice, skip, 400, kg, 100)। ସରିଲେ 'done' ପଠାନ୍ତୁ।"
+    ),
     "onboarding.product.first_name": (
         "ଆପଣଙ୍କ ପ୍ରଥମ product ର ନାମ ପଠାନ୍ତୁ (ଯେମିତି Rice), କିମ୍ବା 'done' skip କରିବାକୁ।"
     ),

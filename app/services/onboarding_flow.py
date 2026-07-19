@@ -254,6 +254,23 @@ def _product_intro(loc: Locale) -> str:
     return f"{_progress(1, loc)}\n\n{t('onboarding.product.intro', loc)}"
 
 
+def _bulk_format_message(company: Company, loc: Locale) -> str:
+    """The bulk-paste format instructions, with a GST% column only when GST
+    varies by product. When it's the same for every product (or "not sure"),
+    the company already has that answer from gst_mode_ask/gst_rate_same
+    (or will set it later via "update gst") — asking again per product here
+    would be the exact redundant re-ask the one-by-one flow already avoids
+    (see the `company.gst_varies_by_product` check at
+    product_awaiting_purchase_price below).
+    """
+    key = (
+        "onboarding.product.bulk_format"
+        if company.gst_varies_by_product
+        else "onboarding.product.bulk_format_no_gst"
+    )
+    return t(key, loc)
+
+
 async def handle_onboarding_message(db: AsyncSession, company: Company, text: str) -> str:
     """Advance the guided setup by one message and return the reply. Only
     mutates state/rows — the caller commits.
@@ -338,7 +355,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         mode = _classify_product_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.product_awaiting_bulk
-            return t("onboarding.product.bulk_format", loc)
+            return _bulk_format_message(company, loc)
         if mode == "one_by_one":
             company.onboarding_state = OnboardingState.product_awaiting_name
             return t("onboarding.product.first_name", loc)
@@ -350,7 +367,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
         lines = [line for line in stripped.splitlines() if line.strip()]
         if not lines:
-            return t("onboarding.product.bulk_format", loc)
+            return _bulk_format_message(company, loc)
         parsed_items = []
         for line in lines:
             try:
@@ -359,7 +376,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
                 return (
                     t("onboarding.product.bulk_error", loc, error=exc)
                     + "\n\n"
-                    + t("onboarding.product.bulk_format", loc)
+                    + _bulk_format_message(company, loc)
                 )
         for item in parsed_items:
             db.add(
