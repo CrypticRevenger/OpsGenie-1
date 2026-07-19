@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,6 +67,16 @@ _BRIEFING_FAILED_REASON = "briefing_failed"
 # Cap how many company names are itemised in a single founder digest so the
 # WhatsApp message stays readable; any beyond this are summarised as a count.
 _DIGEST_MAX_LISTED = 25
+
+# Hard global ceiling: at most ONE founder stale-data digest per this many hours,
+# across ALL companies, on top of the per-company/per-day dedup below. The
+# per-company dedup only stops a company being *re-listed* the same day — it does
+# nothing to stop a *fresh* batch of newly-stale companies (an accidental bulk
+# insert, a mass import outage, or test fixtures leaking into prod) from firing a
+# brand-new digest on every tick. This ceiling makes that impossible: whatever
+# appears, the founder can receive at most one stale digest per interval. ~20h
+# (not 24) so a genuine once-a-day pattern is never skipped by clock drift.
+_STALE_DIGEST_MIN_INTERVAL_HOURS = 20
 
 
 @dataclass(frozen=True)
@@ -402,6 +412,27 @@ async def _detect_stale_companies(
     return stale
 
 
+async def _stale_digest_sent_within(db: AsyncSession, interval: timedelta) -> bool:
+    """True if ANY founder stale-data digest was recorded within `interval` of
+    now (real wall-clock). Reads the same durable founder_alert_sent /
+    stale_data BusinessEvent marker the per-company dedup writes, but ignores
+    which company it belonged to — it is the *global* rate limiter that caps the
+    founder to one stale digest per interval regardless of how many companies
+    are flagged. Uses the server clock (created_at), not the caller's `now`
+    override, because it is a guard on real outbound cadence, not on business
+    logic timing.
+    """
+    since = datetime.now(UTC) - interval
+    found = await db.scalar(
+        select(BusinessEvent.id).where(
+            BusinessEvent.event_type == BusinessEventType.founder_alert_sent,
+            BusinessEvent.payload["reason"].astext == _STALE_DATA_REASON,
+            BusinessEvent.created_at >= since,
+        )
+    )
+    return found is not None
+
+
 async def send_stale_data_digest(
     db: AsyncSession, now: datetime | None = None
 ) -> StaleDataDigestResult:
@@ -419,6 +450,23 @@ async def send_stale_data_digest(
     stale = await _detect_stale_companies(db, now)
     if not stale:
         return StaleDataDigestResult(companies_flagged=0, sent=False)
+
+    # Hard global ceiling (see _STALE_DIGEST_MIN_INTERVAL_HOURS): if a digest
+    # already went out within the interval, suppress this one entirely — even
+    # though `stale` here is a *new* batch the per-company dedup wouldn't catch.
+    # These companies are simply reported in the next interval's digest, so
+    # nothing is lost, but the founder can never be streamed digest after digest
+    # by a sudden mass of flagged companies.
+    if await _stale_digest_sent_within(
+        db, timedelta(hours=_STALE_DIGEST_MIN_INTERVAL_HOURS)
+    ):
+        logger.info(
+            "Stale-data digest suppressed by global %dh ceiling — %d newly-flagged "
+            "company(ies) will roll into the next digest.",
+            _STALE_DIGEST_MIN_INTERVAL_HOURS,
+            len(stale),
+        )
+        return StaleDataDigestResult(companies_flagged=len(stale), sent=False)
 
     founder_number = get_settings().founder_whatsapp_number
     if not founder_number:

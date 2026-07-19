@@ -365,6 +365,35 @@ async def test_stale_digest_skipped_before_briefing_hour(
 
 
 @pytest.mark.asyncio
+async def test_stale_digest_global_ceiling_blocks_fresh_batch(
+    db: AsyncSession, recorded_sends, monkeypatch
+):
+    """The anti-flood ceiling: a brand-new batch of stale companies appearing
+    right after a digest must NOT trigger a second founder message within the
+    min-interval. This is the exact failure that let 1,000+ leaked fixture
+    companies stream digest after digest to the founder's real WhatsApp — the
+    per-company dedup can't stop it because each new company is unseen, so only
+    the global ceiling can.
+    """
+    _set_founder_number(monkeypatch, _unique_phone())
+    await _make_company(db, name="Batch A Co")  # never imported → stale
+
+    first = await send_stale_data_digest(db, now=_pinned_now())
+    await db.commit()
+
+    # A different company becomes stale seconds later — per-company dedup would
+    # NOT suppress it (it has no marker yet); only the global interval ceiling can.
+    await _make_company(db, name="Batch B Co")
+    second = await send_stale_data_digest(db, now=_pinned_now())
+    await db.commit()
+
+    assert first.sent is True
+    assert second.sent is False
+    assert second.companies_flagged == 1  # Batch B was flagged but not sent
+    assert len(recorded_sends) == 1  # exactly ONE founder message, not two
+
+
+@pytest.mark.asyncio
 async def test_founder_alert_skipped_when_number_unset(
     db: AsyncSession, recorded_sends, monkeypatch
 ):
