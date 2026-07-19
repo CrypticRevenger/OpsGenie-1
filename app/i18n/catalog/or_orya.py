@@ -396,6 +396,22 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "ଡିଲର ବାକି",
     "onboarding.section.payables": "ସପ୍ଲାୟର ବାକି",
     "onboarding.section.briefing_hour": "ବ୍ରିଫିଂ ସମୟ",
+    "onboarding.skip.dealers_imported": (
+        "✅ ଆପଣଙ୍କ import ରୁ {count} ଡିଲର ମିଳିଲା — ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ "
+        "(ପରେ ବି 'add dealer' ରେ ଆଉ ଯୋଡ଼ି ପାରିବେ)।"
+    ),
+    "onboarding.skip.suppliers_imported": (
+        "✅ ଆପଣଙ୍କ import ରୁ {count} ସପ୍ଲାୟର ମିଳିଲା — ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ "
+        "(ପରେ ବି 'add supplier' ରେ ଆଉ ଯୋଡ଼ି ପାରିବେ)।"
+    ),
+    "onboarding.skip.receivables_imported": (
+        "✅ ଆପଣଙ୍କ import ରୁ {count} outstanding receivable invoice ମିଳିଲା — "
+        "ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ।"
+    ),
+    "onboarding.skip.payables_imported": (
+        "✅ ଆପଣଙ୍କ import ରୁ {count} outstanding payable invoice ମିଳିଲା — "
+        "ପୁଣି ଭରିବାର ଆବଶ୍ୟକ ନାହିଁ।"
+    ),
     "onboarding.status.title": "📋 Setup progress — {percent}% ସମ୍ପୂର୍ଣ୍ଣ ହେଲା।",
     "onboarding.status.section_done": "✅ {name}",
     "onboarding.status.section_current": "▶️ {name} (ଆପଣ ଏଠାରେ ଅଛନ୍ତି)",

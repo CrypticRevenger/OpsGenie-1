@@ -13,8 +13,9 @@ from __future__ import annotations
 
 import logging
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,18 +24,56 @@ from app.core.templates import templates
 from app.db.session import get_db
 from app.models.company import Company, OnboardingState
 from app.schemas.company import SubscriptionResponse
-from app.schemas.onboarding import OnboardRequest, OnboardResponse
+from app.schemas.import_result import ImportResponse, ImportRowError
+from app.schemas.onboarding import (
+    OnboardImportResponse,
+    OnboardImportSummary,
+    OnboardRequest,
+    OnboardResponse,
+)
 from app.services.activation import activate_company
+from app.services.importer.engine import UnrecognisedFormatError, UnsupportedFileError, run_import
+from app.services.importer.log_writer import write_import_log
 from app.services.onboarding import (
     FounderNumberConflictError,
     InvalidPhoneNumberError,
     OnboardingDisabledError,
     onboard_company,
+    summarize_business_data,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["onboarding"])
+
+# Real Tally/Vyapar exports are well under a megabyte — same real-world
+# constraint as the founder-only admin import route (app/api/admin/
+# imports.py), which allows 10 MB. This route is public/unauthenticated
+# though, so the cap is halved as cheap defense-in-depth against an
+# anonymous caller trying to burn memory/CPU on oversized uploads; the real
+# guard is the company-state check in _get_importable_company below.
+_MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+
+
+async def _get_importable_company(company_id: uuid.UUID, db: AsyncSession) -> Company:
+    """A company is only importable through this public route while it's
+    still exactly where the self-serve wizard leaves it before WhatsApp
+    starts: registered (not_started) and not yet subscribed. Same
+    belt-and-suspenders shape as the activate route below — without it, any
+    leaked/guessed UUID could be used to inject junk invoices into a real,
+    already-active distributor's live books after go-live.
+    """
+    company = await db.get(Company, company_id)
+    if (
+        company is None
+        or company.onboarding_state != OnboardingState.not_started
+        or company.subscription_active
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Company {company_id} not found.",
+        )
+    return company
 
 
 @router.get("/onboard", response_class=HTMLResponse, summary="Distributor onboarding wizard")
@@ -92,6 +131,86 @@ async def submit_onboarding(
         company_id=company.id,
         whatsapp_number=company.whatsapp_number,
         message="This number is already registered with us.",
+    )
+
+
+@router.post(
+    "/onboard/{company_id}/import",
+    response_model=OnboardImportResponse,
+    summary="Self-serve: import a Tally/Vyapar/Excel export before WhatsApp starts",
+    description=(
+        "Optional wizard step between business details and activation — lets a "
+        "distributor bootstrap dealers/suppliers/invoices from an existing export "
+        "instead of typing everything into WhatsApp. Same importer as the founder "
+        "admin route (Tally/Vyapar/OpsGenie-canonical CSV/Excel), scoped to "
+        "invoices only (opening receivables/payables — not full payment history) "
+        "and to one direction per call, matching how a real sales register vs. "
+        "purchase register export works. Returns the import result plus a fresh "
+        "reconciliation summary so the distributor can confirm it looks right "
+        "before continuing."
+    ),
+)
+async def import_onboarding_data(
+    company_id: uuid.UUID,
+    direction: Literal["receivable", "payable"] = Query(
+        ...,
+        description="receivable = dealer invoices you're owed, payable = supplier invoices you owe",
+    ),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> OnboardImportResponse:
+    settings = get_settings()
+    if not settings.onboarding_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Onboarding is not available right now.",
+        )
+    company = await _get_importable_company(company_id, db)
+
+    # Bounded read: pull at most the limit + 1 byte, so an oversized upload is
+    # rejected without ever being fully buffered.
+    contents = await file.read(_MAX_UPLOAD_BYTES + 1)
+    if len(contents) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=f"File exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB upload limit.",
+        )
+    try:
+        result = await run_import(
+            db,
+            company_id=company.id,
+            direction=direction,
+            file_kind="invoices",
+            filename=file.filename or "upload",
+            contents=contents,
+        )
+    except (UnsupportedFileError, UnrecognisedFormatError) as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    await write_import_log(db, company.id, result)
+    summary = await summarize_business_data(db, company.id)
+
+    logger.info(
+        "Onboarding import %s for company %s: %d processed, %d succeeded, %d skipped, %d failed",
+        result.filename,
+        company.id,
+        result.rows_processed,
+        result.rows_succeeded,
+        result.rows_skipped,
+        result.rows_failed,
+    )
+
+    return OnboardImportResponse(
+        import_result=ImportResponse(
+            filename=result.filename,
+            source_format=result.source_format,
+            rows_processed=result.rows_processed,
+            rows_succeeded=result.rows_succeeded,
+            rows_skipped=result.rows_skipped,
+            rows_failed=result.rows_failed,
+            errors=[ImportRowError(row=e.row_number, reason=e.reason) for e in result.errors],
+        ),
+        summary=OnboardImportSummary(**summary),
     )
 
 

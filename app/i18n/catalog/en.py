@@ -413,6 +413,26 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "Receivables",
     "onboarding.section.payables": "Payables",
     "onboarding.section.briefing_hour": "Briefing time",
+    # Skip already-imported sections (website "seed from an existing export"
+    # step, app/api/onboarding.py's POST /onboard/{id}/import) — shown once,
+    # right at the moment the corresponding WhatsApp section would otherwise
+    # have started asking.
+    "onboarding.skip.dealers_imported": (
+        "✅ Found {count} dealer(s) from your import — no need to re-enter them "
+        "(you can always add more later with 'add dealer')."
+    ),
+    "onboarding.skip.suppliers_imported": (
+        "✅ Found {count} supplier(s) from your import — no need to re-enter them "
+        "(you can always add more later with 'add supplier')."
+    ),
+    "onboarding.skip.receivables_imported": (
+        "✅ Found {count} outstanding receivable invoice(s) from your import — "
+        "no need to re-enter them."
+    ),
+    "onboarding.skip.payables_imported": (
+        "✅ Found {count} outstanding payable invoice(s) from your import — "
+        "no need to re-enter them."
+    ),
     "onboarding.status.title": "📋 Setup progress — {percent}% complete",
     "onboarding.status.section_done": "✅ {name}",
     "onboarding.status.section_current": "▶️ {name} (you're here)",

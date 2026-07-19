@@ -238,7 +238,38 @@
   color: #fcd34d;
 }
 
-/* Step 3 — Activate Your Business */
+/* Step 3 — Import your data */
+
+.import-intro {
+  font-size: 14px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.field input[type="file"] {
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.field input[type="file"]::file-selector-button {
+  margin-right: 12px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: #030712;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.field input[type="file"]::file-selector-button:hover {
+  background: var(--brand-bright);
+}
+
+/* Step 4 — Activate Your Business */
 
 .activate-card {
   border: 2px solid var(--brand);

@@ -27,7 +27,7 @@ from __future__ import annotations
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import delete
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.i18n import Locale, compose_locale, resolve_locale, t
@@ -305,6 +305,76 @@ def _bulk_format_message(company: Company, loc: Locale) -> str:
     return t(key, loc)
 
 
+# ── Skip already-imported sections ───────────────────────────────────────────
+# A distributor who used the website's "seed from an existing export" step
+# (app/api/onboarding.py's POST /onboard/{id}/import, run before WhatsApp
+# ever starts) arrives here with Dealer/Supplier/Invoice rows already in
+# place before this state machine's dealer/supplier/receivable/payable
+# sections would otherwise ask for them one at a time. Each helper below
+# checks its own section's row count exactly once, right at the moment that
+# section would start — a company with no import (the common case) always
+# sees count 0 at that point (the section's own loop is what would create
+# rows, and it hasn't run yet), so this is a no-op for everyone else.
+
+
+async def _count(db: AsyncSession, model, company_id: uuid.UUID) -> int:
+    stmt = select(func.count()).select_from(model).where(model.company_id == company_id)
+    return await db.scalar(stmt) or 0
+
+
+async def _invoice_count(
+    db: AsyncSession, company_id: uuid.UUID, direction: InvoiceDirection
+) -> int:
+    stmt = (
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.company_id == company_id, Invoice.direction == direction)
+    )
+    return await db.scalar(stmt) or 0
+
+
+def _after_suppliers(company: Company, loc: Locale) -> str:
+    company.onboarding_state = OnboardingState.awaiting_opening_balance
+    return f"{_progress(4, loc)}\n\n{t('onboarding.opening.ask', loc)}"
+
+
+async def _after_dealers(db: AsyncSession, company: Company, loc: Locale) -> str:
+    supplier_count = await _count(db, Supplier, company.id)
+    if supplier_count:
+        note = t("onboarding.skip.suppliers_imported", loc, count=supplier_count)
+        return f"{note}\n\n{_after_suppliers(company, loc)}"
+    company.onboarding_state = OnboardingState.supplier_awaiting_mode
+    return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
+
+
+async def _after_products(db: AsyncSession, company: Company, loc: Locale) -> str:
+    dealer_count = await _count(db, Dealer, company.id)
+    if dealer_count:
+        note = t("onboarding.skip.dealers_imported", loc, count=dealer_count)
+        return f"{note}\n\n{await _after_dealers(db, company, loc)}"
+    company.onboarding_state = OnboardingState.dealer_awaiting_mode
+    return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
+
+
+async def _after_receivables(db: AsyncSession, company: Company, loc: Locale) -> str:
+    payable_count = await _invoice_count(db, company.id, InvoiceDirection.payable)
+    if payable_count:
+        company.onboarding_state = OnboardingState.awaiting_briefing_hour
+        note = t("onboarding.skip.payables_imported", loc, count=payable_count)
+        return f"{note}\n\n{_progress(7, loc)}\n\n{t('onboarding.briefing.ask', loc)}"
+    company.onboarding_state = OnboardingState.payable_ask
+    return f"{_progress(6, loc)}\n\n{t('onboarding.payable.ask', loc)}"
+
+
+async def _after_opening_balance(db: AsyncSession, company: Company, loc: Locale) -> str:
+    receivable_count = await _invoice_count(db, company.id, InvoiceDirection.receivable)
+    if receivable_count:
+        note = t("onboarding.skip.receivables_imported", loc, count=receivable_count)
+        return f"{note}\n\n{await _after_receivables(db, company, loc)}"
+    company.onboarding_state = OnboardingState.receivable_ask
+    return f"{_progress(5, loc)}\n\n{t('onboarding.receivable.ask', loc)}"
+
+
 # ── Resume: progress checklist & restart (any in-flight business-setup state) ─
 # The state machine above is already resumable by construction — it's all
 # durable Company columns, so a distributor can close WhatsApp mid-flow and
@@ -559,8 +629,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 2. Products (name -> stock quantity, repeatable, or bulk paste) ──────
     if state == OnboardingState.product_awaiting_mode:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.dealer_awaiting_mode
-            return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
+            return await _after_products(db, company, loc)
         mode = _classify_entry_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.product_awaiting_bulk
@@ -572,8 +641,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.product_awaiting_bulk:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.dealer_awaiting_mode
-            return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
+            return await _after_products(db, company, loc)
         lines = [line for line in stripped.splitlines() if line.strip()]
         if not lines:
             return _bulk_format_message(company, loc)
@@ -607,8 +675,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.product_awaiting_name:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.dealer_awaiting_mode
-            return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
+            return await _after_products(db, company, loc)
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.product_awaiting_quantity
         return t("onboarding.product.quantity_ask", loc, name=stripped)
@@ -675,8 +742,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 3. Dealers (mode -> name -> phone -> credit days, repeatable, or bulk) ─
     if state == OnboardingState.dealer_awaiting_mode:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.supplier_awaiting_mode
-            return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
+            return await _after_dealers(db, company, loc)
         mode = _classify_entry_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.dealer_awaiting_bulk
@@ -688,8 +754,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.dealer_awaiting_bulk:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.supplier_awaiting_mode
-            return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
+            return await _after_dealers(db, company, loc)
         lines = [line for line in stripped.splitlines() if line.strip()]
         if not lines:
             return t("onboarding.dealer.bulk_format", loc)
@@ -717,8 +782,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.dealer_awaiting_name:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.supplier_awaiting_mode
-            return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
+            return await _after_dealers(db, company, loc)
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.dealer_awaiting_phone
         return t("onboarding.party.phone_ask", loc, name=stripped)
@@ -836,14 +900,12 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         except ValueError:
             return t("onboarding.opening.invalid", loc)
         company.opening_balance = amount
-        company.onboarding_state = OnboardingState.receivable_ask
-        return f"{_progress(5, loc)}\n\n{t('onboarding.receivable.ask', loc)}"
+        return await _after_opening_balance(db, company, loc)
 
     # ── 6. Outstanding receivables ───────────────────────────────────────────
     if state == OnboardingState.receivable_ask:
         if _is(stripped, "no", "skip", "done"):
-            company.onboarding_state = OnboardingState.payable_ask
-            return f"{_progress(6, loc)}\n\n{t('onboarding.payable.ask', loc)}"
+            return await _after_receivables(db, company, loc)
         if _is(stripped, "yes"):
             company.onboarding_state = OnboardingState.receivable_dealer
             return t("onboarding.receivable.which", loc)

@@ -14,14 +14,20 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
+from decimal import Decimal
 
 import phonenumbers
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.company import Company, OnboardingState
+from app.models.dealer import Dealer
+from app.models.invoice import Invoice, InvoiceDirection
+from app.models.supplier import Supplier
+from app.services.party_outstanding import calculate_outstanding_for_company
 
 logger = logging.getLogger(__name__)
 
@@ -146,3 +152,43 @@ async def onboard_company(
     await db.refresh(company)
     logger.info("Onboarded pending company %s (%s)", company.business_name, company.id)
     return company, True
+
+
+async def _count(db: AsyncSession, model, company_id: uuid.UUID) -> int:
+    stmt = select(func.count()).select_from(model).where(model.company_id == company_id)
+    return await db.scalar(stmt) or 0
+
+
+async def summarize_business_data(db: AsyncSession, company_id: uuid.UUID) -> dict[str, object]:
+    """Counts + outstanding totals for the self-serve reconciliation screen
+    shown right after a website import (app/api/onboarding.py's
+    POST /onboard/{id}/import). Not import-specific — just queries current
+    state via the same calculate_outstanding_for_company the rest of the
+    product uses, so it's correct regardless of how the data got there.
+    """
+    dealer_count = await _count(db, Dealer, company_id)
+    supplier_count = await _count(db, Supplier, company_id)
+    receivable_invoice_count = await db.scalar(
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.company_id == company_id, Invoice.direction == InvoiceDirection.receivable)
+    )
+    payable_invoice_count = await db.scalar(
+        select(func.count())
+        .select_from(Invoice)
+        .where(Invoice.company_id == company_id, Invoice.direction == InvoiceDirection.payable)
+    )
+    receivable_by_party = await calculate_outstanding_for_company(
+        db, company_id=company_id, direction="receivable"
+    )
+    payable_by_party = await calculate_outstanding_for_company(
+        db, company_id=company_id, direction="payable"
+    )
+    return {
+        "dealer_count": dealer_count,
+        "supplier_count": supplier_count,
+        "receivable_invoice_count": receivable_invoice_count or 0,
+        "receivable_total": sum(receivable_by_party.values(), Decimal("0.00")),
+        "payable_invoice_count": payable_invoice_count or 0,
+        "payable_total": sum(payable_by_party.values(), Decimal("0.00")),
+    }

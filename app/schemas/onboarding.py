@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.schemas.import_result import ImportResponse
 
 
 class OnboardRequest(BaseModel):
@@ -33,3 +36,24 @@ class OnboardResponse(BaseModel):
     company_id: uuid.UUID
     whatsapp_number: str
     message: str
+
+
+class OnboardImportSummary(BaseModel):
+    """The self-serve reconciliation screen shown right after a website
+    import — counts + outstanding totals as they stand right now, whatever
+    combination of files (or none at all) produced them. Not import-specific
+    bookkeeping: recomputed fresh from Dealer/Supplier/Invoice/Payment every
+    call, so it stays correct however the data got there.
+    """
+
+    dealer_count: int
+    supplier_count: int
+    receivable_invoice_count: int
+    receivable_total: Decimal
+    payable_invoice_count: int
+    payable_total: Decimal
+
+
+class OnboardImportResponse(BaseModel):
+    import_result: ImportResponse
+    summary: OnboardImportSummary

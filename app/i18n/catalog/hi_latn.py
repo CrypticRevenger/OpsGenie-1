@@ -398,6 +398,22 @@ MESSAGES: dict[str, str] = {
     "onboarding.section.receivables": "Dealer baaki",
     "onboarding.section.payables": "Supplier baaki",
     "onboarding.section.briefing_hour": "Briefing time",
+    "onboarding.skip.dealers_imported": (
+        "✅ Aapke import se {count} dealer mile — dobara bharne ki zaroorat nahi "
+        "(baad me bhi 'add dealer' se aur jod sakte hain)."
+    ),
+    "onboarding.skip.suppliers_imported": (
+        "✅ Aapke import se {count} supplier mile — dobara bharne ki zaroorat nahi "
+        "(baad me bhi 'add supplier' se aur jod sakte hain)."
+    ),
+    "onboarding.skip.receivables_imported": (
+        "✅ Aapke import se {count} outstanding receivable invoice mile — "
+        "dobara bharne ki zaroorat nahi."
+    ),
+    "onboarding.skip.payables_imported": (
+        "✅ Aapke import se {count} outstanding payable invoice mile — "
+        "dobara bharne ki zaroorat nahi."
+    ),
     "onboarding.status.title": "📋 Setup progress — {percent}% pura ho gaya.",
     "onboarding.status.section_done": "✅ {name}",
     "onboarding.status.section_current": "▶️ {name} (aap yahan hain)",

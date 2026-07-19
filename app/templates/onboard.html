@@ -37,6 +37,8 @@
         <div class="dot" data-step="2">2</div>
         <div class="bar"></div>
         <div class="dot" data-step="3">3</div>
+        <div class="bar"></div>
+        <div class="dot" data-step="4">4</div>
       </div>
 
       <form id="wizardForm" novalidate>
@@ -100,8 +102,43 @@
           </div>
         </section>
 
-        <!-- Step 3 — Activate Your Business -->
+        <!-- Step 3 — Import your data (optional) -->
         <section class="wizard-step" data-step="3">
+          <p class="import-intro">
+            Already track your business in Tally, Vyapar, or an Excel sheet? Upload it and
+            skip typing everything into WhatsApp — or skip this step and enter it all there
+            instead.
+          </p>
+
+          <div id="importUploadFields">
+            <div class="field">
+              <label for="import_receivable_file">Dealer invoices <span
+                  style="color:var(--ink-faint); font-weight:400;">(money owed to you)</span></label>
+              <input id="import_receivable_file" name="import_receivable_file" type="file" accept=".csv,.xlsx">
+              <div class="hint">Sales register / outstanding receivables — optional, .csv or .xlsx</div>
+            </div>
+            <div class="field">
+              <label for="import_payable_file">Supplier invoices <span
+                  style="color:var(--ink-faint); font-weight:400;">(money you owe)</span></label>
+              <input id="import_payable_file" name="import_payable_file" type="file" accept=".csv,.xlsx">
+              <div class="hint">Purchase register / outstanding payables — optional, .csv or .xlsx</div>
+            </div>
+          </div>
+
+          <div class="wizard-banner is-error" id="step3Banner"></div>
+          <div class="success-summary" id="importSummary" style="display:none;"></div>
+
+          <div class="wizard-actions">
+            <button type="button" class="btn btn-secondary" data-action="back">Back</button>
+            <button type="button" class="btn btn-primary" id="importBtn" data-action="import">Import &amp;
+              Continue</button>
+          </div>
+          <p class="wizard-foot"><a href="#" data-action="skip-import">Skip — I'll enter everything through WhatsApp
+              instead</a></p>
+        </section>
+
+        <!-- Step 4 — Activate Your Business -->
+        <section class="wizard-step" data-step="4">
           <div class="activate-card">
             <div class="plan-name">Starter</div>
             <div class="plan-price">₹999<span>/month</span></div>
@@ -117,7 +154,7 @@
             <span>Payment method</span>
             <span class="badge">Coming soon</span>
           </div>
-          <div class="wizard-banner is-error" id="step3Banner"></div>
+          <div class="wizard-banner is-error" id="step4Banner"></div>
           <div class="wizard-actions">
             <button type="button" class="btn btn-secondary" data-action="back">Back</button>
             <button type="button" class="btn btn-primary" id="activateBtn" data-action="activate">Activate
@@ -125,8 +162,8 @@
           </div>
         </section>
 
-        <!-- Step 4 — Success -->
-        <section class="wizard-step" data-step="4">
+        <!-- Step 5 — Success -->
+        <section class="wizard-step" data-step="5">
           <div class="success-icon">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
               <path
