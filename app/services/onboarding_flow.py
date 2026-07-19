@@ -32,7 +32,7 @@ from app.models.supplier import Supplier
 from app.services.followup import _parse_relative_date
 from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
-from app.services.importer.parties import find_or_create_party
+from app.services.importer.parties import find_or_create_party, find_party
 from app.services.money_format import format_inr
 from app.services.snapshot import business_now
 
@@ -132,11 +132,13 @@ def _format_quantity(quantity: Decimal) -> str:
     return text or "0"
 
 
-# ── Bulk product entry ───────────────────────────────────────────────────────
+# ── Bulk entry (products, dealers, suppliers) ────────────────────────────────
 # A distributor pasting a whole price list (e.g. "Rice - 400, Dal - 450") in
 # one message used to be swallowed whole as a single product *name* by the
 # one-at-a-time flow below — this gives bulk pasting its own parser so each
-# item is matched and saved as its own Product row.
+# item is matched and saved as its own row. The same bulk-vs-one-by-one choice
+# and parser shape is reused for dealers and suppliers further down (their
+# lines just carry fewer fields: Name, Phone, Credit Days).
 
 _BULK_MODE_WORDS = {"bulk", "all at once", "at once", "together", "list", "in bulk"}
 _ONE_BY_ONE_MODE_WORDS = {"one by one", "one at a time", "individually", "single", "one"}
@@ -144,7 +146,7 @@ _ONE_BY_ONE_MODE_WORDS = {"one by one", "one at a time", "individually", "single
 _SKIP_FIELD_WORDS = {"skip", "none", "-", ""}
 
 
-def _classify_product_mode(text: str) -> str | None:
+def _classify_entry_mode(text: str) -> str | None:
     normalized = text.strip().lower()
     if normalized in _BULK_MODE_WORDS:
         return "bulk"
@@ -204,6 +206,30 @@ def _parse_bulk_line(line: str) -> dict:
         "stock": stock,
         "gst_rate": gst_rate,
     }
+
+
+def _parse_bulk_party_line(line: str) -> dict:
+    """Parse one "Name, Phone, Credit Days" line — the dealer/supplier bulk
+    entry format, shared by both since Dealer and Supplier collect the same
+    three fields one-by-one. Raises ValueError (naming the offending field)
+    on a present-but-unparseable credit-days value — same fail-fast contract
+    as _parse_bulk_line.
+    """
+    parts = line.split(",")
+    name = parts[0].strip() if parts else ""
+    if not name:
+        raise ValueError(f"'{line}' has no name")
+
+    phone = _bulk_field(parts, 1)
+    credit_raw = _bulk_field(parts, 2)
+    credit_days = None
+    if credit_raw:
+        try:
+            credit_days = int(credit_raw)
+        except ValueError as exc:
+            raise ValueError(f"'{name}': credit days — send a whole number, e.g. 15") from exc
+
+    return {"name": name, "phone": phone, "credit_days": credit_days}
 
 
 def _describe_product(name: str, price: Decimal | None, unit: str | None = None) -> str:
@@ -350,9 +376,9 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 2. Products (name -> stock quantity, repeatable, or bulk paste) ──────
     if state == OnboardingState.product_awaiting_mode:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.dealer_awaiting_name
+            company.onboarding_state = OnboardingState.dealer_awaiting_mode
             return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
-        mode = _classify_product_mode(stripped)
+        mode = _classify_entry_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.product_awaiting_bulk
             return _bulk_format_message(company, loc)
@@ -363,7 +389,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.product_awaiting_bulk:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.dealer_awaiting_name
+            company.onboarding_state = OnboardingState.dealer_awaiting_mode
             return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
         lines = [line for line in stripped.splitlines() if line.strip()]
         if not lines:
@@ -374,7 +400,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
                 parsed_items.append(_parse_bulk_line(line))
             except ValueError as exc:
                 return (
-                    t("onboarding.product.bulk_error", loc, error=exc)
+                    t("onboarding.bulk_error", loc, error=exc)
                     + "\n\n"
                     + _bulk_format_message(company, loc)
                 )
@@ -398,7 +424,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.product_awaiting_name:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.dealer_awaiting_name
+            company.onboarding_state = OnboardingState.dealer_awaiting_mode
             return f"{_progress(2, loc)}\n\n{t('onboarding.dealers.intro', loc)}"
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.product_awaiting_quantity
@@ -463,10 +489,52 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         purchase_price = Decimal(purchase_price_raw) if purchase_price_raw is not None else None
         return _finalize_one_by_one_product(db, company, scratch, purchase_price, gst_rate, loc)
 
-    # ── 3. Dealers (name -> phone -> credit days, repeatable) ────────────────
+    # ── 3. Dealers (mode -> name -> phone -> credit days, repeatable, or bulk) ─
+    if state == OnboardingState.dealer_awaiting_mode:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_state = OnboardingState.supplier_awaiting_mode
+            return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
+        mode = _classify_entry_mode(stripped)
+        if mode == "bulk":
+            company.onboarding_state = OnboardingState.dealer_awaiting_bulk
+            return t("onboarding.dealer.bulk_format", loc)
+        if mode == "one_by_one":
+            company.onboarding_state = OnboardingState.dealer_awaiting_name
+            return t("onboarding.dealer.first_name", loc)
+        return t("onboarding.dealer.mode_invalid", loc)
+
+    if state == OnboardingState.dealer_awaiting_bulk:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_state = OnboardingState.supplier_awaiting_mode
+            return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return t("onboarding.dealer.bulk_format", loc)
+        parsed_items = []
+        for line in lines:
+            try:
+                parsed_items.append(_parse_bulk_party_line(line))
+            except ValueError as exc:
+                return (
+                    t("onboarding.bulk_error", loc, error=exc)
+                    + "\n\n"
+                    + t("onboarding.dealer.bulk_format", loc)
+                )
+        for item in parsed_items:
+            db.add(
+                Dealer(
+                    company_id=company.id,
+                    name=item["name"],
+                    phone=item["phone"],
+                    payment_terms_days=item["credit_days"],
+                )
+            )
+        names = ", ".join(item["name"] for item in parsed_items)
+        return t("onboarding.dealer.bulk_added", loc, count=len(parsed_items), names=names)
+
     if state == OnboardingState.dealer_awaiting_name:
         if _is(stripped, "done", "skip"):
-            company.onboarding_state = OnboardingState.supplier_awaiting_name
+            company.onboarding_state = OnboardingState.supplier_awaiting_mode
             return f"{_progress(3, loc)}\n\n{t('onboarding.suppliers.intro', loc)}"
         company.onboarding_scratch = {"name": stripped}
         company.onboarding_state = OnboardingState.dealer_awaiting_phone
@@ -500,7 +568,49 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         company.onboarding_state = OnboardingState.dealer_awaiting_name
         return t("onboarding.dealer.added", loc, name=name)
 
-    # ── 4. Suppliers (same shape) ────────────────────────────────────────────
+    # ── 4. Suppliers (same shape as dealers, mode -> name/bulk) ──────────────
+    if state == OnboardingState.supplier_awaiting_mode:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_state = OnboardingState.awaiting_opening_balance
+            return f"{_progress(4, loc)}\n\n{t('onboarding.opening.ask', loc)}"
+        mode = _classify_entry_mode(stripped)
+        if mode == "bulk":
+            company.onboarding_state = OnboardingState.supplier_awaiting_bulk
+            return t("onboarding.supplier.bulk_format", loc)
+        if mode == "one_by_one":
+            company.onboarding_state = OnboardingState.supplier_awaiting_name
+            return t("onboarding.supplier.first_name", loc)
+        return t("onboarding.supplier.mode_invalid", loc)
+
+    if state == OnboardingState.supplier_awaiting_bulk:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_state = OnboardingState.awaiting_opening_balance
+            return f"{_progress(4, loc)}\n\n{t('onboarding.opening.ask', loc)}"
+        lines = [line for line in stripped.splitlines() if line.strip()]
+        if not lines:
+            return t("onboarding.supplier.bulk_format", loc)
+        parsed_items = []
+        for line in lines:
+            try:
+                parsed_items.append(_parse_bulk_party_line(line))
+            except ValueError as exc:
+                return (
+                    t("onboarding.bulk_error", loc, error=exc)
+                    + "\n\n"
+                    + t("onboarding.supplier.bulk_format", loc)
+                )
+        for item in parsed_items:
+            db.add(
+                Supplier(
+                    company_id=company.id,
+                    name=item["name"],
+                    phone=item["phone"],
+                    payment_terms_days=item["credit_days"],
+                )
+            )
+        names = ", ".join(item["name"] for item in parsed_items)
+        return t("onboarding.supplier.bulk_added", loc, count=len(parsed_items), names=names)
+
     if state == OnboardingState.supplier_awaiting_name:
         if _is(stripped, "done", "skip"):
             company.onboarding_state = OnboardingState.awaiting_opening_balance
@@ -558,8 +668,22 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.receivable_dealer:
         company.onboarding_scratch = {"party": stripped}
+        existing = await find_party(db, company.id, "receivable", stripped)
+        if existing is None:
+            company.onboarding_state = OnboardingState.receivable_new_party_confirm
+            return t("onboarding.receivable.confirm_new", loc, name=stripped)
         company.onboarding_state = OnboardingState.receivable_amount
         return t("onboarding.receivable.amount_ask", loc, party=stripped)
+
+    if state == OnboardingState.receivable_new_party_confirm:
+        party = scratch.get("party", "")
+        if _is(stripped, "no", "n"):
+            company.onboarding_state = OnboardingState.receivable_dealer
+            return t("onboarding.receivable.which", loc)
+        if not _is(stripped, "yes", "y"):
+            return t("onboarding.yes_no_invalid", loc)
+        company.onboarding_state = OnboardingState.receivable_amount
+        return t("onboarding.receivable.amount_ask", loc, party=party)
 
     if state == OnboardingState.receivable_amount:
         try:
@@ -605,8 +729,22 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.payable_supplier:
         company.onboarding_scratch = {"party": stripped}
+        existing = await find_party(db, company.id, "payable", stripped)
+        if existing is None:
+            company.onboarding_state = OnboardingState.payable_new_party_confirm
+            return t("onboarding.payable.confirm_new", loc, name=stripped)
         company.onboarding_state = OnboardingState.payable_amount
         return t("onboarding.payable.amount_ask", loc, party=stripped)
+
+    if state == OnboardingState.payable_new_party_confirm:
+        party = scratch.get("party", "")
+        if _is(stripped, "no", "n"):
+            company.onboarding_state = OnboardingState.payable_supplier
+            return t("onboarding.payable.which", loc)
+        if not _is(stripped, "yes", "y"):
+            return t("onboarding.yes_no_invalid", loc)
+        company.onboarding_state = OnboardingState.payable_amount
+        return t("onboarding.payable.amount_ask", loc, party=party)
 
     if state == OnboardingState.payable_amount:
         try:

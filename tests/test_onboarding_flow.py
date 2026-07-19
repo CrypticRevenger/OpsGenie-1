@@ -78,6 +78,25 @@ async def _count(db: AsyncSession, model, company_id: uuid.UUID) -> int:
     )
 
 
+async def _to_dealer_mode(db: AsyncSession, company: Company) -> None:
+    """Drive a fresh company to dealer_awaiting_mode, skipping GST setup and
+    products (neither matters to the dealer/supplier tests below)."""
+    await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")  # decide GST setup later
+    await _send(db, company, "done")  # skip products
+
+
+async def _to_supplier_mode(db: AsyncSession, company: Company) -> None:
+    await _to_dealer_mode(db, company)
+    await _send(db, company, "done")  # skip dealers
+
+
+async def _to_receivable_ask(db: AsyncSession, company: Company) -> None:
+    await _to_supplier_mode(db, company)
+    await _send(db, company, "done")  # skip suppliers
+    await _send(db, company, "50000")  # opening cash
+
+
 @pytest.mark.asyncio
 async def test_full_happy_path(db: AsyncSession) -> None:
     company = await _fresh_company(db)
@@ -114,7 +133,7 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     await _send(db, company, "8")
     assert company.onboarding_state == OnboardingState.product_awaiting_name
     await _send(db, company, "done")
-    assert company.onboarding_state == OnboardingState.dealer_awaiting_name
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode
     assert await _count(db, Product, company.id) == 1
     product = await db.scalar(select(Product).where(Product.company_id == company.id))
     assert product.name == "Paracetamol"
@@ -122,6 +141,10 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     assert product.unit == "strips"
     assert product.selling_price == Decimal("12.00")
     assert product.purchase_price == Decimal("8.00")
+
+    # Dealer mode: one by one
+    await _send(db, company, "one by one")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_name
 
     # Dealer: name -> phone -> credit
     await _send(db, company, "Ram Traders")
@@ -131,12 +154,16 @@ async def test_full_happy_path(db: AsyncSession) -> None:
     await _send(db, company, "15")
     assert company.onboarding_state == OnboardingState.dealer_awaiting_name
     await _send(db, company, "done")
-    assert company.onboarding_state == OnboardingState.supplier_awaiting_name
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode
 
     dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
     assert dealer.name == "Ram Traders"
     assert dealer.phone == "9876543210"
     assert dealer.payment_terms_days == 15
+
+    # Supplier mode: one by one
+    await _send(db, company, "one by one")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_name
 
     # Supplier: name -> skip phone -> skip credit
     await _send(db, company, "ABC Pharma")
@@ -365,7 +392,7 @@ async def test_product_bulk_paste_saves_each_item_separately(db: AsyncSession) -
     assert all(p.unit == "pcs" for p in products)
 
     await _send(db, company, "done")
-    assert company.onboarding_state == OnboardingState.dealer_awaiting_name
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode
 
 
 @pytest.mark.asyncio
@@ -396,7 +423,7 @@ async def test_product_bulk_paste_with_prices(db: AsyncSession) -> None:
     assert await _count(db, Product, company.id) == 3
 
     await _send(db, company, "done")
-    assert company.onboarding_state == OnboardingState.dealer_awaiting_name
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode
 
 
 @pytest.mark.asyncio
@@ -582,3 +609,200 @@ async def test_bad_hour_reasks(db: AsyncSession) -> None:
     await _send(db, company, "9")
     assert company.onboarding_state == OnboardingState.completed
     assert company.briefing_hour == 9
+
+
+# ── Dealer/supplier bulk-vs-one-by-one entry (mirrors the product step) ───────
+
+
+@pytest.mark.asyncio
+async def test_dealer_mode_unrecognized_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_dealer_mode(db, company)
+    reply = await _send(db, company, "huh?")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode  # stayed
+    assert "bulk" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_dealer_bulk_paste_saves_each_item_separately(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_dealer_mode(db, company)
+
+    await _send(db, company, "bulk")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_bulk
+
+    reply = await _send(
+        db,
+        company,
+        "Ram Traders, 9876543210, 15\n"
+        "Shree Enterprises, 9123456780, 30\n"
+        "Kirana Point, skip, skip",
+    )
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_bulk  # loops for more
+    assert "Added 3 dealer" in reply
+    assert await _count(db, Dealer, company.id) == 3
+
+    ram = await db.scalar(
+        select(Dealer).where(Dealer.company_id == company.id, Dealer.name == "Ram Traders")
+    )
+    assert ram.phone == "9876543210"
+    assert ram.payment_terms_days == 15
+    kirana = await db.scalar(
+        select(Dealer).where(Dealer.company_id == company.id, Dealer.name == "Kirana Point")
+    )
+    assert kirana.phone is None
+    assert kirana.payment_terms_days is None
+
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode
+
+
+@pytest.mark.asyncio
+async def test_dealer_bulk_paste_bad_credit_days_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_dealer_mode(db, company)
+    await _send(db, company, "bulk")
+
+    reply = await _send(db, company, "Ram Traders, 9876543210, lots")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_bulk  # stayed
+    assert "couldn't read" in reply.lower()
+    assert await _count(db, Dealer, company.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_supplier_mode_unrecognized_reasks(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_supplier_mode(db, company)
+    reply = await _send(db, company, "huh?")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode  # stayed
+    assert "bulk" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_supplier_bulk_paste_saves_each_item_separately(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_supplier_mode(db, company)
+
+    await _send(db, company, "bulk")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_bulk
+
+    reply = await _send(
+        db, company, "Metro Distributors, 9988776655, 30\nSuresh Wholesale, 9871234560, 15"
+    )
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_bulk  # loops for more
+    assert "Added 2 supplier" in reply
+    assert await _count(db, Supplier, company.id) == 2
+
+    metro = await db.scalar(
+        select(Supplier).where(
+            Supplier.company_id == company.id, Supplier.name == "Metro Distributors"
+        )
+    )
+    assert metro.phone == "9988776655"
+    assert metro.payment_terms_days == 30
+
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance
+
+
+# ── Receivable/payable new-party confirmation ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_receivable_unknown_name_asks_confirmation_before_creating(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_receivable_ask(db, company)
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.receivable_dealer
+
+    reply = await _send(db, company, "Brand New Traders")
+    assert company.onboarding_state == OnboardingState.receivable_new_party_confirm
+    assert "Brand New Traders" in reply
+    assert await _count(db, Dealer, company.id) == 0  # not created yet
+
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.receivable_amount
+    await _send(db, company, "42000")
+    await _send(db, company, "15 days")
+    assert company.onboarding_state == OnboardingState.receivable_ask
+    assert await _count(db, Dealer, company.id) == 1
+    dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
+    assert dealer.name == "Brand New Traders"
+
+
+@pytest.mark.asyncio
+async def test_receivable_confirmation_no_reasks_for_name(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    # Seed a real dealer directly (bypassing onboarding) so the corrected name
+    # below has something to match against.
+    db.add(Dealer(company_id=company.id, name="Ram Traders"))
+    await db.flush()
+
+    await _to_receivable_ask(db, company)
+    await _send(db, company, "yes")
+    await _send(db, company, "Typo Traderz")
+    assert company.onboarding_state == OnboardingState.receivable_new_party_confirm
+
+    reply = await _send(db, company, "no")
+    assert company.onboarding_state == OnboardingState.receivable_dealer
+    assert "which dealer" in reply.lower()
+    assert await _count(db, Dealer, company.id) == 1  # only the seeded one
+
+    # Corrected (matching) name resolves straight to the amount question,
+    # skipping confirmation.
+    await _send(db, company, "Ram Traders")
+    assert company.onboarding_state == OnboardingState.receivable_amount
+
+
+@pytest.mark.asyncio
+async def test_receivable_known_dealer_skips_confirmation(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_dealer_mode(db, company)
+    await _send(db, company, "one by one")
+    await _send(db, company, "Ram Traders")
+    await _send(db, company, "skip")
+    await _send(db, company, "skip")
+    await _send(db, company, "done")  # dealer_awaiting_mode -> supplier_awaiting_mode
+    await _send(db, company, "done")  # skip suppliers
+    await _send(db, company, "50000")  # opening cash
+    await _send(db, company, "yes")
+    reply = await _send(db, company, "Ram Traders")
+    assert company.onboarding_state == OnboardingState.receivable_amount
+    assert "how much does ram traders owe" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_payable_unknown_name_asks_confirmation_before_creating(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_receivable_ask(db, company)
+    await _send(db, company, "no")  # no receivables
+    assert company.onboarding_state == OnboardingState.payable_ask
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.payable_supplier
+
+    reply = await _send(db, company, "Brand New Supplier Co")
+    assert company.onboarding_state == OnboardingState.payable_new_party_confirm
+    assert "Brand New Supplier Co" in reply
+    assert await _count(db, Supplier, company.id) == 0
+
+    await _send(db, company, "yes")
+    assert company.onboarding_state == OnboardingState.payable_amount
+    await _send(db, company, "82000")
+    await _send(db, company, "friday")
+    assert company.onboarding_state == OnboardingState.payable_ask
+    assert await _count(db, Supplier, company.id) == 1
+
+
+@pytest.mark.asyncio
+async def test_payable_confirmation_no_reasks_for_name(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_receivable_ask(db, company)
+    await _send(db, company, "no")
+    await _send(db, company, "yes")
+    await _send(db, company, "Typo Supplier")
+    assert company.onboarding_state == OnboardingState.payable_new_party_confirm
+
+    reply = await _send(db, company, "no")
+    assert company.onboarding_state == OnboardingState.payable_supplier
+    assert "which supplier" in reply.lower()
+    assert await _count(db, Supplier, company.id) == 0

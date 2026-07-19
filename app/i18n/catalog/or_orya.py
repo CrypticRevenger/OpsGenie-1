@@ -251,7 +251,6 @@ MESSAGES: dict[str, str] = {
     "onboarding.product.mode_invalid": (
         "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା 'done' products skip କରିବାକୁ।"
     ),
-    "onboarding.product.bulk_error": "ଏହା ବୁଝି ହେଲା ନାହିଁ: {error}",
     "onboarding.product.bulk_added": (
         "{count} product add ହେଲା: {names}। ଆଉ ପଠାନ୍ତୁ, କିମ୍ବା ସରିଲେ 'done' ପଠାନ୍ତୁ।"
     ),
@@ -280,14 +279,54 @@ MESSAGES: dict[str, str] = {
         "Product add ହେଲା: {name} ({stock} stock ରେ)। ଆଉ ପଠାନ୍ତୁ, କିମ୍ବା 'done'।"
     ),
     "onboarding.dealers.intro": (
-        "ଏବେ ଆପଣଙ୍କ dealers (customers) add କରନ୍ତୁ। ପ୍ରଥମ dealer ର ନାମ ପଠାନ୍ତୁ, କିମ୍ବା 'done'।"
+        "ଏବେ ଆପଣଙ୍କ dealers (customers) add କରନ୍ତୁ। Reply 'one by one' ଗୋଟିଏ ଗୋଟିଏ add କରିବାକୁ, "
+        "କିମ୍ବା 'bulk' ସବୁ ଏକାଠି ପଠାଇବାକୁ (ଯେମିତି Ram Traders, 9876543210, 15)। "
+        "'done' skip କରିବାକୁ।"
+    ),
+    "onboarding.dealer.bulk_format": (
+        "ଆପଣଙ୍କ dealers ଗୋଟିଏ line ରେ ଗୋଟିଏ, ଏହି format ରେ ପଠାନ୍ତୁ:\n"
+        "Name, Phone, Credit Days\n"
+        "ଯେମିତି\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Shree Enterprises, 9123456780, 30\n"
+        "ଯେଉଁ field set କରିବାକୁ ଚାହାନ୍ତି ନାହିଁ ସେଥିପାଇଁ 'skip' ଲେଖନ୍ତୁ "
+        "(ଯେମିତି Ram Traders, skip, 15)। ସରିଲେ 'done' ପଠାନ୍ତୁ।"
+    ),
+    "onboarding.dealer.first_name": (
+        "ଆପଣଙ୍କ ପ୍ରଥମ dealer ର ନାମ ପଠାନ୍ତୁ (ଯେମିତି Ram Traders), କିମ୍ବା 'done' skip କରିବାକୁ।"
+    ),
+    "onboarding.dealer.mode_invalid": (
+        "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା 'done' dealers skip କରିବାକୁ।"
+    ),
+    "onboarding.dealer.bulk_added": (
+        "{count} dealer add ହେଲା: {names}। ଆଉ ପଠାନ୍ତୁ, କିମ୍ବା ସରିଲେ 'done' ପଠାନ୍ତୁ।"
     ),
     "onboarding.dealer.credit_ask": (
         "{name} କୁ ଆପଣ କେତେ credit ଦିନ ଦିଅନ୍ତି? (ଯେମିତି 15, କିମ୍ବା 'skip')"
     ),
     "onboarding.dealer.added": "Dealer {name} add ହେଲା। ପରବର୍ତ୍ତୀ dealer ର ନାମ, କିମ୍ବା 'done'।",
     "onboarding.suppliers.intro": (
-        "ଏବେ ଆପଣଙ୍କ suppliers। ପ୍ରଥମ supplier ର ନାମ ପଠାନ୍ତୁ, କିମ୍ବା 'done'।"
+        "ଏବେ ଆପଣଙ୍କ suppliers। Reply 'one by one' ଗୋଟିଏ ଗୋଟିଏ add କରିବାକୁ, "
+        "କିମ୍ବା 'bulk' ସବୁ ଏକାଠି ପଠାଇବାକୁ (ଯେମିତି Metro Distributors, 9988776655, 30)। "
+        "'done' skip କରିବାକୁ।"
+    ),
+    "onboarding.supplier.bulk_format": (
+        "ଆପଣଙ୍କ suppliers ଗୋଟିଏ line ରେ ଗୋଟିଏ, ଏହି format ରେ ପଠାନ୍ତୁ:\n"
+        "Name, Phone, Credit Days\n"
+        "ଯେମିତି\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Suresh Wholesale, 9871234560, 15\n"
+        "ଯେଉଁ field set କରିବାକୁ ଚାହାନ୍ତି ନାହିଁ ସେଥିପାଇଁ 'skip' ଲେଖନ୍ତୁ "
+        "(ଯେମିତି Metro Distributors, skip, 30)। ସରିଲେ 'done' ପଠାନ୍ତୁ।"
+    ),
+    "onboarding.supplier.first_name": (
+        "ଆପଣଙ୍କ ପ୍ରଥମ supplier ର ନାମ ପଠାନ୍ତୁ (ଯେମିତି Metro Distributors), କିମ୍ବା 'done' skip କରିବାକୁ।"
+    ),
+    "onboarding.supplier.mode_invalid": (
+        "ଦୟାକରି reply କରନ୍ତୁ 'one by one' କିମ୍ବା 'bulk' — କିମ୍ବା 'done' suppliers skip କରିବାକୁ।"
+    ),
+    "onboarding.supplier.bulk_added": (
+        "{count} supplier add ହେଲା: {names}। ଆଉ ପଠାନ୍ତୁ, କିମ୍ବା ସରିଲେ 'done' ପଠାନ୍ତୁ।"
     ),
     "onboarding.supplier.credit_ask": (
         "{name} ଆପଣଙ୍କୁ pay କରିବାକୁ କେତେ ଦିନ ଦିଏ? (ଯେମିତି 15/'skip')"
@@ -297,10 +336,14 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.party.phone_ask": "{name} ର phone number? (କିମ୍ବା 'skip')",
     "onboarding.party.credit_invalid": "ଦୟାକରି ଦିନର number ପଠାନ୍ତୁ, ଯେମିତି 15 (କିମ୍ବା 'skip')।",
+    "onboarding.bulk_error": "ଏହା ବୁଝି ହେଲା ନାହିଁ: {error}",
     "onboarding.opening.ask": "ଏବେ ଆପଣଙ୍କ ବ୍ୟବସାୟରେ କେତେ cash ଅଛି? (ଯେମିତି 320000)",
     "onboarding.opening.invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 320000।",
     "onboarding.receivable.ask": "କୌଣସି dealer ପାଖରେ ଏବେ ଆପଣଙ୍କ ପଇସା ବାକି ଅଛି କି? (yes/no)",
     "onboarding.receivable.which": "କେଉଁ dealer ଆପଣଙ୍କୁ ଦେବ? (ନାମ)",
+    "onboarding.receivable.confirm_new": (
+        "ମୋ ପାଖରେ '{name}' ନାମରେ dealer ଏବେ ନାହିଁ — ନୂଆ dealer ଭାବରେ add କରିବି କି? (yes/no)"
+    ),
     "onboarding.receivable.amount_ask": "{party} ଆପଣଙ୍କୁ କେତେ ଦେବ? (ଯେମିତି 42000)",
     "onboarding.receivable.amount_invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 42000।",
     "onboarding.receivable.date_ask": (
@@ -311,6 +354,9 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.payable.ask": "କୌଣସି supplier payment pending ଅଛି କି? (yes/no)",
     "onboarding.payable.which": "କେଉଁ supplier କୁ ଆପଣ ଦେବ? (ନାମ)",
+    "onboarding.payable.confirm_new": (
+        "ମୋ ପାଖରେ '{name}' ନାମରେ supplier ଏବେ ନାହିଁ — ନୂଆ supplier ଭାବରେ add କରିବି କି? (yes/no)"
+    ),
     "onboarding.payable.amount_ask": "ଆପଣ {party} କୁ କେତେ ଦେବ? (ଯେମିତି 82000)",
     "onboarding.payable.amount_invalid": "ଦୟାକରି ଗୋଟିଏ amount ପଠାନ୍ତୁ, ଯେମିତି 82000।",
     "onboarding.payable.date_ask": (

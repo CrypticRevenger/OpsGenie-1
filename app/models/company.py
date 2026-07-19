@@ -86,19 +86,33 @@ class OnboardingState(enum.StrEnum):
     # selling_price; see app/services/onboarding_flow.py).
     product_awaiting_price = "product_awaiting_price"
     product_awaiting_purchase_price = "product_awaiting_purchase_price"
+    # Asked right after products, before any dealer is collected — mirrors
+    # product_awaiting_mode's bulk-vs-one-by-one choice. See
+    # app/services/onboarding_flow.py.
+    dealer_awaiting_mode = "dealer_awaiting_mode"
+    dealer_awaiting_bulk = "dealer_awaiting_bulk"
     dealer_awaiting_name = "dealer_awaiting_name"
     dealer_awaiting_phone = "dealer_awaiting_phone"
     dealer_awaiting_credit = "dealer_awaiting_credit"
+    # Same shape as the dealer pair above, for suppliers.
+    supplier_awaiting_mode = "supplier_awaiting_mode"
+    supplier_awaiting_bulk = "supplier_awaiting_bulk"
     supplier_awaiting_name = "supplier_awaiting_name"
     supplier_awaiting_phone = "supplier_awaiting_phone"
     supplier_awaiting_credit = "supplier_awaiting_credit"
     awaiting_opening_balance = "awaiting_opening_balance"
     receivable_ask = "receivable_ask"
     receivable_dealer = "receivable_dealer"
+    # Only reached when receivable_dealer's name matches no existing dealer —
+    # confirms adding a brand-new dealer before proceeding, rather than
+    # silently creating one on a typo. See app/services/onboarding_flow.py.
+    receivable_new_party_confirm = "receivable_new_party_confirm"
     receivable_amount = "receivable_amount"
     receivable_date = "receivable_date"
     payable_ask = "payable_ask"
     payable_supplier = "payable_supplier"
+    # Same shape as receivable_new_party_confirm, for suppliers.
+    payable_new_party_confirm = "payable_new_party_confirm"
     payable_amount = "payable_amount"
     payable_date = "payable_date"
     awaiting_language = "awaiting_language"

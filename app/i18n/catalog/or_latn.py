@@ -257,7 +257,6 @@ MESSAGES: dict[str, str] = {
     "onboarding.product.mode_invalid": (
         "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba 'done' products skip karibaku."
     ),
-    "onboarding.product.bulk_error": "Eha bujhi hela nahin: {error}",
     "onboarding.product.bulk_added": (
         "{count} product add hela: {names}. Au pathantu, kimba sarile 'done' pathantu."
     ),
@@ -288,15 +287,55 @@ MESSAGES: dict[str, str] = {
         "Product add hela: {name} ({stock} stock re). Au pathantu, kimba 'done'."
     ),
     "onboarding.dealers.intro": (
-        "Ebe apanka dealers (customers) add karantu. "
-        "Prathama dealer ra naam pathantu, kimba 'done'."
+        "Ebe apanka dealers (customers) add karantu. Reply 'one by one' gotie gotie add karibaku, "
+        "kimba 'bulk' sabu ekathi pathaibaku (jaise Ram Traders, 9876543210, 15). "
+        "'done' skip karibaku."
+    ),
+    "onboarding.dealer.bulk_format": (
+        "Apanka dealers gotie line re gotie, ei format re pathantu:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Ram Traders, 9876543210, 15\n"
+        "Shree Enterprises, 9123456780, 30\n"
+        "Je field set karibaku chahanti nahin sethipain 'skip' lekhantu "
+        "(jaise Ram Traders, skip, 15). Sarile 'done' pathantu."
+    ),
+    "onboarding.dealer.first_name": (
+        "Apanka prathama dealer ra naam pathantu (jaise Ram Traders), kimba 'done' skip karibaku."
+    ),
+    "onboarding.dealer.mode_invalid": (
+        "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba 'done' dealers skip karibaku."
+    ),
+    "onboarding.dealer.bulk_added": (
+        "{count} dealer add hela: {names}. Au pathantu, kimba sarile 'done' pathantu."
     ),
     "onboarding.dealer.credit_ask": (
         "{name} ku apana kete credit dina denti? (jaise 15, kimba 'skip')"
     ),
     "onboarding.dealer.added": "Dealer {name} add hela. Parabarti dealer ra naam, kimba 'done'.",
     "onboarding.suppliers.intro": (
-        "Ebe apanka suppliers. Prathama supplier ra naam pathantu, kimba 'done'."
+        "Ebe apanka suppliers. Reply 'one by one' gotie gotie add karibaku, "
+        "kimba 'bulk' sabu ekathi pathaibaku (jaise Metro Distributors, 9988776655, 30). "
+        "'done' skip karibaku."
+    ),
+    "onboarding.supplier.bulk_format": (
+        "Apanka suppliers gotie line re gotie, ei format re pathantu:\n"
+        "Name, Phone, Credit Days\n"
+        "jaise\n"
+        "Metro Distributors, 9988776655, 30\n"
+        "Suresh Wholesale, 9871234560, 15\n"
+        "Je field set karibaku chahanti nahin sethipain 'skip' lekhantu "
+        "(jaise Metro Distributors, skip, 30). Sarile 'done' pathantu."
+    ),
+    "onboarding.supplier.first_name": (
+        "Apanka prathama supplier ra naam pathantu (jaise Metro Distributors), "
+        "kimba 'done' skip karibaku."
+    ),
+    "onboarding.supplier.mode_invalid": (
+        "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba 'done' suppliers skip karibaku."
+    ),
+    "onboarding.supplier.bulk_added": (
+        "{count} supplier add hela: {names}. Au pathantu, kimba sarile 'done' pathantu."
     ),
     "onboarding.supplier.credit_ask": (
         "{name} apananku pay karibaku kete dina denti? (jaise 15/'skip')"
@@ -308,10 +347,15 @@ MESSAGES: dict[str, str] = {
     "onboarding.party.credit_invalid": (
         "Daya kari dina ra number pathantu, jaise 15 (kimba 'skip')."
     ),
+    "onboarding.bulk_error": "Eha bujhi hela nahin: {error}",
     "onboarding.opening.ask": "Ebe apanka business re kete cash achi? (jaise 320000)",
     "onboarding.opening.invalid": "Daya kari gotie amount pathantu, jaise 320000.",
     "onboarding.receivable.ask": "Kono dealer pakhare ebe apanka paisa baki achi ki? (yes/no)",
     "onboarding.receivable.which": "Kaun dealer apananku deba? (naam)",
+    "onboarding.receivable.confirm_new": (
+        "Mo pakhare '{name}' naam re dealer ebe nahin — natun dealer bhabare add karibi ki? "
+        "(yes/no)"
+    ),
     "onboarding.receivable.amount_ask": "{party} apananku kete deba? (jaise 42000)",
     "onboarding.receivable.amount_invalid": "Daya kari gotie amount pathantu, jaise 42000.",
     "onboarding.receivable.date_ask": (
@@ -322,6 +366,10 @@ MESSAGES: dict[str, str] = {
     ),
     "onboarding.payable.ask": "Kono supplier payment pending achi ki? (yes/no)",
     "onboarding.payable.which": "Kaun supplier ku apana deba? (naam)",
+    "onboarding.payable.confirm_new": (
+        "Mo pakhare '{name}' naam re supplier ebe nahin — natun supplier bhabare add karibi ki? "
+        "(yes/no)"
+    ),
     "onboarding.payable.amount_ask": "Apana {party} ku kete deba? (jaise 82000)",
     "onboarding.payable.amount_invalid": "Daya kari gotie amount pathantu, jaise 82000.",
     "onboarding.payable.date_ask": (
