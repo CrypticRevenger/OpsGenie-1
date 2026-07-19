@@ -43,7 +43,10 @@ async def onboarding_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "onboard.html",
-        {"whatsapp_business_display_number": settings.whatsapp_business_display_number or ""},
+        {
+            "whatsapp_business_display_number": settings.whatsapp_business_display_number or "",
+            "marketing_site_url": settings.marketing_site_url or "/",
+        },
     )
 
 
