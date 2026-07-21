@@ -173,6 +173,22 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
                     diagnostics["actions"]["briefing"] = (
                         "generated_and_sent" if delivered else "generated_but_send_failed"
                     )
+            elif existing.delivery_status is None:
+                # A row for today already exists but was only ever generated,
+                # never delivered — e.g. a dashboard/admin preview call
+                # (POST .../briefing, app/api/admin/briefing.py) that creates
+                # a MorningBriefing without sending it. Treating "a row
+                # exists" as "already sent" used to silently swallow the
+                # scheduled push for the rest of the day; deliver this same
+                # row now instead of skipping it (mirrors why
+                # _morning_briefing_reply self-marks its own delivery).
+                delivered = await _deliver_briefing(db, company, existing)
+                await db.commit()
+                diagnostics["actions"]["briefing"] = (
+                    "delivered_existing_undelivered_briefing"
+                    if delivered
+                    else "existing_briefing_send_failed"
+                )
             else:
                 diagnostics["actions"]["briefing"] = (
                     f"already_sent_today (status={existing.delivery_status})"

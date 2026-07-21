@@ -162,6 +162,37 @@ async def test_briefing_not_regenerated_if_already_sent_today(db: AsyncSession, 
 
 
 @pytest.mark.asyncio
+async def test_briefing_hour_delivers_existing_undelivered_briefing(
+    db: AsyncSession, spies
+) -> None:
+    """A row for today can exist without ever having been delivered — e.g. a
+    dashboard/admin "preview" call (POST .../briefing) that only generates.
+    The scheduled tick must still deliver it at briefing_hour rather than
+    treating "a row exists" as "already sent" and silently doing nothing for
+    the rest of the day (the exact bug: founder never gets an automatic
+    morning briefing, only ever gets one by asking for it on demand).
+    """
+    company = await _make_company(db)
+    briefing = MorningBriefing(
+        company_id=company.id,
+        generated_text="preview body",
+        snapshot_json={"cash_position": {}},
+        confidence_score=Decimal("90.00"),
+        data_freshness_hours=1,
+        delivery_status=None,
+    )
+    db.add(briefing)
+    await db.commit()
+
+    result = await _dispatch_for_company(company.id, _at(8))
+
+    assert spies["generate"] == []  # reused the existing row, no fresh LLM call
+    assert len(spies["send"]) == 1
+    assert spies["send"][0][1] == "preview body"
+    assert "delivered_existing_undelivered_briefing" in result["actions"]["briefing"]
+
+
+@pytest.mark.asyncio
 async def test_generation_failure_alerts_founder_not_scheduler_crash(
     db: AsyncSession, spies, monkeypatch
 ) -> None:
