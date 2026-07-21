@@ -12,6 +12,12 @@ Message shapes:
 - send_interactive_list_message: a tappable list of up to 10 options, same 24h
   window as text. Used for the "menu" quick-launch command so a distributor
   can tap "Cash Position" instead of typing "cash".
+- send_document_message: a free-form document (e.g. a generated PDF), same
+  24h window as text — unlike send_template_message's document header, this
+  only works on a number already mid-conversation. Used to hand a PDF
+  straight to the founder's own chat when the invoice's real recipient
+  (dealer/supplier) can't be reached directly (see
+  app/services/invoice_delivery.py).
 - send_template_message: a Meta-approved template, the only thing deliverable
   to a number that hasn't messaged first. Used for the onboarding welcome and
   (V0.2, with a document header) sending an invoice PDF to a dealer, who has
@@ -126,6 +132,21 @@ async def send_interactive_list_message(
             },
         },
         to,
+    )
+
+
+async def send_document_message(
+    to: str, media_id: str, filename: str, *, caption: str | None = None
+) -> WhatsAppSendResult:
+    """Free-form document message — only deliverable inside the 24h customer-
+    service window (same constraint as send_text_message), unlike
+    send_template_message's document header which works outside it.
+    """
+    document: dict = {"id": media_id, "filename": filename}
+    if caption:
+        document["caption"] = caption
+    return await _post_message(
+        {"messaging_product": "whatsapp", "type": "document", "document": document}, to
     )
 
 

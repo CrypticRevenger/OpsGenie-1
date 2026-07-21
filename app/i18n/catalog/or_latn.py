@@ -929,6 +929,10 @@ MESSAGES: dict[str, str] = {
         "\n(PDF {dealer} ku pathana heli nahin — "
         "phone nahin kimba WhatsApp delivery ebe set nahin.)"
     ),
+    "pending.order_pdf_sent_to_founder": (
+        "\n({dealer} ku sidha pahunchi paridele nahin — PDF upare pathaideli, apana nije "
+        "forward karidiantu.)"
+    ),
     "pending.order_success": (
         "✅ Order {number} {dealer} paain tiari hela.\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"

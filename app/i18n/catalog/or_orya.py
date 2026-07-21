@@ -828,6 +828,10 @@ MESSAGES: dict[str, str] = {
     "pending.order_pdf_not_sent": (
         "\n(PDF {dealer} କୁ ପଠାଗଲା ନାହିଁ — phone ନାହିଁ କିମ୍ବା WhatsApp delivery ଏବେ set ନାହିଁ।)"
     ),
+    "pending.order_pdf_sent_to_founder": (
+        "\n({dealer} ଙ୍କ ପାଖରେ ସିଧା ପହଞ୍ଚିପାରିଲା ନାହିଁ — PDF ଉପରେ ପଠାଇଦିଆଗଲା, ଆପଣ ନିଜେ "
+        "forward କରିଦିଅନ୍ତୁ।)"
+    ),
     "pending.order_success": (
         "✅ Order {number} {dealer} ପାଇଁ ତିଆରି ହେଲା।\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
