@@ -64,28 +64,102 @@ def _make_result(*, dealer_phone: str | None) -> CreateOrderResult:
     )
 
 
+def _patch_upload(monkeypatch, media_id: str = "media-id-123") -> dict:
+    uploaded: dict = {}
+
+    async def _fake_upload(file_bytes: bytes, filename: str, mime_type: str) -> str:
+        uploaded["filename"] = filename
+        uploaded["mime_type"] = mime_type
+        return media_id
+
+    monkeypatch.setattr("app.services.invoice_delivery.upload_media", _fake_upload)
+    return uploaded
+
+
+def _patch_send_document(monkeypatch) -> list[dict]:
+    calls: list[dict] = []
+
+    async def _fake_send_document(to, media_id, filename, *, caption=None) -> WhatsAppSendResult:
+        calls.append(
+            {"to": to, "media_id": media_id, "filename": filename, "caption": caption}
+        )
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.invoice_delivery.send_document_message", _fake_send_document)
+    return calls
+
+
 @pytest.mark.asyncio
-async def test_skips_when_dealer_has_no_phone(db: AsyncSession) -> None:
+async def test_no_phone_falls_back_to_founder_chat(db: AsyncSession, monkeypatch) -> None:
+    """No dealer phone on file must not mean the PDF goes nowhere — it should
+    land in the founder's own chat (company.whatsapp_number) so they can
+    forward it manually.
+    """
+    _patch_upload(monkeypatch)
+    document_calls = _patch_send_document(monkeypatch)
+
     company = await _make_company(db)
     result = _make_result(dealer_phone=None)
 
-    sent = await send_invoice_document(db, company, result, b"%PDF-fake")
-    assert sent is False
+    delivery = await send_invoice_document(db, company, result, b"%PDF-fake")
+    assert delivery.sent_to_dealer is False
+    assert delivery.sent_to_founder is True
+    assert document_calls[0]["to"] == company.whatsapp_number
+    assert document_calls[0]["media_id"] == "media-id-123"
 
-    log = await db.scalar(
-        select(NotificationLog).where(NotificationLog.company_id == company.id)
+    # No phone on file means no recipient identity to log a dealer-attempt
+    # against (recipient_whatsapp is NOT NULL) — only the founder-fallback
+    # delivery is logged.
+    dealer_log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "invoice_document",
+        )
     )
-    assert log is None
+    assert dealer_log is None
+
+    founder_log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "invoice_document_founder_fallback",
+        )
+    )
+    assert founder_log is not None
+    assert founder_log.delivery_status == "sent"
+    assert founder_log.recipient_whatsapp == company.whatsapp_number
 
 
 @pytest.mark.asyncio
-async def test_skips_when_template_not_configured(db: AsyncSession, monkeypatch) -> None:
+async def test_template_not_configured_falls_back_to_founder_chat(
+    db: AsyncSession, monkeypatch
+) -> None:
     monkeypatch.setattr(get_settings(), "invoice_document_template_name", None)
+    _patch_upload(monkeypatch)
+    document_calls = _patch_send_document(monkeypatch)
+
     company = await _make_company(db)
     result = _make_result(dealer_phone=_unique_phone())
 
-    sent = await send_invoice_document(db, company, result, b"%PDF-fake")
-    assert sent is False
+    delivery = await send_invoice_document(db, company, result, b"%PDF-fake")
+    assert delivery.sent_to_dealer is False
+    assert delivery.sent_to_founder is True
+    assert document_calls[0]["to"] == company.whatsapp_number
+
+
+@pytest.mark.asyncio
+async def test_upload_failure_leaves_nobody_with_the_pdf(db: AsyncSession) -> None:
+    """No mocking at all here — upload_media hits the (test-env-blanked)
+    WhatsApp credentials and raises WhatsAppNotConfiguredError immediately.
+    Neither the dealer nor the founder-fallback can be attempted, and (unlike
+    a real attempted-and-failed send) nothing is logged — no attempt was
+    actually made.
+    """
+    company = await _make_company(db)
+    result = _make_result(dealer_phone=None)
+
+    delivery = await send_invoice_document(db, company, result, b"%PDF-fake")
+    assert delivery.sent_to_dealer is False
+    assert delivery.sent_to_founder is False
 
     log = await db.scalar(
         select(NotificationLog).where(NotificationLog.company_id == company.id)
@@ -99,12 +173,7 @@ async def test_sends_via_template_and_logs_when_configured(
 ) -> None:
     monkeypatch.setattr(get_settings(), "invoice_document_template_name", "invoice_doc")
 
-    uploaded: dict = {}
-
-    async def _fake_upload(file_bytes: bytes, filename: str, mime_type: str) -> str:
-        uploaded["filename"] = filename
-        uploaded["mime_type"] = mime_type
-        return "media-id-123"
+    uploaded = _patch_upload(monkeypatch)
 
     sent_calls: list[dict] = []
 
@@ -127,15 +196,15 @@ async def test_sends_via_template_and_logs_when_configured(
         )
         return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
 
-    monkeypatch.setattr("app.services.invoice_delivery.upload_media", _fake_upload)
     monkeypatch.setattr("app.services.invoice_delivery.send_template_message", _fake_send_template)
 
     company = await _make_company(db)
     dealer_phone = _unique_phone()
     result = _make_result(dealer_phone=dealer_phone)
 
-    sent = await send_invoice_document(db, company, result, b"%PDF-fake")
-    assert sent is True
+    delivery = await send_invoice_document(db, company, result, b"%PDF-fake")
+    assert delivery.sent_to_dealer is True
+    assert delivery.sent_to_founder is False
     assert sent_calls[0]["to"] == dealer_phone
     assert sent_calls[0]["template_name"] == "invoice_doc"
     assert sent_calls[0]["header_media_id"] == "media-id-123"

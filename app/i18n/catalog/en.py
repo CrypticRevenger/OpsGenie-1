@@ -921,6 +921,10 @@ MESSAGES: dict[str, str] = {
     "pending.order_pdf_not_sent": (
         "\n(PDF not sent to {dealer} — no phone on file or WhatsApp delivery not yet configured.)"
     ),
+    "pending.order_pdf_sent_to_founder": (
+        "\n(Couldn't reach {dealer} directly — sent you the PDF above so you can forward "
+        "it yourself.)"
+    ),
     "pending.order_success": (
         "✅ Order {number} created for {dealer}.\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"

@@ -200,20 +200,24 @@ async def execute_pending_operation(
         # before the webhook's single db.commit(), so an escaped exception
         # would roll back the just-created order and land the request on Meta's
         # aggressive retry loop, wedging the distributor's confirmation forever.
-        pdf_sent = False
+        pdf_sent_to_dealer = False
+        pdf_sent_to_founder = False
         try:
             pdf_bytes = generate_invoice_pdf(company, result)
-            pdf_sent = await send_invoice_document(db, company, result, pdf_bytes)
+            delivery = await send_invoice_document(db, company, result, pdf_bytes)
+            pdf_sent_to_dealer = delivery.sent_to_dealer
+            pdf_sent_to_founder = delivery.sent_to_founder
         except Exception:  # noqa: BLE001 - PDF is best-effort; the order is already written
             logger.exception(
                 "Invoice %s: PDF generation/delivery failed (non-blocking).",
                 result.invoice_number,
             )
-        pdf_note = (
-            t("pending.order_pdf_sent", loc, dealer=result.dealer_name)
-            if pdf_sent
-            else t("pending.order_pdf_not_sent", loc, dealer=result.dealer_name)
-        )
+        if pdf_sent_to_dealer:
+            pdf_note = t("pending.order_pdf_sent", loc, dealer=result.dealer_name)
+        elif pdf_sent_to_founder:
+            pdf_note = t("pending.order_pdf_sent_to_founder", loc, dealer=result.dealer_name)
+        else:
+            pdf_note = t("pending.order_pdf_not_sent", loc, dealer=result.dealer_name)
 
         return t(
             "pending.order_success",
