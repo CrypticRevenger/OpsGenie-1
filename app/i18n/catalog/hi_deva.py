@@ -897,6 +897,33 @@ MESSAGES: dict[str, str] = {
     "notify.cash_line": "अभी available cash: {amount} — {sufficiency}",
     "notify.cash_sufficient": "काफ़ी है।",
     "notify.cash_insufficient": "कम पड़ सकता है।",
+    # ── Supplier-reminder payment confirmation ──────────────────────────────
+    "reminder_confirm.ask_paid": (
+        "क्या आपने {supplier} को {amount} pay कर दिया है?\n"
+        "Reply 1 अगर हाँ, 2 अगर अभी तक नहीं किया।"
+    ),
+    "reminder_confirm.invalid_choice": (
+        "कृपया reply 1 करें अगर pay कर दिया है, या 2 अगर अभी तक नहीं।"
+    ),
+    "reminder_confirm.amount_ask": (
+        "Amount confirm करें जो pay किया: {amount}। बदलने के लिए अलग number reply करें, "
+        "या 'ok' confirm करने के लिए।"
+    ),
+    "reminder_confirm.amount_invalid": "कृपया एक amount भेजें, जैसे 25000।",
+    "reminder_confirm.amount_positive": "कृपया zero से ज़्यादा amount भेजें।",
+    "reminder_confirm.reschedule_ask": (
+        "ठीक है — इस reminder को reschedule करने के लिए नई date reply करें (जैसे 'tomorrow', "
+        "'next week', '3 days'), या 'skip' अगर अभी भी due रखना है — मैं फिर से याद दिलाऊंगा।"
+    ),
+    "reminder_confirm.reschedule_invalid": (
+        "वह date समझ नहीं आई। Try 'tomorrow', 'next week', '3 days' — या 'skip'।"
+    ),
+    "reminder_confirm.rescheduled": (
+        "ठीक है — {supplier} का payment अब {date} को due है। उस समय के करीब फिर से याद "
+        "दिलाऊंगा।"
+    ),
+    "reminder_confirm.kept_due": "ठीक है, मैं फिर से याद दिलाऊंगा।",
+    "reminder_confirm.invoice_gone": "वह bill अब open नहीं है — reschedule करने की ज़रूरत नहीं।",
     "notify.dealer_alert": (
         "⚠ Collection Alert\n\n"
         "{dealer} — {amount} — अब {days} दिन overdue।\n"

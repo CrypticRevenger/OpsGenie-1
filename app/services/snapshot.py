@@ -68,6 +68,14 @@ class SupplierPayment:
     amount: Decimal
     due_date: date
     urgent: bool  # due within 48 hours
+    # Which specific bill this is — added so a "yes I paid this" reply to a
+    # reminder (app/services/workflows/payment_reminder_confirm.py) can target
+    # this exact invoice instead of FIFO-guessing across the supplier's other
+    # open invoices. Defaulted so existing test fixtures that build a
+    # SupplierPayment without it don't break (same reason as Snapshot's
+    # business_name/locale defaults above).
+    invoice_id: uuid.UUID | None = None
+    invoice_number: str = ""
 
 
 @dataclass
@@ -248,6 +256,8 @@ async def _expected_payments_7d(
                 amount=outstanding,
                 due_date=invoice.due_date,
                 urgent=(invoice.due_date - today) <= timedelta(days=2),
+                invoice_id=invoice.id,
+                invoice_number=invoice.invoice_number,
             )
         )
     return result

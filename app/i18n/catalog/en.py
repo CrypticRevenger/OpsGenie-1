@@ -988,6 +988,29 @@ MESSAGES: dict[str, str] = {
     "notify.cash_line": "Current cash available: {amount} — {sufficiency}",
     "notify.cash_sufficient": "sufficient.",
     "notify.cash_insufficient": "may be insufficient.",
+    # ── Supplier-reminder payment confirmation ──────────────────────────────
+    "reminder_confirm.ask_paid": (
+        "Have you already paid {supplier} {amount}?\nReply 1 if yes, 2 if not yet paid."
+    ),
+    "reminder_confirm.invalid_choice": "Please reply 1 if you've paid this, or 2 if not yet paid.",
+    "reminder_confirm.amount_ask": (
+        "Confirm the amount paid: {amount}. Reply a different number to change it, "
+        "or 'ok' to confirm."
+    ),
+    "reminder_confirm.amount_invalid": "Please send an amount, e.g. 25000.",
+    "reminder_confirm.amount_positive": "Please send an amount greater than zero.",
+    "reminder_confirm.reschedule_ask": (
+        "OK — reply with a new date to reschedule this reminder (e.g. 'tomorrow', 'next week', "
+        "'3 days'), or 'skip' to leave it due — I'll remind you again."
+    ),
+    "reminder_confirm.reschedule_invalid": (
+        "I didn't understand that date. Try 'tomorrow', 'next week', '3 days' — or 'skip'."
+    ),
+    "reminder_confirm.rescheduled": (
+        "Got it — {supplier}'s payment is now due {date}. I'll remind you again closer to then."
+    ),
+    "reminder_confirm.kept_due": "OK, I'll remind you again.",
+    "reminder_confirm.invoice_gone": "That bill is no longer open — no need to reschedule.",
     "notify.dealer_alert": (
         "⚠ Collection Alert\n\n"
         "{dealer} — {amount} — now {days} days overdue.\n"
