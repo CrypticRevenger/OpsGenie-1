@@ -1021,6 +1021,35 @@ MESSAGES: dict[str, str] = {
         "No follow-up recorded in 3 days.\n"
         "Suggested: call today before placing new order."
     ),
+    # ── Proactive early-warning alerts (7-day forecasts) ────────────────────
+    "notify.cash_shortage_forecast": (
+        "⚠️ Cash Shortage Forecast\n\n"
+        "Cash is projected to go negative in ~{days} day(s).\n\n"
+        "Main upcoming payment: {supplier} — {amount} (due in {trigger_days} day(s))\n\n"
+        "Expected out (7d): {expected_out}\n"
+        "Expected in (7d, incl. cash on hand): {expected_in}"
+    ),
+    "notify.stock_out_forecast": (
+        "📦 Stock Alert\n\n"
+        "{product} may run out in ~{days} day(s) at the current sales pace."
+    ),
+    "notify.predue_nudge": (
+        "🔔 Due Soon\n\n"
+        "{dealer}\n"
+        "{amount}\n\n"
+        "Due in {days} day(s).\n\n"
+        "Suggested action:\n"
+        "• Call the dealer\n"
+        "• Confirm payment\n"
+        "• If already received, reply: record payment"
+    ),
+    # ── Briefing "Watch this week" section (deterministic, not LLM-narrated) ─
+    "briefing.watch.header": "⚠ Watch this week",
+    "briefing.watch.cash_shortage": (
+        "• Cash shortage in ~{days} day(s) — mainly {supplier} {amount}"
+    ),
+    "briefing.watch.stock_out": "• {product} may run out in ~{days} day(s)",
+    "briefing.watch.predue": "• {dealer} payment due in {days} day(s)",
     # ── Evening business summary ───────────────────────────────────────────
     "evening.header": "🌙 Evening Business Summary",
     "evening.counts": (

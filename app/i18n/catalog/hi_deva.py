@@ -933,6 +933,32 @@ MESSAGES: dict[str, str] = {
         "3 दिन से कोई follow-up नहीं।\n"
         "Suggestion: नया order देने से पहले आज call करें।"
     ),
+    # ── Proactive early-warning alerts (7-day forecasts) — DRAFT for founder review ─
+    "notify.cash_shortage_forecast": (
+        "⚠️ Cash Shortage Forecast\n\n"
+        "Cash ~{days} दिन में negative होने का अनुमान है।\n\n"
+        "सबसे बड़ा upcoming payment: {supplier} — {amount} ({trigger_days} दिन में due)\n\n"
+        "Expected out (7d): {expected_out}\n"
+        "Expected in (7d, cash on hand सहित): {expected_in}"
+    ),
+    "notify.stock_out_forecast": (
+        "📦 Stock Alert\n\n"
+        "{product} current sales pace पर ~{days} दिन में खत्म हो सकता है।"
+    ),
+    "notify.predue_nudge": (
+        "🔔 Due Soon\n\n"
+        "{dealer}\n"
+        "{amount}\n\n"
+        "{days} दिन में due है।\n\n"
+        "Suggested action:\n"
+        "• Dealer को call करें\n"
+        "• Payment confirm करें\n"
+        "• अगर already मिल चुका है, reply करें: record payment"
+    ),
+    "briefing.watch.header": "⚠ इस हफ्ते ध्यान दें",
+    "briefing.watch.cash_shortage": "• ~{days} दिन में cash shortage — मुख्य रूप से {supplier} {amount}",
+    "briefing.watch.stock_out": "• {product} ~{days} दिन में खत्म हो सकता है",
+    "briefing.watch.predue": "• {dealer} का payment {days} दिन में due है",
     "evening.header": "🌙 शाम का Business Summary",
     "evening.counts": (
         "Invoices बने: {invoices} · WhatsApp से Orders: {orders} · Payments record: {payments}"

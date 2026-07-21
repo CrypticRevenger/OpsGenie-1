@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.i18n import resolve_locale, t
+from app.i18n import Locale, resolve_locale, t
 from app.models.company import Company
 from app.models.morning_briefing import MorningBriefing
 from app.services.llm import (
@@ -39,9 +39,15 @@ from app.services.llm import (
     NoApiKeyConfiguredError,
     generate_with_fallback,
 )
+from app.services.money_format import format_inr
+from app.services.notifications import (
+    _PREDUE_NUDGE_DAYS_BEFORE,
+    _STOCK_OUT_DAYS_OF_COVER_THRESHOLD,
+)
 from app.services.priority_actions import get_priority_actions
 from app.services.recommendations import _STALE_DATA_THRESHOLD_HOURS, ActionItem
 from app.services.snapshot import Snapshot, build_snapshot, business_now
+from app.services.stock_forecast import StockOutForecast, build_stock_out_forecasts
 
 logger = logging.getLogger(__name__)
 
@@ -185,6 +191,60 @@ def _flatten(value: object) -> list[object]:
     return [value]
 
 
+def build_watch_this_week(
+    snapshot: Snapshot,
+    stock_out_forecasts: list[StockOutForecast],
+    loc: Locale,
+) -> str | None:
+    """Deterministic "Watch this week" section — cash-shortage day count +
+    trigger payment, stock-out risk, invoices due soon. Built the same way as
+    evening_brief.py's _compose_text (plain t()-rendered lines joined in
+    Python) and never fed to the LLM, so the highest-priority operational
+    risks are never subject to narration drift. Returns None when there's
+    nothing to show, so the caller can prepend nothing.
+
+    Reuses notifications.py's own thresholds (_STOCK_OUT_DAYS_OF_COVER_THRESHOLD,
+    _PREDUE_NUDGE_DAYS_BEFORE) so this section and the standalone alerts can
+    never disagree about what counts as "worth watching" — same reason this
+    module already imports recommendations._STALE_DATA_THRESHOLD_HOURS.
+    """
+    lines = []
+    forecast = snapshot.cash_deficit_forecast
+    if forecast is not None and forecast.trigger_payment is not None:
+        lines.append(
+            t(
+                "briefing.watch.cash_shortage",
+                loc,
+                days=forecast.days_until,
+                supplier=forecast.trigger_payment.supplier_name,
+                amount=format_inr(forecast.trigger_payment.amount),
+            )
+        )
+
+    for stock_forecast in stock_out_forecasts:
+        if stock_forecast.days_of_cover <= _STOCK_OUT_DAYS_OF_COVER_THRESHOLD:
+            lines.append(
+                t(
+                    "briefing.watch.stock_out",
+                    loc,
+                    product=stock_forecast.product_name,
+                    days=stock_forecast.days_of_cover,
+                )
+            )
+
+    today = snapshot.generated_at.date()
+    for collection in snapshot.expected_collections_7d:
+        days_out = (collection.due_date - today).days
+        if 1 <= days_out <= _PREDUE_NUDGE_DAYS_BEFORE:
+            lines.append(
+                t("briefing.watch.predue", loc, dealer=collection.dealer_name, days=days_out)
+            )
+
+    if not lines:
+        return None
+    return t("briefing.watch.header", loc) + "\n" + "\n".join(lines)
+
+
 async def latest_briefing_today(
     db: AsyncSession, company: Company, business_date: date | None = None
 ) -> MorningBriefing | None:
@@ -227,6 +287,9 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
 
     snapshot = await build_snapshot(db, company_id)
     recommendations = await get_priority_actions(db, company_id, snapshot=snapshot)
+    stock_out_forecasts = await build_stock_out_forecasts(
+        db, company_id, snapshot.generated_at.date()
+    )
     payload = assemble_briefing_payload(snapshot, recommendations)
 
     result = await generate_with_fallback(
@@ -237,7 +300,11 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
     )
     indicator = confidence_indicator(snapshot.confidence_score, snapshot.data_freshness_hours)
     banner = stale_data_banner(snapshot.data_freshness_hours)
-    body = f"{banner}\n\n{result.text}" if banner else result.text
+    watch = build_watch_this_week(snapshot, stock_out_forecasts, resolve_locale(company))
+    # Order: stale-data caveat (qualifies trust in everything below) -> Watch
+    # this week (highest-priority operational risks, read first) -> LLM
+    # narrative -> confidence footer -> menu prompt.
+    body = "\n\n".join(part for part in (banner, watch, result.text) if part)
     generated_text = f"{body}\n\n{indicator}\n\n{t('menu.prompt', resolve_locale(company))}"
 
     unverified = find_unverified_amounts(result.text, payload)
@@ -291,6 +358,7 @@ __all__ = [
     "AllProvidersExhaustedError",
     "NoApiKeyConfiguredError",
     "assemble_briefing_payload",
+    "build_watch_this_week",
     "confidence_indicator",
     "find_unverified_amounts",
     "generate_briefing",

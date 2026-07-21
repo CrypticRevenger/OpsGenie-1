@@ -30,6 +30,9 @@ class ActivityEntityType(enum.StrEnum):
 
     dealer = "dealer"
     supplier = "supplier"
+    # Proactive stock-out forecast dedup key — see
+    # app/services/notifications.py::check_stock_out_forecasts.
+    product = "product"
 
 
 class ActivityEventType(enum.StrEnum):
@@ -43,6 +46,9 @@ class ActivityEventType(enum.StrEnum):
     overdue_flagged = "overdue_flagged"
     follow_up_sent = "follow_up_sent"
     follow_up_responded = "follow_up_responded"
+    # Proactive early-warning alerts — see app/services/notifications.py.
+    stock_out_forecast_sent = "stock_out_forecast_sent"
+    predue_nudge_sent = "predue_nudge_sent"
 
 
 class ActivityTimeline(UUIDMixin, Base):

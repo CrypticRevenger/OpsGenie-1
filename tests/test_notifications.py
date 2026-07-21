@@ -21,10 +21,17 @@ import pytest
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
+from app.models.dealer import Dealer
 from app.models.import_log import ImportLog
+from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
+from app.models.invoice_item import InvoiceItem
 from app.models.notification_log import NotificationLog
+from app.models.product import Product
 from app.services.notifications import (
+    check_cash_shortage_forecast,
     check_dealer_overdue_alerts,
+    check_predue_invoice_nudges,
+    check_stock_out_forecasts,
     check_supplier_payment_reminders,
     notify_briefing_failed,
     notify_briefing_generation_failed,
@@ -33,6 +40,8 @@ from app.services.notifications import (
 )
 from app.services.snapshot import (
     DEFAULT_BUSINESS_TIMEZONE,
+    CashDeficitForecast,
+    DealerCollection,
     OverdueDealer,
     Snapshot,
     SupplierPayment,
@@ -106,6 +115,78 @@ def _overdue_dealer(**overrides) -> OverdueDealer:
     )
     defaults.update(overrides)
     return OverdueDealer(**defaults)
+
+
+def _dealer_collection(**overrides) -> DealerCollection:
+    defaults = dict(
+        dealer_id=uuid.uuid4(),
+        dealer_name="ABC Medical",
+        amount=Decimal("48000.00"),
+        due_date=TODAY + timedelta(days=2),
+    )
+    defaults.update(overrides)
+    return DealerCollection(**defaults)
+
+
+async def _make_dealer(
+    db: AsyncSession, company_id: uuid.UUID, name: str = "Velocity Dealer"
+) -> uuid.UUID:
+    dealer = Dealer(company_id=company_id, name=name)
+    db.add(dealer)
+    await db.commit()
+    await db.refresh(dealer)
+    return dealer.id
+
+
+async def _make_product(
+    db: AsyncSession, company_id: uuid.UUID, name: str, stock_quantity: Decimal
+) -> uuid.UUID:
+    product = Product(company_id=company_id, name=name, stock_quantity=stock_quantity)
+    db.add(product)
+    await db.commit()
+    await db.refresh(product)
+    return product.id
+
+
+async def _make_sale(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    dealer_id: uuid.UUID,
+    product_id: uuid.UUID,
+    quantity: Decimal,
+    invoice_date,
+) -> None:
+    """A receivable invoice + line item — the real rows check_stock_out_forecasts'
+    underlying build_stock_out_forecasts query reads directly (unlike the other
+    rules, it doesn't read off the hand-built Snapshot).
+    """
+    invoice = Invoice(
+        company_id=company_id,
+        invoice_number=f"INV-{uuid.uuid4().hex[:10]}",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        invoice_date=invoice_date,
+        due_date=invoice_date + timedelta(days=7),
+        subtotal=Decimal("100.00"),
+        gst_amount=Decimal("0.00"),
+        total_amount=Decimal("100.00"),
+        status=InvoiceStatus.Paid,
+        source=InvoiceSource.csv_import,
+    )
+    db.add(invoice)
+    await db.commit()
+    await db.refresh(invoice)
+    db.add(
+        InvoiceItem(
+            invoice_id=invoice.id,
+            product_id=product_id,
+            description="line",
+            quantity=quantity,
+            unit_price=Decimal("10.00"),
+            line_total=Decimal("100.00"),
+        )
+    )
+    await db.commit()
 
 
 @pytest.fixture
@@ -264,6 +345,204 @@ async def test_dealer_alert_dedups_when_recent_followup_exists(
     await db.commit()
     assert sent == 0
     assert recorded_sends == []
+
+
+# ── Rule 5: cash-shortage forecast ───────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cash_shortage_forecast_fires_with_trigger_payment(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    trigger = _supplier_payment(
+        supplier_name="Big Supplier",
+        amount=Decimal("90000.00"),
+        due_date=TODAY + timedelta(days=2),
+    )
+    snap = _snapshot(
+        company.id,
+        cash_deficit_forecast=CashDeficitForecast(days_until=2, trigger_payment=trigger),
+    )
+    sent = await check_cash_shortage_forecast(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert "Cash Shortage Forecast" in recorded_sends[0][1]
+    assert "Big Supplier" in recorded_sends[0][1]
+    event = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.company_id == company.id,
+            BusinessEvent.event_type == BusinessEventType.cash_shortage_forecast_sent,
+        )
+    )
+    assert event is not None
+
+
+@pytest.mark.asyncio
+async def test_cash_shortage_forecast_skips_when_no_forecast(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    snap = _snapshot(company.id, cash_deficit_forecast=None)
+    sent = await check_cash_shortage_forecast(db, company, snap, NOW)
+    await db.commit()
+    assert sent == 0
+    assert recorded_sends == []
+
+
+@pytest.mark.asyncio
+async def test_cash_shortage_forecast_dedups_within_quiet_window(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    trigger = _supplier_payment(due_date=TODAY + timedelta(days=2))
+    snap = _snapshot(
+        company.id,
+        cash_deficit_forecast=CashDeficitForecast(days_until=2, trigger_payment=trigger),
+    )
+    first = await check_cash_shortage_forecast(db, company, snap, NOW)
+    await db.commit()
+    second = await check_cash_shortage_forecast(db, company, snap, NOW)
+    await db.commit()
+
+    assert first == 1
+    assert second == 0
+    assert len(recorded_sends) == 1
+
+
+# ── Rule 6: stock-out forecast ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_stock_out_forecast_fires_below_threshold(db: AsyncSession, recorded_sends) -> None:
+    company = await _make_company(db)
+    dealer_id = await _make_dealer(db, company.id)
+    product_id = await _make_product(db, company.id, "Paracetamol", Decimal("20"))
+    # 4 sales x 30 units = 120 units over 30 days -> 4 units/day; 20 in stock
+    # -> 5 days of cover, within the 7-day threshold.
+    for i in range(4):
+        await _make_sale(
+            db, company.id, dealer_id, product_id, Decimal("30"), TODAY - timedelta(days=i)
+        )
+
+    snap = _snapshot(company.id)
+    sent = await check_stock_out_forecasts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert "Paracetamol" in recorded_sends[0][1]
+
+
+@pytest.mark.asyncio
+async def test_stock_out_forecast_suppressed_by_min_sample_guard(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    dealer_id = await _make_dealer(db, company.id)
+    product_id = await _make_product(db, company.id, "Rare Item", Decimal("5"))
+    # Well above the units floor but only 1 sale-day — below the 3-sale-day guard.
+    await _make_sale(db, company.id, dealer_id, product_id, Decimal("50"), TODAY)
+
+    snap = _snapshot(company.id)
+    sent = await check_stock_out_forecasts(db, company, snap, NOW)
+    await db.commit()
+    assert sent == 0
+    assert recorded_sends == []
+
+
+@pytest.mark.asyncio
+async def test_stock_out_forecast_skips_when_cover_above_threshold(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    dealer_id = await _make_dealer(db, company.id)
+    product_id = await _make_product(db, company.id, "Overstocked", Decimal("1000"))
+    for i in range(4):
+        await _make_sale(
+            db, company.id, dealer_id, product_id, Decimal("30"), TODAY - timedelta(days=i)
+        )
+    # velocity 4/day, 1000 in stock -> 250 days of cover, well above threshold.
+
+    snap = _snapshot(company.id)
+    sent = await check_stock_out_forecasts(db, company, snap, NOW)
+    await db.commit()
+    assert sent == 0
+
+
+@pytest.mark.asyncio
+async def test_stock_out_forecast_dedups_per_product(db: AsyncSession, recorded_sends) -> None:
+    company = await _make_company(db)
+    dealer_id = await _make_dealer(db, company.id)
+    product_id = await _make_product(db, company.id, "Widget", Decimal("20"))
+    for i in range(4):
+        await _make_sale(
+            db, company.id, dealer_id, product_id, Decimal("30"), TODAY - timedelta(days=i)
+        )
+
+    snap = _snapshot(company.id)
+    first = await check_stock_out_forecasts(db, company, snap, NOW)
+    await db.commit()
+    second = await check_stock_out_forecasts(db, company, snap, NOW)
+    await db.commit()
+
+    assert first == 1
+    assert second == 0
+    assert len(recorded_sends) == 1
+
+
+# ── Rule 7: pre-due invoice nudge ─────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_predue_nudge_fires_for_due_in_two_days(db: AsyncSession, recorded_sends) -> None:
+    company = await _make_company(db)
+    snap = _snapshot(
+        company.id, expected_collections_7d=[_dealer_collection(due_date=TODAY + timedelta(days=2))]
+    )
+    sent = await check_predue_invoice_nudges(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert "Due Soon" in recorded_sends[0][1]
+
+
+@pytest.mark.asyncio
+async def test_predue_nudge_excludes_due_today(db: AsyncSession, recorded_sends) -> None:
+    # Due today/overdue stays followup.py's (and rule 2's) job, not this rule's.
+    company = await _make_company(db)
+    snap = _snapshot(company.id, expected_collections_7d=[_dealer_collection(due_date=TODAY)])
+    sent = await check_predue_invoice_nudges(db, company, snap, NOW)
+    await db.commit()
+    assert sent == 0
+    assert recorded_sends == []
+
+
+@pytest.mark.asyncio
+async def test_predue_nudge_excludes_beyond_window(db: AsyncSession, recorded_sends) -> None:
+    company = await _make_company(db)
+    snap = _snapshot(
+        company.id, expected_collections_7d=[_dealer_collection(due_date=TODAY + timedelta(days=5))]
+    )
+    sent = await check_predue_invoice_nudges(db, company, snap, NOW)
+    await db.commit()
+    assert sent == 0
+    assert recorded_sends == []
+
+
+@pytest.mark.asyncio
+async def test_predue_nudge_dedups_per_dealer(db: AsyncSession, recorded_sends) -> None:
+    company = await _make_company(db)
+    collection = _dealer_collection(due_date=TODAY + timedelta(days=1))
+    snap = _snapshot(company.id, expected_collections_7d=[collection])
+    first = await check_predue_invoice_nudges(db, company, snap, NOW)
+    await db.commit()
+    second = await check_predue_invoice_nudges(db, company, snap, NOW)
+    await db.commit()
+
+    assert first == 1
+    assert second == 0
+    assert len(recorded_sends) == 1
 
 
 # ── Rule 3: stale-data founder alert ─────────────────────────────────────────

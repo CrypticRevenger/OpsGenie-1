@@ -19,7 +19,11 @@ from app.models.import_log import ImportLog
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.payment import Payment
 from app.models.supplier import Supplier
-from app.services.snapshot import DEFAULT_BUSINESS_TIMEZONE, build_snapshot, business_now
+from app.services.snapshot import (
+    DEFAULT_BUSINESS_TIMEZONE,
+    build_snapshot,
+    business_now,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Anchor the test's "today" to the exact same business-timezone basis the
@@ -244,6 +248,63 @@ async def test_net_cash_position_and_deficit_flag(db: AsyncSession) -> None:
     snapshot = await build_snapshot(db, company_id)
     assert snapshot.net_cash_position == Decimal("1000.00") - Decimal("50000.00")
     assert snapshot.cash_deficit is True
+
+
+@pytest.mark.asyncio
+async def test_cash_deficit_forecast_none_when_cash_sufficient(db: AsyncSession) -> None:
+    company_id = await _make_company(db, opening_balance=Decimal("100000.00"))
+    supplier_id = await _make_supplier(db, company_id, "Small Supplier")
+    await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-SUFFICIENT",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("5000.00"),
+        due_date=TODAY + timedelta(days=2),
+    )
+
+    snapshot = await build_snapshot(db, company_id)
+    assert snapshot.cash_deficit_forecast is None
+
+
+@pytest.mark.asyncio
+async def test_cash_deficit_forecast_identifies_day_and_biggest_trigger_payment(
+    db: AsyncSession,
+) -> None:
+    company_id = await _make_company(db, opening_balance=Decimal("10000.00"))
+    supplier_a = await _make_supplier(db, company_id, "Supplier A")
+    supplier_b = await _make_supplier(db, company_id, "Supplier B")
+    # Day+1: 10000 - 9000 = 1000 (still positive). Day+2: 1000 - 3000 = -2000
+    # (first negative day). Supplier A's payment is bigger than Supplier B's
+    # AND due earlier — trigger_payment must still pick the biggest one
+    # contributing by the deficit day, not just the day-of/last-processed one.
+    await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-TRIGGER-A",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_a,
+        total_amount=Decimal("9000.00"),
+        due_date=TODAY + timedelta(days=1),
+    )
+    await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-TRIGGER-B",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_b,
+        total_amount=Decimal("3000.00"),
+        due_date=TODAY + timedelta(days=2),
+    )
+
+    snapshot = await build_snapshot(db, company_id)
+    forecast = snapshot.cash_deficit_forecast
+    assert forecast is not None
+    assert forecast.days_until == 2
+    assert forecast.trigger_payment is not None
+    assert forecast.trigger_payment.supplier_name == "Supplier A"
+    assert forecast.trigger_payment.amount == Decimal("9000.00")
 
 
 @pytest.mark.asyncio
