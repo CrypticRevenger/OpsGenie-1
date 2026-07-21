@@ -79,6 +79,12 @@ class SupplierPayment:
 
 
 @dataclass
+class CashDeficitForecast:
+    days_until: int
+    trigger_payment: SupplierPayment | None  # largest single payment due by the deficit day
+
+
+@dataclass
 class OverdueDealer:
     dealer_id: uuid.UUID
     dealer_name: str
@@ -126,6 +132,13 @@ class Snapshot:
     # Defaulted to 0 for the same reason as business_name/locale above.
     dealers_missing_fields_count: int = 0
     suppliers_missing_fields_count: int = 0
+    # Proactive early-warning alert (see app/services/notifications.py::
+    # check_cash_shortage_forecast) — the day-by-day cumulative walk
+    # net_cash_position/cash_deficit don't do: WHEN the deficit first hits,
+    # and the single biggest payment behind it. None when no deficit is
+    # projected within the 7-day window. Defaulted for the same reason as
+    # business_name/locale above.
+    cash_deficit_forecast: CashDeficitForecast | None = None
 
 
 def is_cash_sufficient(cash_available: Decimal, amount: Decimal) -> bool:
@@ -263,6 +276,42 @@ async def _expected_payments_7d(
     return result
 
 
+def forecast_cash_deficit(
+    cash_available_today: Decimal,
+    collections: list[DealerCollection],
+    payments: list[SupplierPayment],
+    today: date,
+) -> CashDeficitForecast | None:
+    """Cumulative day-by-day walk (not the flat 7-day totals) to find the
+    first day the running cash position goes negative, plus the biggest
+    single payment due by that day. net_cash_position/cash_deficit only
+    answer "does a deficit exist by day 7" — not "when" or "caused by what",
+    which is what makes the forward-looking alert actionable rather than
+    just informative.
+    """
+    events = sorted(
+        [(c.due_date, c.amount) for c in collections]
+        + [(p.due_date, -p.amount) for p in payments],
+        key=lambda event: event[0],
+    )
+    running = cash_available_today
+    deficit_due_date: date | None = None
+    for due_date, delta in events:
+        running += delta
+        if running < 0:
+            deficit_due_date = due_date
+            break
+    if deficit_due_date is None:
+        return None
+
+    contributing = [p for p in payments if p.due_date <= deficit_due_date]
+    trigger = max(contributing, key=lambda p: p.amount, default=None)
+    return CashDeficitForecast(
+        days_until=(deficit_due_date - today).days,
+        trigger_payment=trigger,
+    )
+
+
 async def _overdue_dealers(
     db: AsyncSession, company_id: uuid.UUID, today: date
 ) -> list[OverdueDealer]:
@@ -368,6 +417,7 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
     collections_total = sum((c.amount for c in collections), Decimal("0.00"))
     payments_total = sum((p.amount for p in payments), Decimal("0.00"))
     net_cash_position = cash_available_today + collections_total - payments_total
+    deficit_forecast = forecast_cash_deficit(cash_available_today, collections, payments, today)
 
     return Snapshot(
         company_id=company_id,
@@ -387,4 +437,5 @@ async def build_snapshot(db: AsyncSession, company_id: uuid.UUID) -> Snapshot:
         locale=resolve_locale(company),
         dealers_missing_fields_count=dealers_missing_fields_count,
         suppliers_missing_fields_count=suppliers_missing_fields_count,
+        cash_deficit_forecast=deficit_forecast,
     )

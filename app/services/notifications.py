@@ -16,6 +16,18 @@ scheduler tick because each dedups against its own recent-activity window:
    driven by the scheduler's retry path, which calls send_founder_alert
    directly rather than going through run_notification_checks).
 
+Plus three proactive early-warning forecasts (7 days ahead), same shape as
+rules 1-2 (stateless, per-company/per-entity dedup, no LLM, no new
+conversation state):
+
+5. Cash-shortage forecast — cumulative day-by-day walk of the 7-day window
+   projects a negative cash position → distributor alert naming the day and
+   the single biggest payment behind it.
+6. Stock-out forecast — sales velocity (InvoiceItem history) vs current
+   stock_quantity projects a product running out soon → distributor alert.
+7. Pre-due invoice nudge — a receivable invoice is due in 1-2 days (not yet
+   overdue; that stays rule 2/followup.py's job) → distributor heads-up.
+
 Same layering as app/services/followup.py: reuses send_text_message, writes
 NotificationLog + BusinessEvent + ActivityTimeline, and never commits
 internally — the caller (the scheduler, one commit per company) owns the
@@ -46,6 +58,7 @@ from app.services.snapshot import (
     data_freshness_hours,
     is_cash_sufficient,
 )
+from app.services.stock_forecast import StockOutForecast, build_stock_out_forecasts
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
@@ -69,6 +82,17 @@ _BRIEFING_FAILED_REASON = "briefing_failed"
 # WhatsApp message stays readable; any beyond this are summarised as a count.
 _DIGEST_MAX_LISTED = 25
 
+# Proactive early-warning forecasts (rules 5-7) — same per-entity/per-company
+# quiet-window dedup shape as rules 1-2 above.
+_CASH_FORECAST_QUIET_DAYS = 3  # matches _DEALER_ALERT_QUIET_DAYS cadence
+_STOCK_OUT_QUIET_DAYS = 3
+# briefing.py imports these two directly (same reuse pattern as its existing
+# import of recommendations._STALE_DATA_THRESHOLD_HOURS) so the "Watch this
+# week" section and the standalone alert can never disagree about a threshold.
+_STOCK_OUT_DAYS_OF_COVER_THRESHOLD = 7
+_PREDUE_NUDGE_DAYS_BEFORE = 2
+_PREDUE_NUDGE_QUIET_HOURS = 24
+
 # Hard global ceiling: at most ONE founder stale-data digest per this many hours,
 # across ALL companies, on top of the per-company/per-day dedup below. The
 # per-company dedup only stops a company being *re-listed* the same day — it does
@@ -84,6 +108,9 @@ _STALE_DIGEST_MIN_INTERVAL_HOURS = 20
 class NotificationRunResult:
     supplier_reminders: int
     dealer_alerts: int
+    cash_shortage_forecasts: int
+    stock_out_forecasts: int
+    predue_nudges: int
 
 
 @dataclass(frozen=True)
@@ -146,6 +173,30 @@ async def _recent_activity_exists(
             ActivityTimeline.entity_id == entity_id,
             ActivityTimeline.event_type.in_(event_types),
             ActivityTimeline.event_timestamp >= since,
+        )
+    )
+    return found is not None
+
+
+async def _recent_business_event_exists(
+    db: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    event_type: BusinessEventType,
+    since: datetime,
+) -> bool:
+    """Company-level analogue of _recent_activity_exists, for alerts that
+    aren't about one specific dealer/supplier/product — e.g. the cash-
+    shortage forecast, which is a statement about the company as a whole.
+    Unlike _founder_alert_sent_since, no payload["reason"] filter is needed:
+    each caller passes its own dedicated event_type, so the type alone
+    disambiguates.
+    """
+    found = await db.scalar(
+        select(BusinessEvent.id).where(
+            BusinessEvent.company_id == company_id,
+            BusinessEvent.event_type == event_type,
+            BusinessEvent.created_at >= since,
         )
     )
     return found is not None
@@ -325,6 +376,211 @@ async def check_dealer_overdue_alerts(
                     "dealer_name": dealer.dealer_name,
                     "outstanding": str(dealer.outstanding),
                     "days_overdue": dealer.days_overdue,
+                },
+                created_by="notification_engine",
+            )
+        )
+        sent += 1
+    return sent
+
+
+# ── Rule 5: cash-shortage forecast (7-day window, company-level) ───────────
+
+
+async def check_cash_shortage_forecast(
+    db: AsyncSession, company: Company, snapshot: Snapshot, now: datetime
+) -> int:
+    """Fires when forecast_cash_deficit (app/services/snapshot.py) projects a
+    negative cash position within the 7-day window. Company-level, not
+    per-entity, so dedup is a BusinessEvent lookback rather than
+    ActivityTimeline. Skips (returns 0) if a trigger_payment can't be
+    identified — provably can't happen given the deficit can only be caused
+    by a payment's delta, but the alert must never invent a cause it doesn't
+    have.
+
+    Future refinement (not built — not essential for V1, confirmed with the
+    user): suppress this standalone push when today's briefing already
+    included the same warning via build_watch_this_week. Today it can
+    double-surface, same as rules 1-2 already do against the briefing's
+    recommendations.
+    """
+    forecast = snapshot.cash_deficit_forecast
+    if forecast is None or forecast.trigger_payment is None:
+        return 0
+
+    since = now - timedelta(days=_CASH_FORECAST_QUIET_DAYS)
+    if await _recent_business_event_exists(
+        db,
+        company_id=company.id,
+        event_type=BusinessEventType.cash_shortage_forecast_sent,
+        since=since,
+    ):
+        return 0
+
+    trigger = forecast.trigger_payment
+    today = now.date()
+    message = t(
+        "notify.cash_shortage_forecast",
+        resolve_locale(company),
+        days=forecast.days_until,
+        supplier=trigger.supplier_name,
+        amount=format_inr(trigger.amount),
+        trigger_days=(trigger.due_date - today).days,
+        expected_out=format_inr(snapshot.expected_payments_7d_total),
+        expected_in=format_inr(
+            snapshot.cash_available_today + snapshot.expected_collections_7d_total
+        ),
+    )
+    await _send_and_log(
+        db,
+        company_id=company.id,
+        recipient=company.whatsapp_number,
+        notification_type="cash_shortage_forecast",
+        message=message,
+    )
+    db.add(
+        BusinessEvent(
+            company_id=company.id,
+            event_type=BusinessEventType.cash_shortage_forecast_sent,
+            entity_type="company",
+            entity_id=company.id,
+            payload={
+                "days_until": forecast.days_until,
+                "trigger_supplier_name": trigger.supplier_name,
+                "trigger_amount": str(trigger.amount),
+            },
+            created_by="notification_engine",
+        )
+    )
+    return 1
+
+
+# ── Rule 6: stock-out forecast (sales velocity vs stock) ───────────────────
+
+
+async def check_stock_out_forecasts(
+    db: AsyncSession, company: Company, snapshot: Snapshot, now: datetime
+) -> int:
+    today = now.date()
+    forecasts: list[StockOutForecast] = await build_stock_out_forecasts(db, company.id, today)
+    since = now - timedelta(days=_STOCK_OUT_QUIET_DAYS)
+    sent = 0
+    for forecast in forecasts:
+        if forecast.days_of_cover > _STOCK_OUT_DAYS_OF_COVER_THRESHOLD:
+            continue
+        if await _recent_activity_exists(
+            db,
+            company_id=company.id,
+            entity_type=ActivityEntityType.product,
+            entity_id=forecast.product_id,
+            event_types=(ActivityEventType.stock_out_forecast_sent,),
+            since=since,
+        ):
+            continue
+
+        message = t(
+            "notify.stock_out_forecast",
+            resolve_locale(company),
+            product=forecast.product_name,
+            days=forecast.days_of_cover,
+        )
+        await _send_and_log(
+            db,
+            company_id=company.id,
+            recipient=company.whatsapp_number,
+            notification_type="stock_out_forecast",
+            message=message,
+        )
+        db.add(
+            ActivityTimeline(
+                company_id=company.id,
+                entity_type=ActivityEntityType.product,
+                entity_id=forecast.product_id,
+                event_type=ActivityEventType.stock_out_forecast_sent,
+                notes=(
+                    f"Stock-out forecast: {forecast.product_name}, "
+                    f"~{forecast.days_of_cover}d cover"
+                ),
+            )
+        )
+        db.add(
+            BusinessEvent(
+                company_id=company.id,
+                event_type=BusinessEventType.stock_out_forecast_sent,
+                entity_type="product",
+                entity_id=forecast.product_id,
+                payload={
+                    "product_name": forecast.product_name,
+                    "days_of_cover": forecast.days_of_cover,
+                    "stock_quantity": str(forecast.stock_quantity),
+                },
+                created_by="notification_engine",
+            )
+        )
+        sent += 1
+    return sent
+
+
+# ── Rule 7: pre-due invoice nudge (due soon, not yet overdue) ──────────────
+
+
+async def check_predue_invoice_nudges(
+    db: AsyncSession, company: Company, snapshot: Snapshot, now: datetime
+) -> int:
+    today = now.date()
+    since = now - timedelta(hours=_PREDUE_NUDGE_QUIET_HOURS)
+    sent = 0
+    for collection in snapshot.expected_collections_7d:
+        days_out = (collection.due_date - today).days
+        # Due today/overdue stays followup.py's job (rule 2 covers High-Risk
+        # overdue dealers separately) — this rule only covers the days
+        # strictly before that.
+        if not (1 <= days_out <= _PREDUE_NUDGE_DAYS_BEFORE):
+            continue
+        if await _recent_activity_exists(
+            db,
+            company_id=company.id,
+            entity_type=ActivityEntityType.dealer,
+            entity_id=collection.dealer_id,
+            event_types=(ActivityEventType.predue_nudge_sent,),
+            since=since,
+        ):
+            continue
+
+        message = t(
+            "notify.predue_nudge",
+            resolve_locale(company),
+            dealer=collection.dealer_name,
+            amount=format_inr(collection.amount),
+            days=days_out,
+        )
+        await _send_and_log(
+            db,
+            company_id=company.id,
+            recipient=company.whatsapp_number,
+            notification_type="predue_invoice_nudge",
+            message=message,
+        )
+        db.add(
+            ActivityTimeline(
+                company_id=company.id,
+                entity_type=ActivityEntityType.dealer,
+                entity_id=collection.dealer_id,
+                event_type=ActivityEventType.predue_nudge_sent,
+                amount=collection.amount,
+                notes=f"Pre-due nudge: {collection.dealer_name} due in {days_out}d",
+            )
+        )
+        db.add(
+            BusinessEvent(
+                company_id=company.id,
+                event_type=BusinessEventType.predue_nudge_sent,
+                entity_type="dealer",
+                entity_id=collection.dealer_id,
+                payload={
+                    "dealer_name": collection.dealer_name,
+                    "amount": str(collection.amount),
+                    "days_out": days_out,
                 },
                 created_by="notification_engine",
             )
@@ -605,13 +861,14 @@ async def notify_briefing_generation_failed(
 async def run_notification_checks(
     db: AsyncSession, company_id: uuid.UUID, now: datetime | None = None
 ) -> NotificationRunResult:
-    """Build one snapshot and run the two per-company (distributor-facing)
-    rules for a company: supplier payment reminders and dealer overdue alerts.
-    Rule 3 (stale data) is now a founder-facing, cross-company digest
-    (send_stale_data_digest, driven once per scheduler tick) rather than a
-    per-company send, and Rule 4 (briefing failure) is scheduler-driven — so
-    neither is part of this poll. `now` is overridable so the scheduler/tests
-    can pin business time deterministically.
+    """Build one snapshot and run every per-company (distributor-facing) rule:
+    supplier payment reminders, dealer overdue alerts, and the three 7-day
+    forecasts (cash shortage, stock-out, pre-due nudge). Rule 3 (stale data)
+    is now a founder-facing, cross-company digest (send_stale_data_digest,
+    driven once per scheduler tick) rather than a per-company send, and Rule 4
+    (briefing failure) is scheduler-driven — so neither is part of this poll.
+    `now` is overridable so the scheduler/tests can pin business time
+    deterministically.
     """
     company = await db.get(Company, company_id)
     if company is None:
@@ -622,4 +879,13 @@ async def run_notification_checks(
     snapshot = await build_snapshot(db, company_id)
     supplier = await check_supplier_payment_reminders(db, company, snapshot, now)
     dealer = await check_dealer_overdue_alerts(db, company, snapshot, now)
-    return NotificationRunResult(supplier_reminders=supplier, dealer_alerts=dealer)
+    cash_forecast = await check_cash_shortage_forecast(db, company, snapshot, now)
+    stock_out = await check_stock_out_forecasts(db, company, snapshot, now)
+    predue = await check_predue_invoice_nudges(db, company, snapshot, now)
+    return NotificationRunResult(
+        supplier_reminders=supplier,
+        dealer_alerts=dealer,
+        cash_shortage_forecasts=cash_forecast,
+        stock_out_forecasts=stock_out,
+        predue_nudges=predue,
+    )

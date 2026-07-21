@@ -1032,6 +1032,34 @@ MESSAGES: dict[str, str] = {
         "3 din se koi follow-up nahi.\n"
         "Suggestion: naya order dene se pehle aaj call karein."
     ),
+    # ── Proactive early-warning alerts (7-day forecasts) — DRAFT for founder review ─
+    "notify.cash_shortage_forecast": (
+        "⚠️ Cash Shortage Forecast\n\n"
+        "Cash ~{days} din me negative hone ka anumaan hai.\n\n"
+        "Sabse bada upcoming payment: {supplier} — {amount} ({trigger_days} din me due)\n\n"
+        "Expected out (7d): {expected_out}\n"
+        "Expected in (7d, cash on hand samet): {expected_in}"
+    ),
+    "notify.stock_out_forecast": (
+        "📦 Stock Alert\n\n"
+        "{product} current sales pace par ~{days} din me khatam ho sakta hai."
+    ),
+    "notify.predue_nudge": (
+        "🔔 Due Soon\n\n"
+        "{dealer}\n"
+        "{amount}\n\n"
+        "{days} din me due hai.\n\n"
+        "Suggested action:\n"
+        "• Dealer ko call karein\n"
+        "• Payment confirm karein\n"
+        "• Agar already mil chuka hai, reply karein: record payment"
+    ),
+    "briefing.watch.header": "⚠ Is hafte dhyan dein",
+    "briefing.watch.cash_shortage": (
+        "• ~{days} din me cash shortage — mukhya roop se {supplier} {amount}"
+    ),
+    "briefing.watch.stock_out": "• {product} ~{days} din me khatam ho sakta hai",
+    "briefing.watch.predue": "• {dealer} ka payment {days} din me due hai",
     "evening.header": "🌙 Shaam ka Business Summary",
     "evening.counts": (
         "Invoices bane: {invoices} · WhatsApp se Orders: {orders} · Payments record: {payments}"

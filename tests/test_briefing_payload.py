@@ -9,17 +9,20 @@ ANTHROPIC_API_KEY being set.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from app.i18n import DEFAULT_LOCALE
 from app.services.briefing import (
     assemble_briefing_payload,
+    build_watch_this_week,
     confidence_indicator,
     find_unverified_amounts,
     stale_data_banner,
 )
 from app.services.recommendations import ActionItem
-from app.services.snapshot import Snapshot
+from app.services.snapshot import CashDeficitForecast, DealerCollection, Snapshot, SupplierPayment
+from app.services.stock_forecast import StockOutForecast
 
 
 def _base_snapshot(**overrides) -> Snapshot:
@@ -149,3 +152,111 @@ def test_find_unverified_amounts_no_amounts_mentioned():
     payload = {"cash_position": {"available_today": "184000.00"}}
     generated_text = "Everything looks fine, no numbers here."
     assert find_unverified_amounts(generated_text, payload) == []
+
+
+# ── build_watch_this_week ──────────────────────────────────────────────────
+
+
+def test_build_watch_this_week_none_when_nothing_to_show():
+    snapshot = _base_snapshot()
+    assert build_watch_this_week(snapshot, [], DEFAULT_LOCALE) is None
+
+
+def test_build_watch_this_week_includes_cash_shortage_with_trigger():
+    trigger = SupplierPayment(
+        supplier_id=uuid.uuid4(),
+        supplier_name="Big Supplier",
+        amount=Decimal("90000.00"),
+        due_date=date(2026, 1, 3),
+        urgent=False,
+    )
+    snapshot = _base_snapshot(
+        cash_deficit_forecast=CashDeficitForecast(days_until=3, trigger_payment=trigger)
+    )
+    section = build_watch_this_week(snapshot, [], DEFAULT_LOCALE)
+    assert section is not None
+    assert "Watch this week" in section
+    assert "Big Supplier" in section
+
+
+def test_build_watch_this_week_includes_stock_out_below_threshold():
+    snapshot = _base_snapshot()
+    forecast = StockOutForecast(
+        product_id=uuid.uuid4(),
+        product_name="Paracetamol",
+        stock_quantity=Decimal("20"),
+        units_per_day=Decimal("4"),
+        days_of_cover=5,
+    )
+    section = build_watch_this_week(snapshot, [forecast], DEFAULT_LOCALE)
+    assert section is not None
+    assert "Paracetamol" in section
+
+
+def test_build_watch_this_week_excludes_stock_out_above_threshold():
+    snapshot = _base_snapshot()
+    forecast = StockOutForecast(
+        product_id=uuid.uuid4(),
+        product_name="Overstocked",
+        stock_quantity=Decimal("1000"),
+        units_per_day=Decimal("4"),
+        days_of_cover=250,
+    )
+    assert build_watch_this_week(snapshot, [forecast], DEFAULT_LOCALE) is None
+
+
+def test_build_watch_this_week_includes_predue_collection_within_window():
+    generated_at = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    collection = DealerCollection(
+        dealer_id=uuid.uuid4(),
+        dealer_name="ABC Medical",
+        amount=Decimal("48000.00"),
+        due_date=date(2026, 1, 3),  # 2 days out
+    )
+    snapshot = _base_snapshot(generated_at=generated_at, expected_collections_7d=[collection])
+    section = build_watch_this_week(snapshot, [], DEFAULT_LOCALE)
+    assert section is not None
+    assert "ABC Medical" in section
+
+
+def test_build_watch_this_week_excludes_predue_beyond_window():
+    generated_at = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    collection = DealerCollection(
+        dealer_id=uuid.uuid4(),
+        dealer_name="Far Out Dealer",
+        amount=Decimal("1000.00"),
+        due_date=date(2026, 1, 6),  # 5 days out — beyond the pre-due window
+    )
+    snapshot = _base_snapshot(generated_at=generated_at, expected_collections_7d=[collection])
+    assert build_watch_this_week(snapshot, [], DEFAULT_LOCALE) is None
+
+
+def test_build_watch_this_week_orders_cash_before_stock_before_predue():
+    generated_at = datetime(2026, 1, 1, 8, 0, tzinfo=UTC)
+    trigger = SupplierPayment(
+        supplier_id=uuid.uuid4(),
+        supplier_name="Supplier",
+        amount=Decimal("1000.00"),
+        due_date=date(2026, 1, 2),
+        urgent=False,
+    )
+    stock_forecast = StockOutForecast(
+        product_id=uuid.uuid4(),
+        product_name="ProductX",
+        stock_quantity=Decimal("10"),
+        units_per_day=Decimal("2"),
+        days_of_cover=5,
+    )
+    collection = DealerCollection(
+        dealer_id=uuid.uuid4(),
+        dealer_name="DealerY",
+        amount=Decimal("500.00"),
+        due_date=date(2026, 1, 3),
+    )
+    snapshot = _base_snapshot(
+        generated_at=generated_at,
+        cash_deficit_forecast=CashDeficitForecast(days_until=1, trigger_payment=trigger),
+        expected_collections_7d=[collection],
+    )
+    section = build_watch_this_week(snapshot, [stock_forecast], DEFAULT_LOCALE)
+    assert section.index("Supplier") < section.index("ProductX") < section.index("DealerY")

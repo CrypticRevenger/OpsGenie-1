@@ -229,7 +229,10 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
             await db.commit()
             diagnostics["actions"]["notifications"] = (
                 f"checked (supplier_reminders={result.supplier_reminders}, "
-                f"dealer_alerts={result.dealer_alerts})"
+                f"dealer_alerts={result.dealer_alerts}, "
+                f"cash_shortage_forecasts={result.cash_shortage_forecasts}, "
+                f"stock_out_forecasts={result.stock_out_forecasts}, "
+                f"predue_nudges={result.predue_nudges})"
             )
 
         return diagnostics

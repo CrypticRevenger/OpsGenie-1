@@ -68,6 +68,13 @@ class BusinessEventType(enum.StrEnum):
     payment_edited = "payment_edited"
     party_edited = "party_edited"
     stock_adjusted = "stock_adjusted"
+    # Proactive early-warning alerts (see app/services/notifications.py) —
+    # cash_shortage_forecast_sent is company-level (entity_type="company"),
+    # the other two are per-entity (product/dealer), same audit-trail role
+    # as the correction-workflow events above.
+    cash_shortage_forecast_sent = "cash_shortage_forecast_sent"
+    stock_out_forecast_sent = "stock_out_forecast_sent"
+    predue_nudge_sent = "predue_nudge_sent"
 
 
 class BusinessEvent(UUIDMixin, Base):
