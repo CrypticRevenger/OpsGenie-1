@@ -992,6 +992,36 @@ MESSAGES: dict[str, str] = {
     "notify.cash_line": "Abhi available cash: {amount} — {sufficiency}",
     "notify.cash_sufficient": "kaafi hai.",
     "notify.cash_insufficient": "kam pad sakta hai.",
+    # ── Supplier-reminder payment confirmation ──────────────────────────────
+    "reminder_confirm.ask_paid": (
+        "Kya aapne {supplier} ko {amount} pay kar diya hai?\n"
+        "Reply 1 agar haan, 2 agar abhi tak nahi kiya."
+    ),
+    "reminder_confirm.invalid_choice": (
+        "Kripya reply 1 karein agar pay kar diya hai, ya 2 agar abhi tak nahi."
+    ),
+    "reminder_confirm.amount_ask": (
+        "Amount confirm karein jo pay kiya: {amount}. Badalne ke liye alag number reply "
+        "karein, ya 'ok' confirm karne ke liye."
+    ),
+    "reminder_confirm.amount_invalid": "Kripya ek amount bhejein, jaise 25000.",
+    "reminder_confirm.amount_positive": "Kripya zero se zyada amount bhejein.",
+    "reminder_confirm.reschedule_ask": (
+        "Theek hai — is reminder ko reschedule karne ke liye nayi date reply karein (jaise "
+        "'tomorrow', 'next week', '3 days'), ya 'skip' agar abhi bhi due rakhna hai — main "
+        "phir se yaad dilaunga."
+    ),
+    "reminder_confirm.reschedule_invalid": (
+        "Woh date samajh nahi aayi. Try 'tomorrow', 'next week', '3 days' — ya 'skip'."
+    ),
+    "reminder_confirm.rescheduled": (
+        "Theek hai — {supplier} ka payment ab {date} ko due hai. Us samay ke kareeb phir se "
+        "yaad dilaunga."
+    ),
+    "reminder_confirm.kept_due": "Theek hai, main phir se yaad dilaunga.",
+    "reminder_confirm.invoice_gone": (
+        "Woh bill ab open nahi hai — reschedule karne ki zaroorat nahi."
+    ),
     "notify.dealer_alert": (
         "⚠ Collection Alert\n\n"
         "{dealer} — {amount} — ab {days} din overdue.\n"

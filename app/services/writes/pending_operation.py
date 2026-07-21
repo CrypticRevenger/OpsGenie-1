@@ -95,6 +95,11 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.record_payment:
         payload = op.payload
         payload_invoice_id = payload.get("invoice_id")
+        # Only set when this confirmation originated from a supplier payment
+        # reminder (app/services/workflows/payment_reminder_confirm.py) with
+        # other same-tick bills queued behind it — see that module's
+        # docstring. Not a normal record_payment field.
+        reminder_queue = payload.get("reminder_queue")
         try:
             result = await record_payment(
                 db,
@@ -116,7 +121,14 @@ async def execute_pending_operation(
             # degrade to a friendly reply.
             await db.delete(op)
             _clear_active_pending_operation(company)
-            return t("pending.payment_failed", loc, error=exc)
+            message = t("pending.payment_failed", loc, error=exc)
+            if reminder_queue:
+                from app.services.workflows.payment_reminder_confirm import (
+                    advance_reminder_queue,
+                )
+
+                message += advance_reminder_queue(company, reminder_queue)
+            return message
 
         await db.delete(op)
         _clear_active_pending_operation(company)
@@ -126,7 +138,7 @@ async def execute_pending_operation(
             else t("payment.verb_to", loc)
         )
         invoices = ", ".join(result.invoice_numbers) or "—"
-        return t(
+        message = t(
             "pending.payment_success",
             loc,
             amount=format_inr(result.amount_allocated),
@@ -135,6 +147,11 @@ async def execute_pending_operation(
             invoices=invoices,
             outstanding=format_inr(result.remaining_outstanding),
         )
+        if reminder_queue:
+            from app.services.workflows.payment_reminder_confirm import advance_reminder_queue
+
+            message += advance_reminder_queue(company, reminder_queue)
+        return message
 
     if op.operation_type == PendingOperationType.create_order:
         payload = op.payload
@@ -359,7 +376,21 @@ async def handle_pending_operation_reply(
     if stripped in _YES_WORDS:
         return await execute_pending_operation(db, company, op)
     if stripped in _NO_WORDS:
+        # Reminder-triggered record_payment confirmations carry same-tick
+        # bills queued behind them — see payment_reminder_confirm.py. A "no"
+        # here still resolves this one (declined), so the next queued bill
+        # should get its turn, same as the success/failure paths above.
+        reminder_queue = (
+            op.payload.get("reminder_queue")
+            if op.operation_type == PendingOperationType.record_payment
+            else None
+        )
         await db.delete(op)
         _clear_active_pending_operation(company)
-        return t("workflow.cancelled", resolve_locale(company))
+        message = t("workflow.cancelled", resolve_locale(company))
+        if reminder_queue:
+            from app.services.workflows.payment_reminder_confirm import advance_reminder_queue
+
+            message += advance_reminder_queue(company, reminder_queue)
+        return message
     return t("pending.reply_yes_no", resolve_locale(company))

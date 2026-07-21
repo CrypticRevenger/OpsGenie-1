@@ -51,6 +51,7 @@ from app.services.whatsapp_client import (
     WhatsAppSendError,
     send_text_message,
 )
+from app.services.workflows.payment_reminder_confirm import start_reminder_confirm
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,8 @@ async def check_supplier_payment_reminders(
     today = now.date()
     since = now - timedelta(hours=_SUPPLIER_REMINDER_QUIET_HOURS)
     sent = 0
+
+    due_payments = []
     for payment in snapshot.expected_payments_7d:
         if (payment.due_date - today).days > _SUPPLIER_REMINDER_DAYS:
             continue
@@ -171,7 +174,31 @@ async def check_supplier_payment_reminders(
             since=since,
         ):
             continue
+        due_payments.append(payment)
 
+    # Only the first bill this tick becomes an interactive "did you pay
+    # this?" confirmation — Company.active_workflow/active_pending_operation_id
+    # are single pointers, so anything else due the same tick queues behind
+    # it (see app/services/workflows/payment_reminder_confirm.py) and gets
+    # its own question once this one is answered. If the founder is already
+    # mid some other guided flow, none of today's bills interrupt it — they
+    # stay purely informational this cycle and get a fresh interactive
+    # question next time this rule runs (the 24h dedup below means that's
+    # tomorrow at the earliest).
+    can_start_confirm = (
+        company.active_workflow is None and company.active_pending_operation_id is None
+    )
+
+    def _queue_item(p) -> dict:
+        return {
+            "supplier_id": str(p.supplier_id),
+            "supplier_name": p.supplier_name,
+            "amount": str(p.amount),
+            "invoice_id": str(p.invoice_id),
+            "invoice_number": p.invoice_number,
+        }
+
+    for index, payment in enumerate(due_payments):
         loc = resolve_locale(company)
         when = (
             t("notify.when_today", loc)
@@ -196,6 +223,14 @@ async def check_supplier_payment_reminders(
             when=when,
             cash_line=cash_line,
         )
+        if index == 0 and can_start_confirm:
+            question = start_reminder_confirm(
+                company,
+                _queue_item(payment),
+                [_queue_item(p) for p in due_payments[1:]],
+            )
+            message = f"{message}\n\n{question}"
+
         await _send_and_log(
             db,
             company_id=company.id,

@@ -87,6 +87,8 @@ def _supplier_payment(**overrides) -> SupplierPayment:
         amount=Decimal("82000.00"),
         due_date=TODAY + timedelta(days=1),
         urgent=True,
+        invoice_id=uuid.uuid4(),
+        invoice_number="INV-0001",
     )
     defaults.update(overrides)
     return SupplierPayment(**defaults)

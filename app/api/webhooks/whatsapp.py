@@ -100,6 +100,9 @@ from app.services.workflows.payment_flow import (
     handle_payment_workflow_message,
     start_payment_workflow,
 )
+from app.services.workflows.payment_reminder_confirm import (
+    handle_reminder_confirm_workflow_message,
+)
 from app.services.workflows.product_flow import (
     handle_add_product_workflow_message,
     handle_delete_product_workflow_message,
@@ -146,6 +149,11 @@ _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[s
     "edit_dealer": handle_edit_dealer_workflow_message,
     "edit_supplier": handle_edit_supplier_workflow_message,
     "stock_take": handle_stock_take_workflow_message,
+    # Not in _WORKFLOW_START_TRIGGERS below — this one is only ever started
+    # programmatically, by check_supplier_payment_reminders /
+    # advance_reminder_queue (app/services/workflows/payment_reminder_confirm.py),
+    # never by a founder-typed keyword.
+    "confirm_supplier_payment": handle_reminder_confirm_workflow_message,
 }
 
 # Registry: exact-match keyword -> starter that sets active_workflow and

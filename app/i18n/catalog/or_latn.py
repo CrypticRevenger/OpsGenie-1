@@ -1009,6 +1009,34 @@ MESSAGES: dict[str, str] = {
     "notify.cash_line": "Ebe available cash: {amount} — {sufficiency}",
     "notify.cash_sufficient": "jathesta achi.",
     "notify.cash_insufficient": "kami padipare.",
+    # ── Supplier-reminder payment confirmation ──────────────────────────────
+    "reminder_confirm.ask_paid": (
+        "Apana {supplier} ku {amount} pay kari sarile ki?\n"
+        "Reply 1 jadi han, 2 jadi ebe paryanta nahin."
+    ),
+    "reminder_confirm.invalid_choice": (
+        "Daya kari reply 1 karantu jadi pay kari sarile, kimba 2 jadi nahin."
+    ),
+    "reminder_confirm.amount_ask": (
+        "Pay kari thiba amount confirm karantu: {amount}. Badalibaku alaga number reply "
+        "karantu, kimba 'ok' confirm karibaku."
+    ),
+    "reminder_confirm.amount_invalid": "Daya kari gotie amount pathantu, jaise 25000.",
+    "reminder_confirm.amount_positive": "Daya kari zero tharu adhika amount pathantu.",
+    "reminder_confirm.reschedule_ask": (
+        "Thik achi — e reminder ku reschedule karibaku natun date reply karantu (jaise "
+        "'tomorrow', 'next week', '3 days'), kimba 'skip' jadi ebe bhi due rakhibaku achi — "
+        "mun punibi yaad karaibi."
+    ),
+    "reminder_confirm.reschedule_invalid": (
+        "Se date bujhi heli nahin. Try 'tomorrow', 'next week', '3 days' — kimba 'skip'."
+    ),
+    "reminder_confirm.rescheduled": (
+        "Thik achi — {supplier} ra payment ebe {date} re due achi. Se samay paakhare punibi "
+        "yaad karaibi."
+    ),
+    "reminder_confirm.kept_due": "Thik achi, mun punibi yaad karaibi.",
+    "reminder_confirm.invoice_gone": "Se bill ebe open nahin — reschedule karibara darkar nahin.",
     "notify.dealer_alert": (
         "⚠ Collection Alert\n\n"
         "{dealer} — {amount} — ebe {days} dina overdue.\n"
