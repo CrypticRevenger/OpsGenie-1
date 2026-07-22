@@ -37,20 +37,26 @@ _LATE_PAYMENT_WINDOW_DAYS = 180  # "last 6 months", per TDD
 DEFAULT_BUSINESS_TIMEZONE = "Asia/Kolkata"
 
 
+def business_timezone(tz_name: str | None) -> ZoneInfo:
+    """Resolve a company's stored timezone name to a ZoneInfo. Falls back to
+    the India default if the stored zone name is missing or somehow invalid
+    (create-time validation should prevent the latter, but reading must
+    never raise).
+    """
+    try:
+        return ZoneInfo(tz_name or DEFAULT_BUSINESS_TIMEZONE)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
+
+
 def business_now(tz_name: str | None) -> datetime:
     """Current instant in a company's business timezone. Business-day
     boundaries (today, overdue, the 7-day window) must be computed here, not
     in UTC — an IST distributor's calendar day rolls over 5.5 hours before
     UTC's, so a UTC "today" would misclassify due/overdue invoices for hours
-    around midnight. Falls back to the India default if the stored zone name
-    is missing or somehow invalid (create-time validation should prevent the
-    latter, but reading must never raise).
+    around midnight.
     """
-    try:
-        zone = ZoneInfo(tz_name or DEFAULT_BUSINESS_TIMEZONE)
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = ZoneInfo(DEFAULT_BUSINESS_TIMEZONE)
-    return datetime.now(zone)
+    return datetime.now(business_timezone(tz_name))
 
 
 @dataclass

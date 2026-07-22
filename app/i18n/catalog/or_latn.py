@@ -81,6 +81,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • day book — e mahara sabu invoice o payment, eka list re
 • outstanding report (kimba aging report) — 0-30/31-60/61-90/90+ dina bucket, Excel + PDF
 • trend report (kimba business trends) — saptaha-wise cash, dealer o product trends, Excel
+• delivery status — apana pathaithiba invoice o broadcast ra Meta delivery/read status
 
 *Marketing*
 • broadcast (kimba /broadcast) — opted-in dealer manaku message (all, overdue, kimba nama re pick)
@@ -239,6 +240,20 @@ MESSAGES: dict[str, str] = {
     "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.full_detail_link": "Prati dealer o product (Excel, {ttl} min valid): {link}",
+    # ── Delivery/read status ("delivery status") ────────────────────────────
+    "reports.delivery_status.header": "📨 Delivery Status",
+    "reports.delivery_status.none": (
+        "Ebe paryanta kono invoice kimba broadcast dealer mananku pathajai nahin."
+    ),
+    "reports.delivery_status.line": "{label} ({when}): {counts}",
+    "reports.delivery_status.invoice_label": "{invoice} → {party}",
+    "reports.delivery_status.broadcast_label": "Broadcast — {count} dealers",
+    "reports.delivery_status.count_part": "{count} {status}",
+    "reports.delivery_status.status.sent": "sent",
+    "reports.delivery_status.status.delivered": "delivered",
+    "reports.delivery_status.status.read": "read",
+    "reports.delivery_status.status.failed": "failed",
+    "reports.delivery_status.status.failed_to_send": "not sent",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -619,6 +634,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ dina bucket",
     "menu.row.trend_report.title": "Business Trends",
     "menu.row.trend_report.desc": "Saptaha o mahara wise, dealer, product",
+    "menu.row.delivery_status.title": "Delivery Status",
+    "menu.row.delivery_status.desc": "Invoice o broadcast ra delivery/read status",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "Ebe record kariba payment void karantu",
     "menu.row.undo_order.title": "Undo Order",

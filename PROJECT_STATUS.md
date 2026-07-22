@@ -1,6 +1,6 @@
 # OpsGenie — Project Status
 
-_Last updated: 2026-07-22 (Trend analytics + marketing broadcast — closes out V0.3)_
+_Last updated: 2026-07-22 (Delivery/read status surfaced to the distributor)_
 
 A running record of everything built so far, mapped to the SPEC's version roadmap, plus what's still open. See `SPEC.md` for the original product/technical spec and `docs/api.md` for the API reference. This file is the "what actually happened / what's left" complement to those two.
 
@@ -24,7 +24,7 @@ Built solo, targeting real distributor pilots (not a demo). First real pilot dat
 | **V0.3 — Intelligence & Expansion** | Free-form AI Q&A, inventory alerts, marketing broadcast, analytics/trends | ✅ Complete — free-form AI Q&A, inventory tracking, daily/MTD analytics, trend reporting (week/month-over-month), and marketing broadcast all done |
 | **Post-SPEC additions** | Self-serve onboarding + subscription gating, public marketing site (Vercel), password-gated admin dashboard, per-company Excel export, FAQ, per-product GST | ✅ Done (user-driven, beyond original SPEC) |
 
-**System size today:** 17 ORM table models · 42 Alembic migrations (single linear head, DB at head `cfe8f6056da3`) · 70 test files / **940 tests** (LLM-network tests skip without a key) · ruff clean. Tests now run against a dedicated `<dbname>_test` database with a production tripwire (`tests/conftest.py`, added 2026-07-19 after the suite once populated the live Neon prod DB with 1,041 fixture companies — see Timeline); a remote DB host requires explicit `ALLOW_REMOTE_TEST_DB=1`. The multilingual work was validated file-by-file directly against Neon before that tripwire existed; a single-process full-suite marathon over a remote Postgres endpoint hits transient socket drops (NullPool opens a fresh SSL connection per query — a CI infra concern, not a code one; see the CI item under Deployment/ops).
+**System size today:** 17 ORM table models · 42 Alembic migrations (single linear head, DB at head `cfe8f6056da3`) · 70 test files / **945 tests** (LLM-network tests skip without a key) · ruff clean. Tests now run against a dedicated `<dbname>_test` database with a production tripwire (`tests/conftest.py`, added 2026-07-19 after the suite once populated the live Neon prod DB with 1,041 fixture companies — see Timeline); a remote DB host requires explicit `ALLOW_REMOTE_TEST_DB=1`. The multilingual work was validated file-by-file directly against Neon before that tripwire existed; a single-process full-suite marathon over a remote Postgres endpoint hits transient socket drops (NullPool opens a fresh SSL connection per query — a CI infra concern, not a code one; see the CI item under Deployment/ops).
 
 ---
 
@@ -202,6 +202,13 @@ Two new migrations chain off `e2a5f8c14d76`. New i18n: `reports.trend.*`, `broad
 
 (Unrelated, noted in passing: `tests/test_company_export.py::test_website_import_data_reflects_in_excel_export` fails intermittently on this machine — its own `_unique_phone()` helper generates a fully random 10-digit number that only sometimes starts with a valid Indian mobile prefix (6-9), and onboarding's phone validator rejects the rest. Pre-existing, unrelated to this session's changes; not fixed here since it's outside this work's scope.)
 
+### Delivery/read status surfaced to the distributor (2026-07-22)
+The data half of this already existed — `NotificationLog.delivery_status` is kept current by the `whatsapp_status_received` webhook handler — but nothing ever showed it back to a distributor. New `instant_reports.delivery_status_reply()` (`app/services/instant_reports.py`), reached via `"delivery status"`/`"message status"`/`/delivery_status` and a new row in the Statements list (now 8/10 rows).
+
+Deliberately scoped to the two notification types a distributor *directly triggers themselves* — an invoice PDF send (`invoice_document`) and a marketing broadcast (`marketing_broadcast`) — not every automated background nudge (supplier reminders, dealer overdue alerts, briefings), which the distributor never explicitly asked to send and already reads inline in this same chat. Groups the most recent `NotificationLog` rows by `(notification_type, message_text)`: a broadcast writes one row per recipient with identical text, so this naturally reports "Broadcast — 42 dealers: 38 delivered, 4 sent" as one line instead of 42; an invoice send is already its own group since every invoice's `message_text` is unique, and its label resolves the recipient's phone back to a dealer name. Read-only against data already being written — no new migration, no new webhook logic.
+
+Small refactor along the way: `snapshot.py`'s zone-resolution try/except (falls back to `Asia/Kolkata` on a missing/invalid stored timezone) pulled out into `business_timezone()` so this reply and `business_now()` share it instead of duplicating the fallback logic. New i18n keys (`reports.delivery_status.*`, `menu.row.delivery_status.*`) across all 5 locale catalogs (parity tests green); 5 new tests in `test_instant_reports.py` (empty state, invoice-with-dealer-name, broadcast aggregation, automated-nudge-types excluded, most-recent-batch-first ordering) plus the existing webhook smoke test extended to cover the new keywords.
+
 ---
 
 ## Current system inventory
@@ -259,7 +266,7 @@ All four items below are done — see Timeline for both sessions' detail.
 - [ ] **Invoice photo → OCR** — accept an image of a paper invoice and pre-fill an order/invoice for confirmation (SPEC V0.3/Future).
 - [ ] **Dealer-facing reminders** — send overdue reminders directly to the *dealer's* WhatsApp (with the distributor's consent), not only to the distributor.
 - [x] **Richer confirmations** — delivered for every new correction workflow below (edit/void/stock-take all show old→new before committing); still not retrofitted onto the original `create_order`/`record_payment` flows, which don't have a "before" state to show.
-- [ ] **Delivery/read status surfaced** to the distributor for messages they trigger (data is already captured in `NotificationLog`).
+- [x] **Delivery/read status surfaced** — complete (2026-07-22, see Timeline). `"delivery status"` reads the `NotificationLog.delivery_status` data that was already being captured, grouped per invoice-send/broadcast batch — scoped to the two notification types a distributor directly triggers themselves, not every automated background nudge.
 
 ### Edit / correction / data-management — complete (2026-07-19)
 All four built as guided WhatsApp workflows reusing the existing architecture (`PendingOperation` confirm gate for money-affecting writes, write-immediately for attribute edits — matching `update_product`'s existing tier), with a generic `BusinessEvent`-based audit trail (`{field, old, new, reason}`, `reason` optional) on every one. See `app/services/workflows/void_flow.py`, `edit_flow.py`, `party_flow.py`'s edit-dealer/edit-supplier additions, `stock_take_flow.py`, and their `app/services/writes/*` counterparts.

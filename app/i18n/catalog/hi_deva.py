@@ -80,6 +80,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • day book — इस महीने के सभी invoice और payment, एक ही लिस्ट में
 • outstanding report (या aging report) — 0-30/31-60/61-90/90+ दिन के buckets, Excel + PDF
 • trend report (या business trends) — हफ्ता-वाइज़ cash, डीलर और प्रोडक्ट trends, Excel
+• delivery status — आपके भेजे invoices और broadcasts का Meta delivery/read स्टेटस
 
 *Marketing*
 • broadcast (या /broadcast) — opted-in डीलरों को message भेजें (all, overdue, या नाम से pick)
@@ -232,6 +233,18 @@ MESSAGES: dict[str, str] = {
     "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.full_detail_link": "हर डीलर और प्रोडक्ट (Excel, {ttl} min valid): {link}",
+    # ── Delivery/read status ("delivery status") ────────────────────────────
+    "reports.delivery_status.header": "📨 डिलीवरी स्टेटस",
+    "reports.delivery_status.none": "अभी तक कोई invoice या broadcast डीलरों को नहीं भेजा गया है।",
+    "reports.delivery_status.line": "{label} ({when}): {counts}",
+    "reports.delivery_status.invoice_label": "{invoice} → {party}",
+    "reports.delivery_status.broadcast_label": "Broadcast — {count} डीलर",
+    "reports.delivery_status.count_part": "{count} {status}",
+    "reports.delivery_status.status.sent": "सेंट",
+    "reports.delivery_status.status.delivered": "डिलीवर्ड",
+    "reports.delivery_status.status.read": "रीड",
+    "reports.delivery_status.status.failed": "फेल्ड",
+    "reports.delivery_status.status.failed_to_send": "नहीं भेजा गया",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -578,6 +591,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ दिन के बकेट",
     "menu.row.trend_report.title": "Business Trends",
     "menu.row.trend_report.desc": "हफ्ता और महीना वाइज़, डीलर, प्रोडक्ट",
+    "menu.row.delivery_status.title": "डिलीवरी स्टेटस",
+    "menu.row.delivery_status.desc": "इनवॉइस और ब्रॉडकास्ट का डिलीवरी/रीड स्टेटस",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "अभी record किया payment void करें",
     "menu.row.undo_order.title": "Undo Order",

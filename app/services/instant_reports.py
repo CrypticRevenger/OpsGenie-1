@@ -13,6 +13,8 @@ registry for how these get wired to keywords/menu-row taps.
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -24,6 +26,7 @@ from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.faq import FAQ
 from app.models.invoice import Invoice
+from app.models.notification_log import NotificationLog
 from app.models.payment import Payment
 from app.models.product import Product
 from app.models.supplier import Supplier
@@ -48,7 +51,7 @@ from app.services.query_menu import (
     build_suppliers_report,
 )
 from app.services.sales_impact_parser import parse_sales_impact_query
-from app.services.snapshot import build_snapshot, business_now
+from app.services.snapshot import build_snapshot, business_now, business_timezone
 from app.services.trend_analytics import DealerTrend, ProductSalesTrend, build_trend_report
 
 # WhatsApp's text message body caps around 4096 characters — comfortably
@@ -628,3 +631,126 @@ async def try_deterministic_sales_impact(
         resolved.append({"product_name": product_name, "quantity_sold": str(quantity)})
 
     return await sales_impact_reply(db, company, resolved)
+
+
+# ── Delivery/read status ("delivery status") ────────────────────────────────
+#
+# Only the two notification types a distributor directly triggers themselves
+# (an invoice PDF send, a marketing broadcast) — not every automated
+# background alert (supplier reminders, dealer overdue nudges, briefings),
+# which the distributor never explicitly asked to send and already reads
+# inline in this same chat. NotificationLog.delivery_status is kept current
+# by the whatsapp_status_received webhook (app/api/webhooks/whatsapp.py); this
+# reply only ever reads it, never makes a fresh Meta call.
+_DELIVERY_STATUS_TYPES = ("invoice_document", "marketing_broadcast")
+# How many recent NotificationLog rows to scan before grouping — generous
+# enough to cover a handful of recent invoices plus one full broadcast batch.
+_DELIVERY_STATUS_SCAN_LIMIT = 60
+# How many grouped lines to actually show — keeps the reply well inside
+# WhatsApp's message-length comfort zone even with many small batches.
+_DELIVERY_STATUS_GROUP_LIMIT = 8
+
+_DELIVERY_STATUS_LABEL_KEYS = {
+    "sent": "reports.delivery_status.status.sent",
+    "delivered": "reports.delivery_status.status.delivered",
+    "read": "reports.delivery_status.status.read",
+    "failed": "reports.delivery_status.status.failed",
+    "failed_to_send": "reports.delivery_status.status.failed_to_send",
+}
+
+
+@dataclass
+class _DeliveryBatch:
+    notification_type: str
+    message_text: str
+    recipient_phone: str
+    latest_sent_at: datetime
+    status_counts: dict[str, int] = field(default_factory=dict)
+
+
+def _delivery_status_label(batch: _DeliveryBatch, dealer_names: dict[str, str], loc) -> str:
+    recipients = sum(batch.status_counts.values())
+    if batch.notification_type == "marketing_broadcast":
+        return t("reports.delivery_status.broadcast_label", loc, count=recipients)
+    # invoice_document's message_text is always f"Invoice {number} PDF"
+    # (app/services/invoice_delivery.py) — our own literal, safe to trim.
+    invoice_label = batch.message_text.removesuffix(" PDF")
+    party = dealer_names.get(batch.recipient_phone, batch.recipient_phone)
+    return t("reports.delivery_status.invoice_label", loc, invoice=invoice_label, party=party)
+
+
+async def delivery_status_reply(db: AsyncSession, company: Company) -> str:
+    """"delivery status" — Meta delivery/read status for recent invoice
+    sends and marketing broadcasts, grouped into one line per batch. A
+    broadcast writes one NotificationLog row per recipient with identical
+    message_text, so grouping by (notification_type, message_text) naturally
+    reports "Broadcast — 42 dealers: 38 delivered, 4 sent" instead of 42
+    separate lines; an invoice send is already its own group since every
+    invoice's message_text is unique.
+    """
+    loc = resolve_locale(company)
+    stmt = (
+        select(NotificationLog)
+        .where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type.in_(_DELIVERY_STATUS_TYPES),
+        )
+        .order_by(NotificationLog.sent_at.desc())
+        .limit(_DELIVERY_STATUS_SCAN_LIMIT)
+    )
+    rows = (await db.scalars(stmt)).all()
+    if not rows:
+        return t("reports.delivery_status.none", loc)
+
+    batches: dict[tuple[str, str], _DeliveryBatch] = {}
+    order: list[tuple[str, str]] = []
+    for row in rows:
+        key = (row.notification_type, row.message_text)
+        batch = batches.get(key)
+        if batch is None:
+            batch = _DeliveryBatch(
+                notification_type=row.notification_type,
+                message_text=row.message_text,
+                recipient_phone=row.recipient_whatsapp,
+                latest_sent_at=row.sent_at,
+            )
+            batches[key] = batch
+            order.append(key)
+        status = row.delivery_status or "sent"
+        batch.status_counts[status] = batch.status_counts.get(status, 0) + 1
+        if row.sent_at > batch.latest_sent_at:
+            batch.latest_sent_at = row.sent_at
+
+    dealer_phones = {
+        b.recipient_phone for k, b in batches.items() if k[0] == "invoice_document"
+    }
+    dealer_names: dict[str, str] = {}
+    if dealer_phones:
+        dealer_rows = await db.execute(
+            select(Dealer.phone, Dealer.name).where(
+                Dealer.company_id == company.id, Dealer.phone.in_(dealer_phones)
+            )
+        )
+        dealer_names = dict(dealer_rows.all())
+
+    zone = business_timezone(company.timezone)
+    lines = []
+    for key in order[:_DELIVERY_STATUS_GROUP_LIMIT]:
+        batch = batches[key]
+        label = _delivery_status_label(batch, dealer_names, loc)
+        counts = ", ".join(
+            t(
+                "reports.delivery_status.count_part",
+                loc,
+                count=count,
+                status=t(_DELIVERY_STATUS_LABEL_KEYS[status], loc)
+                if status in _DELIVERY_STATUS_LABEL_KEYS
+                else status,
+            )
+            for status, count in sorted(batch.status_counts.items(), key=lambda kv: -kv[1])
+        )
+        when = batch.latest_sent_at.astimezone(zone).strftime("%Y-%m-%d %H:%M")
+        lines.append(t("reports.delivery_status.line", loc, label=label, when=when, counts=counts))
+
+    header = t("reports.delivery_status.header", loc)
+    return header + "\n\n" + "\n".join(lines)

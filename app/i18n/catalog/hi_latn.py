@@ -82,6 +82,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • day book — is mahine ke sabhi invoice aur payment, ek hi list me
 • outstanding report (ya aging report) — 0-30/31-60/61-90/90+ din ke buckets, Excel + PDF
 • trend report (ya business trends) — hafta-wise cash, dealer aur product trends, Excel
+• delivery status — aapke bheje invoices aur broadcasts ka Meta delivery/read status
 
 *Marketing*
 • broadcast (ya /broadcast) — opted-in dealers ko message bhejein (all, overdue, ya name se pick)
@@ -240,6 +241,20 @@ MESSAGES: dict[str, str] = {
     "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.full_detail_link": "Har dealer aur product (Excel, {ttl} min valid): {link}",
+    # ── Delivery/read status ("delivery status") ────────────────────────────
+    "reports.delivery_status.header": "📨 Delivery Status",
+    "reports.delivery_status.none": (
+        "Abhi tak koi invoice ya broadcast dealers ko nahi bheja gaya hai."
+    ),
+    "reports.delivery_status.line": "{label} ({when}): {counts}",
+    "reports.delivery_status.invoice_label": "{invoice} → {party}",
+    "reports.delivery_status.broadcast_label": "Broadcast — {count} dealers",
+    "reports.delivery_status.count_part": "{count} {status}",
+    "reports.delivery_status.status.sent": "sent",
+    "reports.delivery_status.status.delivered": "delivered",
+    "reports.delivery_status.status.read": "read",
+    "reports.delivery_status.status.failed": "failed",
+    "reports.delivery_status.status.failed_to_send": "not sent",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -605,6 +620,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ din ke buckets",
     "menu.row.trend_report.title": "Business Trends",
     "menu.row.trend_report.desc": "Hafta & mahina wise, dealers, products",
+    "menu.row.delivery_status.title": "Delivery Status",
+    "menu.row.delivery_status.desc": "Invoices aur broadcasts ka delivery/read status",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "Abhi record kiya payment void karein",
     "menu.row.undo_order.title": "Undo Order",
