@@ -33,7 +33,11 @@ class OnboardRequest(BaseModel):
 
 class OnboardResponse(BaseModel):
     status: str  # "registered" | "already_registered"
-    company_id: uuid.UUID
+    # Both are returned only on the "registered" branch — see the comment in
+    # app/api/onboarding.py::submit_onboarding for why disclosing them for an
+    # already-known WhatsApp number was an unauthenticated-write oracle.
+    company_id: uuid.UUID | None = None
+    onboarding_token: str | None = None
     whatsapp_number: str
     message: str
 

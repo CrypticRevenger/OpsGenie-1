@@ -181,8 +181,9 @@ async def test_activate_turns_on_subscription_and_sends_welcome(
         json={"business_name": "Activate Co", "owner_name": "Owner", "whatsapp_number": number},
     )
     company_id = register.json()["company_id"]
+    token = register.json()["onboarding_token"]
 
-    resp = await client.post(f"/onboard/{company_id}/activate")
+    resp = await client.post(f"/onboard/{company_id}/activate", params={"token": token})
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["status"] == "activated"
@@ -201,11 +202,12 @@ async def test_activate_idempotent_second_call(client: AsyncClient) -> None:
         json={"business_name": "Idempotent Co", "owner_name": "Owner", "whatsapp_number": number},
     )
     company_id = register.json()["company_id"]
+    token = register.json()["onboarding_token"]
 
-    first = await client.post(f"/onboard/{company_id}/activate")
+    first = await client.post(f"/onboard/{company_id}/activate", params={"token": token})
     assert first.json()["status"] == "activated"
 
-    second = await client.post(f"/onboard/{company_id}/activate")
+    second = await client.post(f"/onboard/{company_id}/activate", params={"token": token})
     assert second.status_code == 200
     assert second.json()["status"] == "already_active"
     assert second.json()["welcome_sent"] is False
@@ -225,12 +227,13 @@ async def test_activate_when_onboarding_disabled_503(client: AsyncClient) -> Non
         json={"business_name": "Late Disable Co", "owner_name": "Owner", "whatsapp_number": number},
     )
     company_id = register.json()["company_id"]
+    token = register.json()["onboarding_token"]
 
     settings = get_settings()
     original = settings.onboarding_enabled
     settings.onboarding_enabled = False
     try:
-        resp = await client.post(f"/onboard/{company_id}/activate")
+        resp = await client.post(f"/onboard/{company_id}/activate", params={"token": token})
         assert resp.status_code == 503
     finally:
         settings.onboarding_enabled = original

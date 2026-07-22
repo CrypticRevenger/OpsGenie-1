@@ -19,6 +19,10 @@
   const state = {
     step: 1,
     companyId: null,
+    // Short-lived signed capability token issued by POST /onboard. Both
+    // per-company onboarding endpoints require it — knowing a company UUID
+    // is deliberately no longer enough (see app/services/onboarding_token.py).
+    onboardingToken: null,
     setupMethod: null,
     importSummaryShown: false,
     importSummary: null,
@@ -123,14 +127,15 @@
       });
       const data = await resp.json();
       if (resp.ok) {
-        state.companyId = data.company_id;
         if (data.status === "already_registered") {
-          showBanner(
-            "step3Banner",
-            "This WhatsApp number is already registered — continuing for that account.",
-            "warning"
-          );
+          // The API intentionally returns no company_id or token here, so
+          // there is nothing to continue with — an unauthenticated caller must
+          // not be able to act on a number they merely know.
+          showBanner("step2Banner", data.message, "warning");
+          return;
         }
+        state.companyId = data.company_id;
+        state.onboardingToken = data.onboarding_token;
         showStep(3);
       } else if (resp.status === 422) {
         // Almost always the WhatsApp number — send the user back to fix it.
@@ -158,6 +163,7 @@
   async function uploadImportFile(fileKind, direction, file) {
     const params = new URLSearchParams({ file_kind: fileKind });
     if (direction) params.set("direction", direction);
+    params.set("token", state.onboardingToken || "");
     const resp = await fetch(`/onboard/${state.companyId}/import?${params}`, {
       method: "POST",
       body: (() => {
@@ -274,7 +280,11 @@
     btn.disabled = true;
     btn.textContent = "Activating…";
     try {
-      const resp = await fetch(`/onboard/${state.companyId}/activate`, { method: "POST" });
+      const activateParams = new URLSearchParams({ token: state.onboardingToken || "" });
+      const resp = await fetch(
+        `/onboard/${state.companyId}/activate?${activateParams}`,
+        { method: "POST" }
+      );
       const data = await resp.json();
       if (resp.ok) {
         renderSuccess();
