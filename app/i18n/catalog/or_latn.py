@@ -398,6 +398,10 @@ MESSAGES: dict[str, str] = {
         "Ei naam uparara list saha match nahin hela, sethipain update nahin hela: {names}."
     ),
     "onboarding.party.phone_ask": "{name} ra phone number? (kimba 'skip')",
+    "onboarding.party.phone_invalid": (
+        "Seha thik phone number pari lagunahin. Jadi Indian nahin, country code sameta "
+        "karantu, jaise +919876543210."
+    ),
     "onboarding.party.credit_invalid": (
         "Daya kari dina ra number pathantu, jaise 15 (kimba 'skip')."
     ),
@@ -653,8 +657,13 @@ MESSAGES: dict[str, str] = {
     "payment.verb_to": "ku",
     "payment.target_invoice": " invoice {number} birudhare",
     "payment.preview": (
-        "Confirm: {amount} {party}{target} {verb} {date} re.\n"
+        "Confirm: {amount} {party}{target} {verb} {date} re.{warning}\n"
         "Reply YES record karibaku, NO cancel karibaku."
+    ),
+    "payment.duplicate_warning": (
+        "⚠️ Eha pahile ru record heigala thiba payment jaisa lagichi: {party}, {amount} "
+        "{date} re. Jadi eha eka alaga, jaanibujhi kari heigala payment, jaari rakhibaku "
+        "YES pathantu."
     ),
     # ── Create order ───────────────────────────────────────────────────────
     "order.start": "E order kaha paain? (dealer naam)",
@@ -683,6 +692,14 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "{dealer} paain order confirm karantu:",
     "order.preview_footer": "Reply YES tiari karibaku, NO cancel karibaku.",
+    "order.duplicate_warning": (
+        "⚠️ Eha e dealer ra existing invoice ({number}) jaisa lagichi — same date au total. "
+        "Jadi eha eka alaga, jaanibujhi kari heigala order, jaari rakhibaku YES pathantu."
+    ),
+    "order.credit_limit_warning": (
+        "⚠️ E order {dealer} ra outstanding ku {prospective} tharu jaiba, jaha unankara "
+        "{limit} ra credit limit tharu adhika."
+    ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "Kauna invoice? Ehara invoice number pathantu, kimba 'cancel'.",
     "edit.invoice_not_found": (
@@ -809,6 +826,7 @@ MESSAGES: dict[str, str] = {
     "product.current_stock": ("{name} ra ebe stock {current}. Natun stock kete heba? (jaise 100)"),
     "product.value_invalid": "Daya kari gotie number pathantu, jaise 450.",
     "product.value_nonneg": "Daya kari zero kimba tharu adhika number pathantu.",
+    "product.value_positive": "Daya kari zero tharu adhika number pathantu.",
     "product.gone_value": "Se product ebe available nahin.",
     "product.not_set": "set nahin",
     "product.updated_price": "{name} ra price {new} kala (aage {old} thila).",
@@ -893,6 +911,10 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.gstin_ask": "{name} ra bartaman ra GSTIN {current}. Nua GSTIN kana heba?",
     "party.edit.days_invalid": "Daya kari dina ra eka purna sankhya pathantu, jemiti 30.",
+    "party.edit.phone_invalid": (
+        "Seha thik phone number pari lagunahin. Jadi Indian nahin, country code sameta "
+        "karantu, jaise +919876543210."
+    ),
     "party.edit.gstin_invalid": (
         "Seha thik GSTIN pari lagunahin. Daya kari jaanch kari puni pathantu, kimba 'cancel'."
     ),

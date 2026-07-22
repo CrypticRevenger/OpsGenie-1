@@ -31,7 +31,8 @@ from app.services.gst import parse_gst_rate
 from app.services.importer.errors import UnrecognisedFormatError
 from app.services.importer.normalizer import (
     normalise_header,
-    parse_amount,
+    parse_nonnegative_amount,
+    parse_positive_amount,
     row_by_normalised_header,
 )
 from app.services.importer.result import ImportResult
@@ -89,15 +90,15 @@ async def run_product_import(
                 unit = _first_present(normalised_row, _UNIT_KEYS) or None
 
                 try:
-                    purchase_price = parse_amount(purchase_raw) if purchase_raw else None
+                    purchase_price = parse_positive_amount(purchase_raw) if purchase_raw else None
                 except ValueError as exc:
                     raise ValueError(f"'{name}': purchase price — {exc}") from exc
                 try:
-                    selling_price = parse_amount(selling_raw) if selling_raw else None
+                    selling_price = parse_positive_amount(selling_raw) if selling_raw else None
                 except ValueError as exc:
                     raise ValueError(f"'{name}': selling price — {exc}") from exc
                 try:
-                    stock = parse_amount(stock_raw) if stock_raw else Decimal("0")
+                    stock = parse_nonnegative_amount(stock_raw) if stock_raw else Decimal("0")
                 except ValueError as exc:
                     raise ValueError(f"'{name}': stock — {exc}") from exc
                 try:

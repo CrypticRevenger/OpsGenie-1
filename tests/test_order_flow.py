@@ -22,7 +22,7 @@ from app.core.config import get_settings
 from app.main import app
 from app.models.company import Company
 from app.models.dealer import Dealer
-from app.models.invoice import Invoice
+from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.invoice_item import InvoiceItem
 from app.models.pending_operation import PendingOperation
 from app.models.product import Product
@@ -53,9 +53,19 @@ async def _make_company(
 
 
 async def _make_dealer(
-    db: AsyncSession, company_id: uuid.UUID, name: str, *, payment_terms_days: int | None = None
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    name: str,
+    *,
+    payment_terms_days: int | None = None,
+    credit_limit: Decimal | None = None,
 ) -> uuid.UUID:
-    dealer = Dealer(company_id=company_id, name=name, payment_terms_days=payment_terms_days)
+    dealer = Dealer(
+        company_id=company_id,
+        name=name,
+        payment_terms_days=payment_terms_days,
+        credit_limit=credit_limit,
+    )
     db.add(dealer)
     await db.commit()
     await db.refresh(dealer)
@@ -580,3 +590,167 @@ async def test_pdf_not_sent_when_dealer_has_no_phone(db: AsyncSession, monkeypat
 
     invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
     assert invoice is not None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_order_same_day_same_total_warns_but_still_creates(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A second order for the same dealer, same day, same total gets an
+    advisory warning in the preview — but still creates on YES, since two
+    separate orders can legitimately share a date and total.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    dealer_id = await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(
+        db, company_id, "Rice", selling_price=Decimal("55.00"), stock_quantity=Decimal("100")
+    )
+    company = await db.get(Company, company_id)
+    today = business_now(company.timezone).date()
+
+    db.add(
+        Invoice(
+            company_id=company_id,
+            invoice_number="INV-EXISTING",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer_id,
+            invoice_date=today,
+            due_date=today + timedelta(days=14),
+            subtotal=Decimal("550.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("550.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.commit()
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # 10 x 55.00 = 550.00, matches INV-EXISTING
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+        assert "similar to an existing invoice" in sent[-1].lower()
+        assert "inv-existing" in sent[-1].lower()
+        assert "reply yes to continue" in sent[-1].lower()
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice_count = len(
+        (await db.execute(select(Invoice).where(Invoice.company_id == company_id)))
+        .scalars()
+        .all()
+    )
+    assert invoice_count == 2  # the seeded one + the new one, both kept
+
+
+@pytest.mark.asyncio
+async def test_credit_limit_breach_warns_but_still_creates(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    dealer_id = await _make_dealer(db, company_id, "Ram Traders", credit_limit=Decimal("1000.00"))
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+    company = await db.get(Company, company_id)
+    today = business_now(company.timezone).date()
+
+    # Existing outstanding of 800 — a new order takes it well over the 1000 limit.
+    db.add(
+        Invoice(
+            company_id=company_id,
+            invoice_number="INV-OUTSTANDING",
+            direction=InvoiceDirection.receivable,
+            dealer_id=dealer_id,
+            invoice_date=today - timedelta(days=5),
+            due_date=today + timedelta(days=9),
+            subtotal=Decimal("800.00"),
+            gst_amount=Decimal("0.00"),
+            total_amount=Decimal("800.00"),
+            status=InvoiceStatus.Pending,
+            source=InvoiceSource.csv_import,
+        )
+    )
+    await db.commit()
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "5")  # 5 x 55.00 = 275.00 -> outstanding 1075 > 1000
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+        assert "over their credit" in sent[-1].lower()
+        assert "1,000" in sent[-1]
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice_count = len(
+        (await db.execute(select(Invoice).where(Invoice.company_id == company_id)))
+        .scalars()
+        .all()
+    )
+    assert invoice_count == 2  # the breach didn't block the order
+
+
+@pytest.mark.asyncio
+async def test_credit_limit_none_skips_check_silently(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders", credit_limit=None)
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("5500.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "100")  # a huge order — no limit on file to breach
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+        assert "credit" not in sent[-1].lower()
+
+
+@pytest.mark.asyncio
+async def test_new_dealer_skips_duplicate_and_credit_checks(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A brand-new, not-yet-confirmed dealer has no DB row/credit_limit/order
+    history yet, so both advisory checks must skip rather than error or
+    (worse) silently treat it as some existing dealer.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Brand New Dealer")
+        await _send(client, bare_sender, "yes")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+        assert "similar to an existing invoice" not in sent[-1].lower()
+        assert "credit" not in sent[-1].lower()
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()

@@ -96,7 +96,7 @@ async def test_dealer_one_by_one_add_then_done_clears_workflow(db: AsyncSession)
 
     dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
     assert dealer.name == "Ram Traders"
-    assert dealer.phone == "9876543210"
+    assert dealer.phone == "+919876543210"  # normalized to E.164
     assert dealer.payment_terms_days == 15
 
 
@@ -135,8 +135,24 @@ async def test_dealer_bulk_add_saves_each_item(db: AsyncSession) -> None:
     ram = await db.scalar(
         select(Dealer).where(Dealer.company_id == company.id, Dealer.name == "Ram Traders")
     )
-    assert ram.phone == "9876543210"
+    assert ram.phone == "+919876543210"  # normalized to E.164
     assert ram.payment_terms_days == 15
+
+
+@pytest.mark.asyncio
+async def test_dealer_one_by_one_invalid_phone_reasks_without_advancing(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    start_add_dealer_workflow(company)
+    await _send_dealer(db, company, "one by one")
+    await _send_dealer(db, company, "Ram Traders")
+    reply = await _send_dealer(db, company, "not a phone number")
+    assert "valid phone number" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_phone"  # stayed, not advanced
+    assert await _count(db, Dealer, company.id) == 0
+
+    # A valid follow-up still proceeds normally.
+    reply = await _send_dealer(db, company, "9876543210")
+    assert "credit" in reply.lower()
 
 
 @pytest.mark.asyncio
@@ -149,6 +165,20 @@ async def test_dealer_bulk_bad_credit_days_reasks(db: AsyncSession) -> None:
     assert company.workflow_scratch["step"] == "awaiting_bulk"  # stayed
     assert "couldn't read" in reply.lower()
     assert await _count(db, Dealer, company.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_dealer_bulk_bad_phone_rejects_whole_batch(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    start_add_dealer_workflow(company)
+    await _send_dealer(db, company, "bulk")
+
+    reply = await _send_dealer(
+        db, company, "Ram Traders, not-a-phone, 15\nShree Enterprises, skip, skip"
+    )
+    assert company.workflow_scratch["step"] == "awaiting_bulk"  # stayed
+    assert "couldn't read" in reply.lower()
+    assert await _count(db, Dealer, company.id) == 0  # whole batch rejected, not just the bad line
 
 
 @pytest.mark.asyncio
@@ -221,8 +251,22 @@ async def test_supplier_one_by_one_add_then_done_clears_workflow(db: AsyncSessio
 
     supplier = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
     assert supplier.name == "Metro Distributors"
-    assert supplier.phone == "9988776655"
+    assert supplier.phone == "+919988776655"  # normalized to E.164
     assert supplier.payment_terms_days == 30
+
+
+@pytest.mark.asyncio
+async def test_supplier_one_by_one_invalid_phone_reasks_without_advancing(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    start_add_supplier_workflow(company)
+    await _send_supplier(db, company, "one by one")
+    await _send_supplier(db, company, "Metro Distributors")
+    reply = await _send_supplier(db, company, "12345")
+    assert "valid phone number" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_phone"
+    assert await _count(db, Supplier, company.id) == 0
 
 
 @pytest.mark.asyncio
@@ -246,7 +290,7 @@ async def test_supplier_bulk_add_saves_each_item(db: AsyncSession) -> None:
             Supplier.company_id == company.id, Supplier.name == "Metro Distributors"
         )
     )
-    assert metro.phone == "9988776655"
+    assert metro.phone == "+919988776655"  # normalized to E.164
     assert metro.payment_terms_days == 30
 
 
@@ -315,7 +359,7 @@ async def test_edit_dealer_phone_full_round_trip(db: AsyncSession) -> None:
     assert "✅" in reply
     assert "9111111111" in reply
     await db.refresh(dealer)
-    assert dealer.phone == "9111111111"
+    assert dealer.phone == "+919111111111"  # normalized to E.164
     assert company.active_workflow is None
 
     event = await db.scalar(
@@ -324,6 +368,24 @@ async def test_edit_dealer_phone_full_round_trip(db: AsyncSession) -> None:
     assert event is not None
     assert event.payload["field"] == "phone"
     assert event.payload["reason"] == "typo in old number"
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_phone_rejects_invalid_new_value(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders", phone="9000000000")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "phone")
+    await _send_edit_dealer(db, company, "Ram Traders")
+    reply = await _send_edit_dealer(db, company, "abc123")
+    assert "valid phone number" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_value"  # stayed, not advanced
+
+    await db.refresh(dealer)
+    assert dealer.phone == "9000000000"  # untouched
 
 
 @pytest.mark.asyncio

@@ -159,7 +159,7 @@ async def test_full_happy_path(db: AsyncSession) -> None:
 
     dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
     assert dealer.name == "Ram Traders"
-    assert dealer.phone == "9876543210"
+    assert dealer.phone == "+919876543210"  # normalized to E.164
     assert dealer.payment_terms_days == 15
 
     # Supplier mode: one by one
@@ -305,6 +305,48 @@ async def test_change_language_command_reenters_two_step_flow(db: AsyncSession) 
 
 
 @pytest.mark.asyncio
+async def test_dealer_invalid_phone_reasks_without_advancing(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_dealer_mode(db, company)
+    await _send(db, company, "one by one")
+    await _send(db, company, "Ram Traders")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_phone
+
+    reply = await _send(db, company, "not a phone number")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_phone  # stayed
+    assert "valid phone number" in reply.lower()
+    assert await _count(db, Dealer, company.id) == 0
+
+    reply = await _send(db, company, "9876543210")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_credit
+    assert "credit" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_dealer_bulk_invalid_phone_rejects_whole_batch(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_dealer_mode(db, company)
+    await _send(db, company, "bulk")
+
+    reply = await _send(db, company, "Ram Traders, not-a-phone, 15")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_bulk  # stayed
+    assert "couldn't read" in reply.lower()
+    assert await _count(db, Dealer, company.id) == 0
+
+
+@pytest.mark.asyncio
+async def test_dealer_missing_invalid_phone_reasks_without_advancing(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_dealer(db)
+    await _send(db, company, "now")
+    await _send(db, company, "one by one")
+    assert company.onboarding_state == OnboardingState.dealer_missing_phone
+
+    reply = await _send(db, company, "12345")
+    assert company.onboarding_state == OnboardingState.dealer_missing_phone  # stayed
+    assert "valid phone number" in reply.lower()
+
+
+@pytest.mark.asyncio
 async def test_bad_amount_reasks_without_advancing(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     await _send(db, company, "FMCG")
@@ -318,6 +360,53 @@ async def test_bad_amount_reasks_without_advancing(db: AsyncSession) -> None:
     assert "amount" in reply.lower()
     await _send(db, company, "100000")
     assert company.onboarding_state == OnboardingState.receivable_ask
+
+
+@pytest.mark.asyncio
+async def test_negative_opening_balance_rejected_but_zero_allowed(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _send(db, company, "FMCG")
+    await _send(db, company, "not sure")
+    await _send(db, company, "done")
+    await _send(db, company, "done")
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance
+
+    reply = await _send(db, company, "-500")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance  # stayed
+    assert "amount" in reply.lower()
+
+    await _send(db, company, "0")  # a fresh company with no starting cash is legitimate
+    assert company.onboarding_state == OnboardingState.receivable_ask
+    assert company.opening_balance == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_receivable_and_payable_amount_reject_zero(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    await _to_receivable_ask(db, company)
+    await _send(db, company, "yes")
+    await _send(db, company, "Some Dealer")
+    await _send(db, company, "yes")  # confirm new dealer
+    assert company.onboarding_state == OnboardingState.receivable_amount
+
+    reply = await _send(db, company, "0")
+    assert company.onboarding_state == OnboardingState.receivable_amount  # stayed
+    assert "amount" in reply.lower()
+
+    await _send(db, company, "5000")
+    await _send(db, company, "today")
+    await _send(db, company, "no")  # no more receivables
+    assert company.onboarding_state == OnboardingState.payable_ask
+
+    await _send(db, company, "yes")
+    await _send(db, company, "Some Supplier")
+    await _send(db, company, "yes")  # confirm new supplier
+    assert company.onboarding_state == OnboardingState.payable_amount
+
+    reply = await _send(db, company, "0")
+    assert company.onboarding_state == OnboardingState.payable_amount  # stayed
+    assert "amount" in reply.lower()
 
 
 @pytest.mark.asyncio
@@ -642,7 +731,7 @@ async def test_dealer_bulk_paste_saves_each_item_separately(db: AsyncSession) ->
     ram = await db.scalar(
         select(Dealer).where(Dealer.company_id == company.id, Dealer.name == "Ram Traders")
     )
-    assert ram.phone == "9876543210"
+    assert ram.phone == "+919876543210"  # normalized to E.164
     assert ram.payment_terms_days == 15
     kirana = await db.scalar(
         select(Dealer).where(Dealer.company_id == company.id, Dealer.name == "Kirana Point")
@@ -695,7 +784,7 @@ async def test_supplier_bulk_paste_saves_each_item_separately(db: AsyncSession) 
             Supplier.company_id == company.id, Supplier.name == "Metro Distributors"
         )
     )
-    assert metro.phone == "9988776655"
+    assert metro.phone == "+919988776655"  # normalized to E.164
     assert metro.payment_terms_days == 30
 
     await _send(db, company, "done")
@@ -1252,7 +1341,7 @@ async def test_dealer_missing_one_by_one_updates_existing_row(db: AsyncSession) 
 
     assert await _count(db, Dealer, company.id) == 1  # not duplicated
     dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
-    assert dealer.phone == "9876543210"
+    assert dealer.phone == "+919876543210"  # normalized to E.164
     assert dealer.payment_terms_days == 15
 
 
@@ -1283,7 +1372,7 @@ async def test_dealer_missing_bulk_updates_matched_and_reports_unmatched(
     )
     assert len(dealers) == 2  # no duplicate row created for "Unknown Dealer"
     by_name = {d.name: d for d in dealers}
-    assert by_name["Ram Traders"].phone == "9876543210"
+    assert by_name["Ram Traders"].phone == "+919876543210"  # normalized to E.164
     assert by_name["Ram Traders"].payment_terms_days == 15
     assert by_name["Shree Enterprises"].phone is None  # untouched — not in the pasted lines
 
@@ -1313,7 +1402,7 @@ async def test_supplier_missing_one_by_one_updates_existing_row(db: AsyncSession
 
     assert await _count(db, Supplier, company.id) == 1  # not duplicated
     supplier = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
-    assert supplier.phone == "9988776655"
+    assert supplier.phone == "+919988776655"  # normalized to E.164
     assert supplier.payment_terms_days == 30
 
 
@@ -1330,5 +1419,5 @@ async def test_supplier_missing_bulk_updates_matched_row(db: AsyncSession) -> No
     assert supplier_before.name.lower() in reply.lower()  # named in the "updated" confirmation
 
     supplier = await db.get(Supplier, supplier_before.id)
-    assert supplier.phone == "9988776655"
+    assert supplier.phone == "+919988776655"  # normalized to E.164
     assert supplier.payment_terms_days == 30

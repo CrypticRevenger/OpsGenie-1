@@ -401,6 +401,10 @@ MESSAGES: dict[str, str] = {
     ),
     # Shared party fields
     "onboarding.party.phone_ask": "Phone number for {name}? (or 'skip')",
+    "onboarding.party.phone_invalid": (
+        "That doesn't look like a valid phone number. Include the country code if it's not "
+        "Indian, e.g. +919876543210."
+    ),
     "onboarding.party.credit_invalid": "Please send a number of days, e.g. 15 (or 'skip').",
     # Shared bulk-paste error (products, dealers, suppliers)
     "onboarding.bulk_error": "Couldn't read that: {error}",
@@ -662,7 +666,12 @@ MESSAGES: dict[str, str] = {
     "payment.verb_to": "to",
     "payment.target_invoice": " against invoice {number}",
     "payment.preview": (
-        "Confirm: {amount} {verb} {party}{target} on {date}.\nReply YES to record, NO to cancel."
+        "Confirm: {amount} {verb} {party}{target} on {date}.{warning}\n"
+        "Reply YES to record, NO to cancel."
+    ),
+    "payment.duplicate_warning": (
+        "⚠️ This looks similar to a payment already recorded: {party}, {amount} on {date}. "
+        "If that's a separate, intentional payment, reply YES to continue."
     ),
     # ── Create order ───────────────────────────────────────────────────────
     "order.start": "Who is this order for? (dealer name)",
@@ -689,6 +698,14 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "Confirm order for {dealer}:",
     "order.preview_footer": "Reply YES to create, NO to cancel.",
+    "order.duplicate_warning": (
+        "⚠️ This looks similar to an existing invoice ({number}) for this dealer — same date "
+        "and total. If this is a separate, intentional order, reply YES to continue."
+    ),
+    "order.credit_limit_warning": (
+        "⚠️ This order would take {dealer}'s outstanding to {prospective}, over their credit "
+        "limit of {limit}."
+    ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "Which invoice? Send its invoice number, or 'cancel'.",
     "edit.invoice_not_found": (
@@ -809,6 +826,7 @@ MESSAGES: dict[str, str] = {
     ),
     "product.value_invalid": "Please send a number, e.g. 450.",
     "product.value_nonneg": "Please send a number of zero or more.",
+    "product.value_positive": "Please send a number greater than zero.",
     "product.gone_value": "That product is no longer available.",
     "product.not_set": "not set",
     "product.updated_price": "Updated {name}'s price to {new} (was {old}).",
@@ -888,6 +906,10 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.gstin_ask": "{name}'s current GSTIN is {current}. What should the new GSTIN be?",
     "party.edit.days_invalid": "Please send a whole number of days, e.g. 30.",
+    "party.edit.phone_invalid": (
+        "That doesn't look like a valid phone number. Include the country code if it's not "
+        "Indian, e.g. +919876543210."
+    ),
     "party.edit.gstin_invalid": (
         "That doesn't look like a valid GSTIN. Please check and try again, or 'cancel'."
     ),

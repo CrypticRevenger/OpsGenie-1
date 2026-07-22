@@ -389,6 +389,10 @@ MESSAGES: dict[str, str] = {
         "Yeh naam upar ki list se match nahi hue, isliye update nahi hue: {names}."
     ),
     "onboarding.party.phone_ask": "{name} ka phone number? (ya 'skip')",
+    "onboarding.party.phone_invalid": (
+        "Woh sahi phone number nahi lagta. Agar Indian nahi hai to country code shamil "
+        "karein, jaise +919876543210."
+    ),
     "onboarding.party.credit_invalid": "Kripya dino ka number bhejein, jaise 15 (ya 'skip').",
     "onboarding.bulk_error": "Yeh samajh nahi aaya: {error}",
     "onboarding.opening.ask": "Abhi aapke business me kitna cash hai? (jaise 320000)",
@@ -639,8 +643,13 @@ MESSAGES: dict[str, str] = {
     "payment.verb_to": "ko",
     "payment.target_invoice": " invoice {number} ke against",
     "payment.preview": (
-        "Confirm: {amount} {party}{target} {verb} {date} ko.\n"
+        "Confirm: {amount} {party}{target} {verb} {date} ko.{warning}\n"
         "Reply YES record karne ke liye, NO cancel ke liye."
+    ),
+    "payment.duplicate_warning": (
+        "⚠️ Yeh pehle se record kiye gaye payment jaisa lagta hai: {party}, {amount} {date} "
+        "ko. Agar yeh ek alag, jaanbujhkar kiya gaya payment hai, to jaari rakhne ke liye "
+        "YES bhejein."
     ),
     # ── Create order ───────────────────────────────────────────────────────
     "order.start": "Yeh order kiske liye hai? (dealer ka naam)",
@@ -671,6 +680,15 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "{dealer} ke liye order confirm karein:",
     "order.preview_footer": "Reply YES banane ke liye, NO cancel ke liye.",
+    "order.duplicate_warning": (
+        "⚠️ Yeh is dealer ke existing invoice ({number}) jaisa lagta hai — same date aur "
+        "total. Agar yeh ek alag, jaanbujhkar kiya gaya order hai, to jaari rakhne ke liye "
+        "YES bhejein."
+    ),
+    "order.credit_limit_warning": (
+        "⚠️ Yeh order {dealer} ka outstanding {prospective} tak le jaayega, jo unki "
+        "{limit} ki credit limit se zyada hai."
+    ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "Kaun sa invoice? Uska invoice number bhejein, ya 'cancel'.",
     "edit.invoice_not_found": (
@@ -794,6 +812,7 @@ MESSAGES: dict[str, str] = {
     ),
     "product.value_invalid": "Kripya ek number bhejein, jaise 450.",
     "product.value_nonneg": "Kripya zero ya usse zyada number bhejein.",
+    "product.value_positive": "Kripya zero se zyada number bhejein.",
     "product.gone_value": "Woh product ab available nahi hai.",
     "product.not_set": "set nahi",
     "product.updated_price": "{name} ki price {new} ki (pehle {old} thi).",
@@ -877,6 +896,10 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.gstin_ask": "{name} ka abhi ka GSTIN {current} hai. Naya GSTIN kya ho?",
     "party.edit.days_invalid": "Kripya dinon ki ek puri sankhya bhejein, jaise 30.",
+    "party.edit.phone_invalid": (
+        "Woh sahi phone number nahi lagta. Agar Indian nahi hai to country code shamil "
+        "karein, jaise +919876543210."
+    ),
     "party.edit.gstin_invalid": (
         "Woh sahi GSTIN nahi lagta. Kripya jaanch kar dobara bhejein, ya 'cancel'."
     ),

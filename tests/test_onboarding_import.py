@@ -258,6 +258,32 @@ async def test_import_products_alias_headers_and_missing_fields(client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_import_products_rejects_zero_and_negative_price_row_only(
+    client: AsyncClient,
+) -> None:
+    """A bad price/stock fails only that row — the rest of the file still
+    imports (per this importer's per-row SAVEPOINT isolation)."""
+    company_id = await _register_company(client)
+    csv_bytes = (
+        b"Name,Purchase Price,Selling Price,Unit,Stock,GST%\n"
+        b"Good Product,300,400,kg,100,5\n"
+        b"Zero Price,300,0,kg,100,5\n"
+        b"Negative Stock,300,400,kg,-10,5\n"
+    )
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "products"},
+        files={"file": ("stock.csv", csv_bytes, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["import_result"]["rows_succeeded"] == 1
+    assert data["import_result"]["rows_failed"] == 2
+    assert data["summary"]["product_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_import_products_missing_name_column_returns_400(client: AsyncClient) -> None:
     company_id = await _register_company(client)
     csv_bytes = b"Price,Stock\n400,100\n"

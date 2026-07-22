@@ -48,6 +48,8 @@ from app.services.importer.normalizer import (
     normalise_header,
     parse_amount,
     parse_date,
+    parse_nonnegative_amount,
+    parse_positive_amount,
     row_by_normalised_header,
 )
 from app.services.importer.parties import find_or_create_party
@@ -330,14 +332,14 @@ async def _import_invoice_row(
         raise ValueError("party_name is required")
 
     invoice_date = parse_date(canonical["invoice_date"])
-    total_amount = parse_amount(canonical["total_amount"])
+    total_amount = parse_positive_amount(canonical["total_amount"])
     gst_amount = (
-        parse_amount(canonical["gst_amount"])
+        parse_nonnegative_amount(canonical["gst_amount"])
         if canonical.get("gst_amount", "").strip()
         else Decimal("0.00")
     )
     subtotal = (
-        parse_amount(canonical["subtotal"])
+        parse_nonnegative_amount(canonical["subtotal"])
         if canonical.get("subtotal", "").strip()
         else total_amount - gst_amount
     )

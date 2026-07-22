@@ -201,6 +201,67 @@ async def test_payment_with_no_invoice_on_file_rejected_but_party_created(
     assert supplier is not None  # party persisted despite the payment failing
 
 
+@pytest.mark.asyncio
+async def test_zero_amount_payment_fails_the_row_not_a_silent_success(db: AsyncSession) -> None:
+    """Regression: a zero/negative amount used to slip past parse_amount (no
+    guard), then allocate_payment_fifo's allocation loop exited immediately
+    with zero Payments written — but the row was still recorded as a
+    *success*, since nothing ever raised. Must now fail the row instead.
+    """
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Zero Amount Traders")
+    await _make_invoice(
+        db, company_id, dealer_id, "INV-P6", date(2026, 1, 5), Decimal("5000.00")
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
+        filename="payments.csv",
+        contents=_csv("Zero Amount Traders,2026-01-10,0.00,Bank"),
+    )
+    assert result.rows_succeeded == 0
+    assert result.rows_failed == 1
+
+    payments = (
+        (await db.execute(select(Payment).where(Payment.company_id == company_id))).scalars().all()
+    )
+    assert len(payments) == 0
+
+
+@pytest.mark.asyncio
+async def test_allocate_payment_fifo_rejects_zero_amount_directly(db: AsyncSession) -> None:
+    """Defense-in-depth: the guard lives inside allocate_payment_fifo itself,
+    not just at the CSV row-parsing call site, so writes/payments.py's
+    record_payment (the WhatsApp path) is protected too.
+    """
+    from app.services.importer.payment_row import allocate_payment_fifo
+
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Direct Call Traders")
+    await _make_invoice(
+        db, company_id, dealer_id, "INV-P7", date(2026, 1, 5), Decimal("5000.00")
+    )
+
+    with pytest.raises(ValueError, match="greater than zero"):
+        await allocate_payment_fifo(
+            db,
+            company_id=company_id,
+            direction="receivable",
+            party_id=dealer_id,
+            party_name="Direct Call Traders",
+            amount=Decimal("0.00"),
+            payment_date=date(2026, 1, 10),
+            method="Bank",
+            voucher_reference="",
+            source_file="test.csv",
+            row_number=1,
+            source_row_key="test-key",
+        )
+
+
 # ── Idempotency ───────────────────────────────────────────────────────────────
 
 

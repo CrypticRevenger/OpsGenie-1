@@ -102,6 +102,61 @@ async def test_one_by_one_add_then_done_clears_workflow(db: AsyncSession) -> Non
 
 
 @pytest.mark.asyncio
+async def test_one_by_one_add_rejects_negative_quantity_but_allows_zero(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    start_add_product_workflow(company)
+    await _send(db, company, "one by one")
+    await _send(db, company, "Rice")
+    reply = await _send(db, company, "-5")
+    assert company.workflow_scratch["step"] == "awaiting_quantity"  # stayed
+    assert "invalid" in reply.lower() or "number" in reply.lower()
+
+    reply = await _send(db, company, "0")  # zero stock is legitimate (not yet restocked)
+    assert "unit" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_one_by_one_add_rejects_zero_and_negative_price(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    start_add_product_workflow(company)
+    await _send(db, company, "one by one")
+    await _send(db, company, "Rice")
+    await _send(db, company, "100")
+    await _send(db, company, "kg")
+
+    reply = await _send(db, company, "0")
+    assert company.workflow_scratch["step"] == "awaiting_price"  # stayed
+    reply = await _send(db, company, "-10")
+    assert company.workflow_scratch["step"] == "awaiting_price"  # stayed
+
+    reply = await _send(db, company, "40")
+    assert "purchase price" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_one_by_one_add_rejects_zero_and_negative_purchase_price(
+    db: AsyncSession,
+) -> None:
+    company = await _fresh_company(db)
+    start_add_product_workflow(company)
+    await _send(db, company, "one by one")
+    await _send(db, company, "Rice")
+    await _send(db, company, "100")
+    await _send(db, company, "kg")
+    await _send(db, company, "40")
+
+    reply = await _send(db, company, "0")
+    assert company.workflow_scratch["step"] == "awaiting_purchase_price"  # stayed
+    reply = await _send(db, company, "-30")
+    assert company.workflow_scratch["step"] == "awaiting_purchase_price"  # stayed
+
+    reply = await _send(db, company, "30")
+    assert "Added product: Rice" in reply
+
+
+@pytest.mark.asyncio
 async def test_one_by_one_add_asks_gst_when_company_varies_by_product(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     company.gst_varies_by_product = True
@@ -409,6 +464,54 @@ async def test_update_price_bad_amount_reasks_without_advancing(db: AsyncSession
     reply = await _send_update_price(db, company, "a lot")
     assert company.workflow_scratch["step"] == "awaiting_value"  # stayed
     assert "number" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_update_price_to_zero_now_rejected(db: AsyncSession) -> None:
+    """Deliberate tightening: a selling/purchase price of exactly 0 is a
+    data-entry mistake, unlike stock (which may legitimately be 0) — the
+    update-product handler used to allow it via a single `value < 0` check
+    shared across all three fields.
+    """
+    company = await _fresh_company(db)
+    db.add(
+        Product(
+            company_id=company.id,
+            name="Rice",
+            stock_quantity=Decimal("100"),
+            selling_price=Decimal("400.00"),
+        )
+    )
+    await db.commit()
+
+    start_update_price_workflow(company)
+    await _send_update_price(db, company, "Rice")
+    reply = await _send_update_price(db, company, "0")
+    assert company.workflow_scratch["step"] == "awaiting_value"  # stayed, not advanced
+    assert "greater than zero" in reply.lower()
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.selling_price == Decimal("400.00")  # untouched
+
+
+@pytest.mark.asyncio
+async def test_update_stock_to_zero_still_allowed(db: AsyncSession) -> None:
+    """Unlike price/purchase_price, stock may legitimately be set to 0
+    (a product that's completely sold out) — the field-aware guard must not
+    over-tighten this one."""
+    company = await _fresh_company(db)
+    db.add(
+        Product(company_id=company.id, name="Rice", stock_quantity=Decimal("100"), unit="kg")
+    )
+    await db.commit()
+
+    start_update_stock_workflow(company)
+    await _send_update_price(db, company, "Rice")
+    reply = await _send_update_price(db, company, "0")
+    assert "updated" in reply.lower()
+
+    product = await db.scalar(select(Product).where(Product.company_id == company.id))
+    assert product.stock_quantity == Decimal("0")
 
 
 @pytest.mark.asyncio

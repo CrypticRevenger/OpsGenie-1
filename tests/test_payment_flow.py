@@ -26,6 +26,7 @@ from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.payment import Payment
 from app.models.pending_operation import PendingOperation
+from app.services.snapshot import business_now
 from app.services.whatsapp_client import WhatsAppSendResult
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
@@ -496,6 +497,99 @@ async def test_multiple_open_invoices_all_falls_back_to_fifo(db: AsyncSession, m
     # 60000 across INV-OLD (50000, oldest first) then INV-NEW (remaining 10000).
     assert old_invoice.status == InvoiceStatus.Paid
     assert new_invoice.status == InvoiceStatus.Partially_Paid
+
+
+@pytest.mark.asyncio
+async def test_duplicate_payment_warns_but_still_records(db: AsyncSession, monkeypatch) -> None:
+    """A second payment matching an existing one's (party, date, amount) gets
+    an advisory warning in the preview — but still records on YES, since a
+    party can legitimately make two separate same-day, same-amount payments.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoice(db, company_id, "Ram Traders", "INV-DUP", Decimal("100000.00"))
+    company = await db.get(Company, company_id)
+    today = business_now(company.timezone).date()
+
+    invoice_row = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    db.add(
+        Payment(
+            company_id=company_id,
+            invoice_id=invoice_row.id,
+            amount=Decimal("10000.00"),
+            payment_date=today,
+        )
+    )
+    invoice_row.status = InvoiceStatus.Partially_Paid
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "10000")
+        await _send(client, bare_sender, "today")
+        assert "confirm" in sent[-1].lower()
+        assert "similar to a payment already recorded" in sent[-1].lower()
+        assert "reply yes to continue" in sent[-1].lower()
+
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+
+    payments = (
+        (await db.execute(select(Payment).where(Payment.company_id == company_id)))
+        .scalars()
+        .all()
+    )
+    assert len(payments) == 2  # the seeded one + the new one, both kept
+
+
+@pytest.mark.asyncio
+async def test_different_amount_no_duplicate_warning(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoice(
+        db, company_id, "Ram Traders", "INV-NODUP", Decimal("100000.00")
+    )
+    company = await db.get(Company, company_id)
+    today = business_now(company.timezone).date()
+
+    invoice_row = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    db.add(
+        Payment(
+            company_id=company_id,
+            invoice_id=invoice_row.id,
+            amount=Decimal("10000.00"),
+            payment_date=today,
+        )
+    )
+    invoice_row.status = InvoiceStatus.Partially_Paid
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "25000")  # different amount — no match
+        await _send(client, bare_sender, "today")
+        assert "confirm" in sent[-1].lower()
+        assert "similar to a payment already recorded" not in sent[-1].lower()
 
 
 @pytest.mark.asyncio

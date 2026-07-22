@@ -83,6 +83,26 @@ def parse_amount(raw: str) -> Decimal:
         raise ValueError(f"Cannot parse amount '{raw}' as a number") from exc
 
 
+def parse_positive_amount(raw: str) -> Decimal:
+    """parse_amount, plus a > 0 guard — for fields where zero/negative is
+    never legitimate (an invoice total, a payment amount, a selling price).
+    """
+    value = parse_amount(raw)
+    if value <= 0:
+        raise ValueError(f"'{raw}' must be greater than zero")
+    return value
+
+
+def parse_nonnegative_amount(raw: str) -> Decimal:
+    """parse_amount, plus a >= 0 guard — for fields where zero is legitimate
+    but negative isn't (stock quantity, opening balance, GST amount).
+    """
+    value = parse_amount(raw)
+    if value < 0:
+        raise ValueError(f"'{raw}' cannot be negative")
+    return value
+
+
 # ── Column name normalisation ─────────────────────────────────────────────────
 
 
