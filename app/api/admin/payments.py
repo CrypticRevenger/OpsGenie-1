@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
@@ -19,6 +20,7 @@ from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.schemas.pagination import Page
 from app.schemas.payment import PaymentResponse
+from app.services.writes.void import recompute_invoice_status
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +99,11 @@ async def list_payments(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a payment",
     description=(
-        "Permanently deletes a payment. This does NOT re-run FIFO payment "
-        "reconciliation on the invoice it was applied to — real payments "
+        "Permanently deletes a payment and recomputes its invoice's status "
+        "from the payments that remain. This does NOT re-run FIFO payment "
+        "reconciliation across the party's *other* invoices — real payments "
         "should normally go through CSV import or the guided WhatsApp "
-        "workflows. Use this only to clean up bad data; spot-check the "
-        "invoice's amount_outstanding afterward."
+        "workflows. Use this only to clean up bad data."
     ),
 )
 async def delete_payment(
@@ -120,10 +122,31 @@ async def delete_payment(
         )
     logger.warning(
         "Deleting payment %s for company %s — this does not re-run FIFO "
-        "reconciliation; verify the invoice's amount_outstanding afterward.",
+        "reconciliation across the party's other invoices.",
         payment_id,
         company_id,
     )
+    invoice_id = payment.invoice_id
     await db.delete(payment)
+    await db.flush()
+
+    # Restore the invoice-status invariant every read path depends on. Without
+    # this the invoice keeps a stale `Paid`, which _OPEN_STATUSES excludes — so
+    # calculate_party_outstanding reports 0 for money that is once again owed,
+    # while reports/ledger.py (which filters only Draft/Cancelled) still shows
+    # the full balance. Same three-way rule as writes/void.py::void_payment,
+    # which is the guided-workflow equivalent of this route.
+    invoice = await db.get(Invoice, invoice_id)
+    if invoice is not None:
+        paid_total = sum(
+            (
+                await db.execute(select(Payment.amount).where(Payment.invoice_id == invoice.id))
+            )
+            .scalars()
+            .all(),
+            Decimal("0.00"),
+        )
+        recompute_invoice_status(invoice, paid_total)
+
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)

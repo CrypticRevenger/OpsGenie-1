@@ -31,7 +31,7 @@ from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection
 from app.models.payment import Payment
 from app.models.supplier import Supplier
-from app.services.writes.void import _recompute_invoice_status
+from app.services.writes.void import recompute_invoice_status
 
 
 @dataclass(frozen=True)
@@ -182,7 +182,7 @@ async def edit_payment(
             )
         old_value = str(payment.amount)
         payment.amount = new_amount
-        _recompute_invoice_status(invoice, other_paid_total + new_amount)
+        recompute_invoice_status(invoice, other_paid_total + new_amount)
         new_value_display = str(new_amount)
     else:
         raise ValueError(f"unknown field: {field}")
