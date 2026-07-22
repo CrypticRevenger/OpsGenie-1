@@ -665,3 +665,115 @@ async def test_corrupt_xlsx_is_rejected_cleanly_not_as_a_crash(db: AsyncSession)
             filename="corrupt.xlsx",
             contents=b"this is not a real xlsx file",
         )
+
+
+# ── PDF import (Tally voucher/invoice printouts) ───────────────────────────────
+
+
+def _invoice_pdf(*pages: list[str]) -> bytes:
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    for lines in pages:
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=11)
+        for line in lines:
+            pdf.cell(0, 6, text=line, new_x="LMARGIN", new_y="NEXT")
+    return bytes(pdf.output())
+
+
+_SALE_INVOICE_PDF_LINES = [
+    "Bill of Supply",
+    "ACME AGRI SUPPLIES Invoice No. Dated",
+    "1 Market Road, 785 23-Jan-26",
+    "Sometown-560001",
+    "Buyer (Bill to)",
+    "M/s.Reliable Medical Store Dispatched through Destination",
+    "Soro, Baleswar",
+    "Total (cid:299) 23,992.00",
+]
+
+_RECEIPT_VOUCHER_PDF_LINES = [
+    "ACME AGRI SUPPLIES",
+    "1 Market Road,",
+    "Sometown-560001",
+    "Receipt Voucher",
+    "No. : 9 Dated : 6-Jan-26",
+    "Particulars Amount",
+    "Account :",
+    "M/s.Reliable Medical Store 40,000.00",
+    "Through :",
+    "IDFC FIRST BANK",
+]
+
+
+@pytest.mark.asyncio
+async def test_pdf_invoice_import_creates_dealer_and_invoice(db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    contents = _invoice_pdf(_SALE_INVOICE_PDF_LINES)
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="sale_register.pdf",
+        contents=contents,
+    )
+
+    assert result.rows_succeeded == 1
+    assert result.rows_failed == 0
+    assert result.source_format == "pdf"
+
+    dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company_id))
+    assert dealer is not None
+    assert dealer.name == "Reliable Medical Store"
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.invoice_number == "785"
+    assert invoice.total_amount == Decimal("23992.00")
+    assert invoice.invoice_date.isoformat() == "2026-01-23"
+
+
+@pytest.mark.asyncio
+async def test_pdf_invoice_import_reports_mismatched_page_as_row_failure(
+    db: AsyncSession,
+) -> None:
+    """A Receipt Voucher page uploaded through the invoices field fails that
+    one page with a helpful reason — it never silently becomes an invoice,
+    and it never fails the whole file (other pages in the same PDF still
+    import normally)."""
+    company_id = await _make_company(db)
+    contents = _invoice_pdf(_RECEIPT_VOUCHER_PDF_LINES, _SALE_INVOICE_PDF_LINES)
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="mixed.pdf",
+        contents=contents,
+    )
+
+    assert result.rows_succeeded == 1
+    assert result.rows_failed == 1
+    assert "Payments field" in result.errors[0].reason
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.invoice_number == "785"
+
+
+@pytest.mark.asyncio
+async def test_pdf_import_unsupported_for_products(db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    with pytest.raises(UnsupportedFileError):
+        await run_import(
+            db,
+            company_id=company_id,
+            direction=None,
+            file_kind="products",
+            filename="catalogue.pdf",
+            contents=_invoice_pdf(_SALE_INVOICE_PDF_LINES),
+        )

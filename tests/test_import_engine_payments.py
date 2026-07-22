@@ -299,3 +299,61 @@ async def test_reimporting_same_payments_file_is_idempotent(db: AsyncSession) ->
         (await db.execute(select(Payment).where(Payment.company_id == company_id))).scalars().all()
     )
     assert len(payments) == 1  # no duplicate payment created
+
+
+# ── PDF import (Tally Receipt/Payment Voucher printouts) ───────────────────────
+
+
+def _voucher_pdf(*pages: list[str]) -> bytes:
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    for lines in pages:
+        pdf.add_page()
+        pdf.set_font("Helvetica", size=11)
+        for line in lines:
+            pdf.cell(0, 6, text=line, new_x="LMARGIN", new_y="NEXT")
+    return bytes(pdf.output())
+
+
+@pytest.mark.asyncio
+async def test_pdf_receipt_voucher_allocates_against_open_invoice(db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Reliable Medical Store")
+    invoice = await _make_invoice(
+        db, company_id, dealer_id, "785", date(2026, 1, 23), Decimal("23992.00")
+    )
+
+    contents = _voucher_pdf(
+        [
+            "ACME AGRI SUPPLIES",
+            "1 Market Road,",
+            "Sometown-560001",
+            "Receipt Voucher",
+            "No. : 9 Dated : 6-Jan-26",
+            "Particulars Amount",
+            "Account :",
+            "M/s.Reliable Medical Store 23,992.00",
+            "Through :",
+            "IDFC FIRST BANK",
+        ]
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="payments",
+        filename="receipts.pdf",
+        contents=contents,
+    )
+
+    assert result.rows_succeeded == 1
+    assert result.rows_failed == 0
+    assert result.source_format == "pdf"
+
+    await db.refresh(invoice)
+    assert invoice.status == InvoiceStatus.Paid
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is not None
+    assert payment.amount == Decimal("23992.00")

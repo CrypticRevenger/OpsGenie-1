@@ -137,29 +137,31 @@ async def submit_onboarding(
 @router.post(
     "/onboard/{company_id}/import",
     response_model=OnboardImportResponse,
-    summary="Self-serve: import a Tally/Vyapar/Excel export before WhatsApp starts",
+    summary="Self-serve: import a Tally/Vyapar/Excel/PDF export before WhatsApp starts",
     description=(
         "Optional wizard step between business details and activation — lets a "
-        "distributor bootstrap dealers/suppliers/invoices, or their product/stock "
-        "catalogue, from an existing export instead of typing everything into "
-        "WhatsApp. Same importer as the founder admin route (Tally/Vyapar/"
-        "OpsGenie-canonical CSV/Excel), scoped to invoices only for file_kind="
-        "invoices (opening receivables/payables — not full payment history) and "
-        "to one direction per call, matching how a real sales register vs. "
-        "purchase register export works. Returns the import result plus a fresh "
-        "reconciliation summary so the distributor can confirm it looks right "
-        "before continuing."
+        "distributor bootstrap dealers/suppliers/invoices/payments, or their "
+        "product/stock catalogue, from an existing export instead of typing "
+        "everything into WhatsApp. Same importer as the founder admin route "
+        "(Tally/Vyapar/OpsGenie-canonical CSV/Excel, plus Tally-style PDF "
+        "voucher/invoice printouts for file_kind=invoices/payments), scoped to "
+        "one direction per call, matching how a real sales register vs. "
+        "purchase register export works. Payments FIFO-allocate against "
+        "already-imported open invoices for that party, so an invoices file "
+        "for a given party should be imported before its payments file. "
+        "Returns the import result plus a fresh reconciliation summary so the "
+        "distributor can confirm it looks right before continuing."
     ),
 )
 async def import_onboarding_data(
     company_id: uuid.UUID,
-    file_kind: Literal["invoices", "products"] = Query(
+    file_kind: Literal["invoices", "payments", "products"] = Query(
         "invoices",
-        description="Whether this file contains invoices or a product/stock catalogue",
+        description="Whether this file contains invoices, payments, or a product/stock catalogue",
     ),
     direction: Literal["receivable", "payable"] | None = Query(
         None,
-        description="receivable = dealer invoices, payable = supplier invoices. "
+        description="receivable = dealer invoices/payments, payable = supplier. "
         "Required unless file_kind=products.",
     ),
     file: UploadFile = File(...),

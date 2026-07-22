@@ -975,6 +975,7 @@ dependencies = [
     { name = "jinja2" },
     { name = "openai" },
     { name = "openpyxl" },
+    { name = "pdfplumber" },
     { name = "phonenumbers" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
@@ -986,7 +987,6 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "httpx" },
-    { name = "pdfplumber" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -1006,7 +1006,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "openai", specifier = ">=1.50.0" },
     { name = "openpyxl", specifier = ">=3.1.5" },
-    { name = "pdfplumber", marker = "extra == 'dev'", specifier = ">=0.11.10" },
+    { name = "pdfplumber", specifier = ">=0.11.10" },
     { name = "phonenumbers", specifier = ">=9.0.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "pydantic-settings", specifier = ">=2.6.0" },
