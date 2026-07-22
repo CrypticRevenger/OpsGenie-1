@@ -696,8 +696,18 @@ MESSAGES: dict[str, str] = {
     "order.subtotal": "Subtotal: {amount}",
     "order.gst": "GST{rate_label}: {amount}",
     "order.total": "Total: {amount}",
+    "order.payment_made": "Payment Made: {amount}",
+    "order.balance_due": "Balance Due: {amount}",
+    "order.advance_amount_ask": "How much did the dealer pay in advance? (e.g. 5000)",
+    "order.advance_amount_invalid": "Please send a number greater than zero, e.g. 5000.",
+    "order.advance_exceeds_total": (
+        "That's more than the order total of {total}. Send a smaller amount, or reply YES to "
+        "create the order without an advance."
+    ),
     "order.preview_header": "Confirm order for {dealer}:",
-    "order.preview_footer": "Reply YES to create, NO to cancel.",
+    "order.preview_footer": (
+        "Reply YES to create, NO to cancel, or ADVANCE if the dealer already paid something."
+    ),
     "order.duplicate_warning": (
         "⚠️ This looks similar to an existing invoice ({number}) for this dealer — same date "
         "and total. If this is a separate, intentional order, reply YES to continue."
@@ -949,7 +959,8 @@ MESSAGES: dict[str, str] = {
     ),
     "pending.order_success": (
         "✅ Order {number} created for {dealer}.\n{lines}\n"
-        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"
+        "Payment Made: {payment_made}\nBalance Due: {balance_due}{warning}{pdf_note}"
     ),
     "pending.gst_failed": "Couldn't update GST: {error}. Please start again.",
     "pending.gst_success": "✅ GST for {target} set to {rate}.",

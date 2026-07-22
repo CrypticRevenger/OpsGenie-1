@@ -678,8 +678,19 @@ MESSAGES: dict[str, str] = {
     "order.subtotal": "Subtotal: {amount}",
     "order.gst": "GST{rate_label}: {amount}",
     "order.total": "Total: {amount}",
+    "order.payment_made": "Payment Made: {amount}",
+    "order.balance_due": "Balance Due: {amount}",
+    "order.advance_amount_ask": "Dealer ne advance mein kitna diya? (jaise 5000)",
+    "order.advance_amount_invalid": "Kripya zero se zyada number bhejein, jaise 5000.",
+    "order.advance_exceeds_total": (
+        "Yeh order ke {total} total se zyada hai. Kam amount bhejein, ya bina advance ke "
+        "order banane ke liye YES reply karein."
+    ),
     "order.preview_header": "{dealer} ke liye order confirm karein:",
-    "order.preview_footer": "Reply YES banane ke liye, NO cancel ke liye.",
+    "order.preview_footer": (
+        "Reply YES banane ke liye, NO cancel ke liye, ya ADVANCE agar dealer ne pehle se "
+        "kuch pay kar diya hai."
+    ),
     "order.duplicate_warning": (
         "⚠️ Yeh is dealer ke existing invoice ({number}) jaisa lagta hai — same date aur "
         "total. Agar yeh ek alag, jaanbujhkar kiya gaya order hai, to jaari rakhne ke liye "
@@ -941,7 +952,8 @@ MESSAGES: dict[str, str] = {
     ),
     "pending.order_success": (
         "✅ Order {number} {dealer} ke liye bana.\n{lines}\n"
-        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"
+        "Payment Made: {payment_made}\nBalance Due: {balance_due}{warning}{pdf_note}"
     ),
     "pending.gst_failed": "GST update nahi ho paya: {error}. Kripya dobara shuru karein.",
     "pending.gst_success": "✅ {target} ka GST {rate} set kiya.",
