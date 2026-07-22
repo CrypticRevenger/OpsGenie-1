@@ -119,6 +119,24 @@ async def recently_messaged(
     return found is not None
 
 
+async def _already_messaged_in_batch(
+    db: AsyncSession, company_id: uuid.UUID, batch_id: uuid.UUID
+) -> set[str]:
+    """Recipient phone numbers this batch has already written a log row for.
+
+    The resume marker. Each row is committed as its send completes, so on a
+    redelivery this set is exactly "who already got the message", and the loop
+    below can pick up where it left off.
+    """
+    rows = await db.scalars(
+        select(NotificationLog.recipient_whatsapp).where(
+            NotificationLog.company_id == company_id,
+            NotificationLog.batch_id == batch_id,
+        )
+    )
+    return set(rows.all())
+
+
 async def send_broadcast(
     db: AsyncSession,
     company: Company,
@@ -126,7 +144,18 @@ async def send_broadcast(
     segment: str,
     dealer_ids: list[uuid.UUID],
     message: str,
+    batch_id: uuid.UUID,
 ) -> BroadcastResult:
+    """Send `message` to every opted-in dealer in `segment`.
+
+    `batch_id` is the confirming PendingOperation's id. It must be stable
+    across a Meta webhook redelivery of the same inbound confirmation — and it
+    is, because the redelivery only happens when the PendingOperation delete
+    failed to commit, leaving that same row (and id) in place. Recipients
+    already logged under this batch_id are skipped, so a crash between the last
+    send and the request's final commit resumes the broadcast instead of
+    re-blasting the whole dealer network.
+    """
     settings = get_settings()
     dealers = await resolve_broadcast_recipients(
         db, company.id, segment=segment, dealer_ids=dealer_ids
@@ -134,9 +163,22 @@ async def send_broadcast(
     dealers = [d for d in dealers if d.phone][: settings.max_broadcast_recipients]
     since = datetime.now(UTC) - timedelta(hours=SESSION_WINDOW_HOURS)
 
+    already_sent = await _already_messaged_in_batch(db, company.id, batch_id)
+    if already_sent:
+        logger.warning(
+            "Resuming broadcast %s for company %s — %d recipient(s) already messaged, skipping.",
+            batch_id,
+            company.id,
+            len(already_sent),
+        )
+
     sent = 0
     failed = 0
     for dealer in dealers:
+        if dealer.phone in already_sent:
+            # Already messaged by an earlier attempt at this same batch. Not
+            # counted as sent or failed — those tallies describe this attempt.
+            continue
         message_id: str | None = None
         try:
             if await recently_messaged(db, company.id, dealer.phone, since):
@@ -166,9 +208,12 @@ async def send_broadcast(
                 message_text=message,
                 whatsapp_message_id=message_id,
                 delivery_status="sent" if message_id else "failed_to_send",
+                batch_id=batch_id,
             )
         )
-        # Commit per-dealer, not once at the end — see module docstring.
+        # Commit per-dealer, not once at the end — see module docstring. This
+        # is also what makes batch_id a usable resume marker: the row is
+        # durable the moment its send completes.
         await db.commit()
 
     db.add(
@@ -177,7 +222,14 @@ async def send_broadcast(
             event_type=BusinessEventType.marketing_broadcast_sent,
             entity_type="company",
             entity_id=company.id,
-            payload={"segment": segment, "attempted": len(dealers), "sent": sent, "failed": failed},
+            payload={
+                "segment": segment,
+                "attempted": len(dealers),
+                "sent": sent,
+                "failed": failed,
+                "resumed_skipped": len(already_sent),
+                "batch_id": str(batch_id),
+            },
             created_by="broadcast",
         )
     )
