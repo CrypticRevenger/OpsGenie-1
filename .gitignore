@@ -55,3 +55,8 @@ scripts/convert_phase3_dataset.py
 z_issue/
 z_issue_solved/
 z_issue*
+
+# Generated output — never committed (see "Working principles" in PROJECT_STATUS.md).
+# Invoice/sample PDFs are produced at request time; dbenums.json is an audit dump.
+*.pdf
+dbenums.json
