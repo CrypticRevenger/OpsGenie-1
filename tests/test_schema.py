@@ -11,6 +11,9 @@ Before running, start Postgres and apply migrations:
 from __future__ import annotations
 
 import datetime
+import pathlib
+import subprocess
+import sys
 import uuid
 from decimal import Decimal
 
@@ -180,3 +183,55 @@ async def test_orm_relationship_chain(db: AsyncSession) -> None:
     assert len(loaded.invoices[0].payments) == 1
     assert loaded.invoices[0].payments[0].amount == Decimal("10500")
     assert len(loaded.payments) == 1
+
+
+@pytest.mark.asyncio
+async def test_every_live_table_is_registered_by_importing_app_models_alone(
+    db: AsyncSession,
+) -> None:
+    """`import app.models` alone must register every real table on Base.metadata.
+
+    Regression: FAQ was missing from app/models/__init__.py, so Base.metadata
+    held 16 of the 17 tables. Runtime was unaffected — app.main pulls FAQ in
+    transitively via the admin router — but alembic/env.py sets
+    target_metadata = Base.metadata after importing *only* app.models, so the
+    next `alembic revision --autogenerate` would have emitted
+    op.drop_table("faqs"), silently deleting every distributor's curated FAQ
+    content.
+
+    Must run in a fresh interpreter: this test process already imported
+    app.main via conftest, which registers FAQ regardless — reproducing the
+    exact blind spot that hid the bug rather than the bug itself.
+    """
+    probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import app.models; from app.db.base import Base; "
+            "print(' '.join(sorted(Base.metadata.tables)))",
+        ],
+        cwd=pathlib.Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    registered = set(probe.stdout.split())
+
+    live = set(
+        (
+            await db.execute(
+                text(
+                    "SELECT tablename FROM pg_tables "
+                    "WHERE schemaname = 'public' AND tablename <> 'alembic_version'"
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    assert live - registered == set(), (
+        "tables exist in the database but are absent from Base.metadata: "
+        f"{sorted(live - registered)}. Add the model to app/models/__init__.py — "
+        "autogenerate would otherwise propose dropping them."
+    )
