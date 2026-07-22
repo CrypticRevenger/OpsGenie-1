@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -79,26 +80,102 @@ def _payment_rows_stmt(company_id: uuid.UUID) -> Select:
     )
 
 
+@dataclass(frozen=True)
+class _InvoiceLevelLine:
+    """Stands in for an InvoiceItem on an invoice that has none.
+
+    Only the WhatsApp order flow (app/services/writes/orders.py) ever writes
+    InvoiceItem rows — the CSV/Tally/Vyapar importers create the Invoice alone
+    (see app/services/importer/engine.py, and daily_snapshot.py's docstring
+    which notes the same). Since _register_rows inner-joins InvoiceItem, a
+    distributor whose books arrived by Tally export got a completely empty
+    Sales/Purchase Register while their Day Book and invoice lists showed the
+    same invoices correctly.
+
+    Rather than drop those invoices, each one contributes a single summary
+    line built from its own totals. Same attribute names as InvoiceItem so the
+    workbook builder needs no branching.
+    """
+
+    description: str
+    line_total: Decimal
+    gst_rate: Decimal
+    gst_amount: Decimal
+
+
+_NO_LINE_DETAIL = "(invoice total — no line detail on file)"
+
+
+def _derive_gst_rate(subtotal: Decimal, gst_amount: Decimal) -> Decimal:
+    """Back out the effective rate from the invoice's own totals.
+
+    Rounded to whole percent: real GST slabs are integers (0/5/12/18/28), and
+    importing rounded rupee totals otherwise produces noise like 17.98% that
+    would fragment the rate-wise summary into near-duplicate buckets.
+    """
+    if subtotal <= 0:
+        return Decimal("0")
+    return (gst_amount / subtotal * 100).quantize(Decimal("1"))
+
+
 async def _register_rows(
     db: AsyncSession, company_id: uuid.UUID, direction: Direction, period: ReportPeriod
 ):
     party_model = Dealer if direction == "receivable" else Supplier
     party_column = Invoice.dealer_id if direction == "receivable" else Invoice.supplier_id
-    stmt = (
-        select(InvoiceItem, Invoice.invoice_number, Invoice.invoice_date, party_column)
-        .join(Invoice, InvoiceItem.invoice_id == Invoice.id)
-        .where(
+
+    def _scoped(stmt: Select) -> Select:
+        stmt = stmt.where(
             Invoice.company_id == company_id,
             Invoice.direction == InvoiceDirection(direction),
             Invoice.status.notin_(EXCLUDED_STATUSES),
         )
-        .order_by(Invoice.invoice_date, Invoice.invoice_number)
+        if period.from_date is not None:
+            stmt = stmt.where(Invoice.invoice_date >= period.from_date)
+        if period.to_date is not None:
+            stmt = stmt.where(Invoice.invoice_date <= period.to_date)
+        return stmt
+
+    item_stmt = _scoped(
+        select(InvoiceItem, Invoice.invoice_number, Invoice.invoice_date, party_column).join(
+            Invoice, InvoiceItem.invoice_id == Invoice.id
+        )
     )
-    if period.from_date is not None:
-        stmt = stmt.where(Invoice.invoice_date >= period.from_date)
-    if period.to_date is not None:
-        stmt = stmt.where(Invoice.invoice_date <= period.to_date)
-    rows = (await db.execute(stmt)).all()
+    rows = list((await db.execute(item_stmt)).all())
+
+    # Invoices in scope that carry no line rows at all — the imported ones.
+    # The NOT EXISTS is correlated to this same Invoice row (not a standalone
+    # "which invoice ids have items" query) so it inherits every scope filter
+    # _scoped applied above.
+    itemless_stmt = _scoped(
+        select(
+            Invoice.subtotal,
+            Invoice.gst_amount,
+            Invoice.invoice_number,
+            Invoice.invoice_date,
+            party_column,
+        ).where(~select(InvoiceItem.id).where(InvoiceItem.invoice_id == Invoice.id).exists())
+    )
+    for subtotal, gst_amount, invoice_number, invoice_date, party_id in (
+        await db.execute(itemless_stmt)
+    ).all():
+        rows.append(
+            (
+                _InvoiceLevelLine(
+                    description=_NO_LINE_DETAIL,
+                    line_total=subtotal,
+                    gst_rate=_derive_gst_rate(subtotal, gst_amount),
+                    gst_amount=gst_amount,
+                ),
+                invoice_number,
+                invoice_date,
+                party_id,
+            )
+        )
+
+    # Re-sort across both sources — appending the synthetic rows would
+    # otherwise leave every imported invoice bunched after the itemised ones.
+    rows.sort(key=lambda r: (r[2], r[1]))
 
     party_ids = {r[3] for r in rows if r[3] is not None}
     parties = {}
