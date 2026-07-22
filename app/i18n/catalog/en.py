@@ -1144,7 +1144,10 @@ MESSAGES: dict[str, str] = {
     "reminder_confirm.ask_paid": (
         "Have you already paid {supplier} {amount}?\nReply 1 if yes, 2 if not yet paid."
     ),
-    "reminder_confirm.invalid_choice": "Please reply 1 if you've paid this, or 2 if not yet paid.",
+    "reminder_confirm.invalid_choice": (
+        "Sorry, I didn't catch that. Have you already paid {supplier} {amount}?\n"
+        "Reply 1 if yes, 2 if not yet paid."
+    ),
     "reminder_confirm.amount_ask": (
         "Confirm the amount paid: {amount}. Reply a different number to change it, "
         "or 'ok' to confirm."
