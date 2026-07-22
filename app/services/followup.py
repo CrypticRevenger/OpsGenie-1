@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 _OPEN_STATUSES = (InvoiceStatus.Pending, InvoiceStatus.Partially_Paid)
 
-FollowUpSendStatus = Literal["sent", "already_pending", "none_due"]
+FollowUpSendStatus = Literal["sent", "already_pending", "none_due", "conversation_busy"]
 
 
 @dataclass(frozen=True)
@@ -168,6 +168,19 @@ async def send_due_today_follow_up(db: AsyncSession, company_id: uuid.UUID) -> F
     if company.pending_follow_up_invoice_id is not None:
         return FollowUpSendResult(status="already_pending")
 
+    # Never interrupt another live conversation. Company.active_workflow /
+    # active_pending_operation_id / pending_follow_up_invoice_id are three
+    # single-slot pointers, and app/api/webhooks/whatsapp.py dispatches on the
+    # first one that is set — pending operations outrank follow-ups. Pushing
+    # "Has INV-100 been paid? 1 = paid in full" on top of a live "Reply YES to
+    # confirm" makes the founder's "1" execute the *pending operation* instead
+    # (1 is in _YES_WORDS), creating an order while the payment they meant to
+    # record is silently dropped; "2" cancels a write they never meant to
+    # cancel. Mirrors the same guard notifications.py::check_supplier_payment_
+    # reminders already applies before starting its own confirm.
+    if company.active_workflow is not None or company.active_pending_operation_id is not None:
+        return FollowUpSendResult(status="conversation_busy")
+
     today = business_now(company.timezone).date()
     stmt = (
         select(Invoice)
@@ -184,15 +197,22 @@ async def send_due_today_follow_up(db: AsyncSession, company_id: uuid.UUID) -> F
     if invoice is None:
         return FollowUpSendResult(status="none_due")
 
-    # Atomically claim this company's follow-up slot: only proceed if
-    # pending_follow_up_invoice_id is still NULL at the exact moment of this
+    # Atomically claim this company's follow-up slot: only proceed if all
+    # three conversation pointers are still NULL at the exact moment of this
     # UPDATE. Closes the race between two overlapping calls for the same
     # company (a retried admin trigger, or a future scheduler tick
     # overlapping a manual one) — a plain read-then-write here could let both
-    # send a real duplicate WhatsApp message before either commits.
+    # send a real duplicate WhatsApp message before either commits — and the
+    # same race against a guided workflow or pending operation starting
+    # between the busy-check above and this UPDATE.
     claimed = await db.execute(
         update(Company)
-        .where(Company.id == company_id, Company.pending_follow_up_invoice_id.is_(None))
+        .where(
+            Company.id == company_id,
+            Company.pending_follow_up_invoice_id.is_(None),
+            Company.active_workflow.is_(None),
+            Company.active_pending_operation_id.is_(None),
+        )
         .values(
             pending_follow_up_invoice_id=invoice.id,
             pending_follow_up_state=FollowUpState.awaiting_confirmation,

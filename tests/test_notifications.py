@@ -19,6 +19,7 @@ from decimal import Decimal
 
 import pytest
 from app.core.config import get_settings
+from app.db.session import async_session_factory
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
@@ -36,6 +37,7 @@ from app.services.notifications import (
     check_supplier_payment_reminders,
     notify_briefing_failed,
     notify_briefing_generation_failed,
+    run_notification_checks,
     send_founder_alert,
     send_stale_data_digest,
 )
@@ -283,6 +285,56 @@ async def test_supplier_reminder_dedups_within_24h(db: AsyncSession, recorded_se
     assert first == 1
     assert second == 0  # deduped by the reminder_sent ActivityTimeline entry
     assert len(recorded_sends) == 1
+
+
+@pytest.mark.asyncio
+async def test_supplier_reminder_stays_informational_during_a_live_follow_up(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """A live receivable follow-up must block the interactive payable confirm.
+
+    Regression: can_start_confirm checked active_workflow and
+    active_pending_operation_id but not pending_follow_up_invoice_id. A
+    follow-up asks "Has INV-100 been paid? 1 = paid in full" about a
+    *receivable*; starting this confirm on top makes active_workflow outrank
+    it in the webhook, so the founder's unchanged "1" answers a question about
+    a *payable* instead — a directional money mix-up.
+
+    The reminder itself still goes out; it just stays one-way this cycle.
+    """
+    company = await _make_company(db)
+    dealer = Dealer(company_id=company.id, name="Follow-up Dealer")
+    db.add(dealer)
+    await db.flush()
+    invoice = Invoice(
+        company_id=company.id,
+        invoice_number="INV-FU-BUSY",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer.id,
+        invoice_date=TODAY,
+        due_date=TODAY,
+        subtotal=Decimal("1000.00"),
+        gst_amount=Decimal("0.00"),
+        total_amount=Decimal("1000.00"),
+        status=InvoiceStatus.Pending,
+        source=InvoiceSource.whatsapp,
+    )
+    db.add(invoice)
+    await db.flush()
+    company.pending_follow_up_invoice_id = invoice.id
+    await db.commit()
+
+    snap = _snapshot(
+        company.id, expected_payments_7d=[_supplier_payment(due_date=TODAY + timedelta(days=1))]
+    )
+    sent = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    await db.refresh(company)
+    assert company.active_workflow is None
+    assert company.active_pending_operation_id is None
+    assert company.pending_follow_up_invoice_id == invoice.id
 
 
 # ── Rule 2: dealer overdue alert ─────────────────────────────────────────────
@@ -968,3 +1020,59 @@ async def test_notify_briefing_generation_failed_dedups_same_day(
     assert first is True
     assert second is False
     assert len(recorded_sends) == 1
+
+
+# ── Orchestrator durability ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_later_rule_failing_cannot_undo_an_earlier_rule_send(
+    db: AsyncSession, recorded_sends, monkeypatch
+) -> None:
+    """Rule 1's dedup marker must survive rule 3 raising.
+
+    Regression: run_notification_checks batched all five rules into one commit
+    by the caller. Every rule sends real WhatsApp messages *before* writing its
+    dedup marker, so a raise partway through rolled back the markers for
+    messages that had already gone out — and the external cron re-ticks every
+    ~10 minutes, sees no marker, and re-sends them. Indefinitely.
+    """
+    company = await _make_company(db)
+    snap_payments = [_supplier_payment(due_date=TODAY + timedelta(days=1))]
+
+    async def _boom(*_args, **_kwargs):
+        raise RuntimeError("simulated Neon drop mid-tick")
+
+    monkeypatch.setattr(
+        "app.services.notifications.check_cash_shortage_forecast", _boom
+    )
+    monkeypatch.setattr(
+        "app.services.notifications.build_snapshot",
+        lambda _db, _cid: _async_snapshot(company.id, expected_payments_7d=snap_payments),
+    )
+
+    with pytest.raises(RuntimeError):
+        await run_notification_checks(db, company.id, now=NOW)
+
+    # The reminder physically went out.
+    assert len(recorded_sends) == 1
+
+    # Its dedup marker must be durable despite the later failure. Asked from a
+    # *separate* session on purpose: the failed session's own uncommitted (or
+    # rolled-back) state can't answer "did this reach the database?", which is
+    # exactly what the next scheduler tick will see.
+    async with async_session_factory() as verifier:
+        marker = await verifier.scalar(
+            select(ActivityTimeline).where(
+                ActivityTimeline.company_id == company.id,
+                ActivityTimeline.event_type == ActivityEventType.reminder_sent,
+            )
+        )
+    assert marker is not None, (
+        "the supplier reminder was sent but its dedup marker was rolled back — "
+        "the next tick (~10 min later) would send it again"
+    )
+
+
+async def _async_snapshot(company_id: uuid.UUID, **overrides):
+    return _snapshot(company_id, **overrides)
