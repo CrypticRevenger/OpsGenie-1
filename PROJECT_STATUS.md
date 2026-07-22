@@ -1,6 +1,6 @@
 # OpsGenie — Project Status
 
-_Last updated: 2026-07-22 (Dealer-facing overdue reminders, with the distributor's per-dealer consent)_
+_Last updated: 2026-07-23 (Odia added to the web onboarding language picker)_
 
 A running record of everything built so far, mapped to the SPEC's version roadmap, plus what's still open. See `SPEC.md` for the original product/technical spec and `docs/api.md` for the API reference. This file is the "what actually happened / what's left" complement to those two.
 
@@ -218,6 +218,9 @@ The last item in the "Interaction & input improvements" backlog: `check_dealer_o
 - **Toggle reuses `party_flow.py`'s existing edit-dealer field machinery** — `_classify_party_field`'s `marketing_opt_in` keyword branch got a `direct_reminders_enabled` sibling (both dealer-only; `Supplier` has neither column), and the near-duplicate yes/no-parsing + opted-in/opted-out display logic for the two boolean fields was pulled into one shared `_BOOLEAN_FIELD_LABELS`/`_BOOLEAN_FIELD_INVALID_KEY` lookup instead of copy-pasting a second `elif` block.
 
 New i18n keys across all 5 locale catalogs: `notify.dealer_direct_reminder` (the dealer-facing message itself), `party.edit.direct_reminders_ask`/`.direct_reminders_invalid`/`.reminders_enabled`/`.reminders_disabled`, plus `party.edit.field_prompt_dealer`/`.field_invalid_dealer` and the `/help` "edit dealer" bullet updated to mention the new option (parity tests green). 10 new tests: 6 in `test_notifications.py` (direct reminder fires alongside the founder alert when enabled+phone present; skipped when disabled; skipped without a phone on file; falls back to the Meta template outside the 24h session window; records `failed_to_send` with no template configured; shares the founder alert's dedup window rather than tracking its own), 3 in `test_party_flow.py` (toggle round trip, invalid-value rejection, supplier-edit correctly rejects the dealer-only keyword), 1 in `test_snapshot.py` (`_overdue_dealers` actually populates phone/consent from the real `Dealer` row). Full suite green, ruff clean.
+
+### Web onboarding: Odia missing from the language picker (2026-07-23)
+Small gap found by inspection, not a reported bug: the `app/i18n/languages.py` locale registry, `resolve_locale`/`compose_locale`, and every downstream consumer (`assistant.py`/`briefing.py` narration, the guided workflows, notifications, evening brief) have supported Odia (`or-Orya`/`or-Latn`) since the multilingual work landed — but the two HTML forms that actually *set* `preferred_language` (the public `/onboard` wizard's step-2 Language `<select>`, and the founder-admin dashboard's `company_new.html`) only ever listed English/Hindi as options, so a distributor could never reach Odia through either UI. Added `<option value="or">Odia</option>` to both selects and to `onboard.js`'s `LANGUAGE_LABELS` (used only for the step-6 success-summary display text). No backend change needed: both forms already post the bare code straight through `OnboardCreate.preferred_language`'s `field_validator`, which calls `resolve_locale()` — same as the pre-existing bare `"hi"` → `hi-Latn` behavior, `"or"` already aliased to `or-Latn` (Romanized Odia, the recommended default for Indian WhatsApp) in `_ALIASES`. Once a distributor picks it, the WhatsApp agent narrates every reply in that locale from then on (`resolve_locale(company).narration_instruction`, unchanged code path).
 
 ---
 

@@ -9,7 +9,7 @@
 // move on; step 5's "Activate Account" is the only call that turns the
 // company on (POST /onboard/{id}/activate). Everything else is client-side.
 (function () {
-  const LANGUAGE_LABELS = { en: "English", hi: "Hindi" };
+  const LANGUAGE_LABELS = { en: "English", hi: "Hindi", or: "Odia" };
 
   const card = document.getElementById("wizardCard");
   const waNumber = (card.dataset.waNumber || "").trim();
