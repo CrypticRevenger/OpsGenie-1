@@ -229,3 +229,56 @@ async def test_stock_take_invalid_value_reprompts(db: AsyncSession) -> None:
     await _send(db, company, "Widget")
     reply = await _send(db, company, "not a number")
     assert "number" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_stock_take_failing_mid_batch_applies_nothing(db: AsyncSession) -> None:
+    """A product disappearing mid-batch must discard the whole stock take.
+
+    Regression: apply_stock_take mutates each product and adds its audit event
+    as it loops, then raises when it reaches one that is gone. Nothing rolled
+    those partial mutations back, and app/api/webhooks/whatsapp.py commits
+    unconditionally at the end of the request — so the earlier products stayed
+    committed while the distributor was told the stock take failed. Contradicts
+    apply_stock_take's own docstring ("rather than committing a partial batch
+    silently").
+    """
+    company = await _fresh_company(db)
+    soap = await _make_product(db, company.id, name="Soap", stock=Decimal("10"))
+    rice = await _make_product(db, company.id, name="Rice", stock=Decimal("10"))
+    oil = await _make_product(db, company.id, name="Oil", stock=Decimal("10"))
+
+    start_stock_take_workflow(company)
+    for name, value in (("Soap", "40"), ("Rice", "55"), ("Oil", "77")):
+        await _send(db, company, name)
+        await _send(db, company, value)
+    await _send(db, company, "done")
+    await _send(db, company, "skip")
+
+    # Oil is deleted between the summary and the confirm — exactly the
+    # re-validation failure apply_stock_take raises on.
+    await db.delete(oil)
+    await db.flush()
+
+    reply = await _send(db, company, "yes")
+    await db.commit()
+
+    assert "no longer in your catalogue" in reply.lower()
+    await db.refresh(soap)
+    await db.refresh(rice)
+    assert soap.stock_quantity == Decimal("10"), "Soap was mutated despite the batch failing"
+    assert rice.stock_quantity == Decimal("10"), "Rice was mutated despite the batch failing"
+
+    events = (
+        (
+            await db.execute(
+                select(BusinessEvent).where(
+                    BusinessEvent.company_id == company.id,
+                    BusinessEvent.event_type == BusinessEventType.stock_adjusted,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert events == [], "audit events survived for a batch that never applied"
