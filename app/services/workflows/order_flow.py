@@ -31,9 +31,12 @@ from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.pending_operation import PendingOperationType
 from app.models.product import Product
+from app.services.duplicate_check import find_similar_order
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import _is
+from app.services.party_outstanding import calculate_party_outstanding
+from app.services.snapshot import business_now
 from app.services.writes.pending_operation import create_pending_operation
 
 
@@ -63,8 +66,8 @@ def start_order_workflow(company: Company) -> str:
     return t("order.start", resolve_locale(company))
 
 
-def _preview_and_finalize(
-    scratch: dict, company_gst_rate: Decimal, loc: Locale
+async def _preview_and_finalize(
+    db: AsyncSession, company: Company, scratch: dict, loc: Locale
 ) -> tuple[str, dict]:
     """Builds the confirmation preview text and the PendingOperation payload
     from the collected raw items — never a precomputed total on its own, but
@@ -77,6 +80,14 @@ def _preview_and_finalize(
     user confirms the same number they'll be invoiced for. A bare line-total
     sum with no GST would understate the real invoice total for any
     GST-configured company.
+
+    Also surfaces two advisory, non-blocking warnings (mirroring
+    writes/orders.py's negative_stock_warnings "flag, never block" tier) when
+    the dealer already exists in the DB — a brand-new, not-yet-confirmed
+    dealer has no row/credit_limit/history to check against, so both are
+    skipped for one: a likely-duplicate order (same dealer/date/total as an
+    existing invoice) and a credit-limit breach (this order would push the
+    dealer's outstanding past their credit_limit, when one is on file).
     """
     dealer_name = scratch["dealer_name"]
     items = scratch["items"]
@@ -89,7 +100,7 @@ def _preview_and_finalize(
         quantity = Decimal(item["quantity"])
         line_total = (price * quantity).quantize(Decimal("0.01"))
         item_gst_raw = item.get("gst_rate")
-        line_gst_rate = Decimal(item_gst_raw) if item_gst_raw is not None else company_gst_rate
+        line_gst_rate = Decimal(item_gst_raw) if item_gst_raw is not None else company.gst_rate
         line_gst_amount = (line_total * line_gst_rate / Decimal("100")).quantize(Decimal("0.01"))
         subtotal += line_total
         gst_amount += line_gst_amount
@@ -114,12 +125,41 @@ def _preview_and_finalize(
         )
     total_lines.append(t("order.total", loc, amount=format_inr(total)))
 
+    warning_lines: list[str] = []
+    dealer = await _match_dealer(db, company.id, dealer_name)
+    if dealer is not None:
+        today = business_now(company.timezone).date()
+        duplicate = await find_similar_order(
+            db, company_id=company.id, dealer_id=dealer.id, invoice_date=today, total_amount=total
+        )
+        if duplicate is not None:
+            warning_lines.append(
+                t("order.duplicate_warning", loc, number=duplicate.invoice_number)
+            )
+
+        if dealer.credit_limit is not None:
+            prospective_total = (
+                await calculate_party_outstanding(db, direction="receivable", party_id=dealer.id)
+                + total
+            )
+            if prospective_total > dealer.credit_limit:
+                warning_lines.append(
+                    t(
+                        "order.credit_limit_warning",
+                        loc,
+                        dealer=dealer.name,
+                        prospective=format_inr(prospective_total),
+                        limit=format_inr(dealer.credit_limit),
+                    )
+                )
+
     preview = (
         t("order.preview_header", loc, dealer=dealer_name)
         + "\n"
         + "\n".join(lines)
         + "\n"
         + "\n".join(total_lines)
+        + ("\n" + "\n".join(warning_lines) if warning_lines else "")
         + "\n"
         + t("order.preview_footer", loc)
     )
@@ -173,7 +213,7 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if _is(stripped, "done"):
             if not scratch.get("items"):
                 return t("order.need_one_product", loc)
-            preview, payload = _preview_and_finalize(scratch, company.gst_rate, loc)
+            preview, payload = await _preview_and_finalize(db, company, scratch, loc)
             await create_pending_operation(db, company, PendingOperationType.create_order, payload)
             company.active_workflow = None
             company.workflow_scratch = None

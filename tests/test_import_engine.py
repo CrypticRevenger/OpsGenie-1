@@ -216,6 +216,33 @@ async def test_bad_row_does_not_abort_batch(db: AsyncSession) -> None:
     assert {inv.invoice_number for inv in invoices} == {"INV-5", "INV-7"}
 
 
+@pytest.mark.asyncio
+async def test_zero_or_negative_total_amount_fails_that_row_only(db: AsyncSession) -> None:
+    company_id = await _make_company(db)
+    contents = _csv(
+        "INV-Z1,receivable,Good Dealer,2026-01-05,2026-02-04,1000.00,0.00,1000.00,x",
+        "INV-Z2,receivable,Zero Total Dealer,2026-01-05,2026-02-04,0.00,0.00,0.00,x",
+        "INV-Z3,receivable,Negative Total Dealer,2026-01-05,2026-02-04,-500.00,0.00,-500.00,x",
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+
+    assert result.rows_succeeded == 1
+    assert result.rows_failed == 2
+
+    invoices = (
+        (await db.execute(select(Invoice).where(Invoice.company_id == company_id))).scalars().all()
+    )
+    assert {inv.invoice_number for inv in invoices} == {"INV-Z1"}
+
+
 # ── Whole-file rejection ──────────────────────────────────────────────────────
 
 

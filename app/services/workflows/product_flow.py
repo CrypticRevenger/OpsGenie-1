@@ -29,7 +29,11 @@ from app.i18n import Locale, resolve_locale, t
 from app.models.company import Company
 from app.models.product import Product
 from app.services.gst import parse_gst_rate
-from app.services.importer.normalizer import parse_amount
+from app.services.importer.normalizer import (
+    parse_amount,
+    parse_nonnegative_amount,
+    parse_positive_amount,
+)
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import (
     _classify_entry_mode,
@@ -165,7 +169,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
         quantity = Decimal("0")
         if not _is(stripped, "skip"):
             try:
-                quantity = parse_amount(stripped)
+                quantity = parse_nonnegative_amount(stripped)
             except ValueError:
                 return t("onboarding.product.quantity_invalid", loc)
         scratch["quantity"] = str(quantity)
@@ -185,7 +189,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
         price = None
         if not _is(stripped, "skip"):
             try:
-                price = parse_amount(stripped)
+                price = parse_positive_amount(stripped)
             except ValueError:
                 return t("onboarding.product.price_invalid", loc)
         scratch["price"] = str(price) if price is not None else None
@@ -198,7 +202,7 @@ async def handle_add_product_workflow_message(db: AsyncSession, company: Company
         purchase_price = None
         if not _is(stripped, "skip", "done"):
             try:
-                purchase_price = parse_amount(stripped)
+                purchase_price = parse_positive_amount(stripped)
             except ValueError:
                 return t("onboarding.product.purchase_invalid", loc)
         if company.gst_varies_by_product:
@@ -507,8 +511,14 @@ async def handle_update_product_workflow_message(
             value = parse_amount(stripped)
         except ValueError:
             return t("product.value_invalid", loc)
-        if value < 0:
-            return t("product.value_nonneg", loc)
+        # Stock may legitimately be 0 (a not-yet-restocked product); a
+        # selling/purchase price of exactly 0 is a data-entry mistake, same
+        # standard order_flow.py's own price entry already holds new prices to.
+        if field == "stock":
+            if value < 0:
+                return t("product.value_nonneg", loc)
+        elif value <= 0:
+            return t("product.value_positive", loc)
         product = await db.get(Product, uuid.UUID(scratch["product_id"]))
         company.active_workflow = None
         company.workflow_scratch = None

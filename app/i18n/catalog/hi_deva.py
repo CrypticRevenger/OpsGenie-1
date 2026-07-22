@@ -371,6 +371,10 @@ MESSAGES: dict[str, str] = {
         "ये नाम ऊपर की list से match नहीं हुए, इसलिए update नहीं हुए: {names}।"
     ),
     "onboarding.party.phone_ask": "{name} का phone number? (या 'skip')",
+    "onboarding.party.phone_invalid": (
+        "वह सही phone number नहीं लगता। अगर Indian नहीं है तो country code शामिल करें, "
+        "जैसे +919876543210।"
+    ),
     "onboarding.party.credit_invalid": "कृपया दिनों का number भेजें, जैसे 15 (या 'skip')।",
     "onboarding.bulk_error": "यह समझ नहीं आया: {error}",
     "onboarding.opening.ask": "अभी आपके बिज़नेस में कितना cash है? (जैसे 320000)",
@@ -604,8 +608,12 @@ MESSAGES: dict[str, str] = {
     "payment.verb_to": "को",
     "payment.target_invoice": " invoice {number} के against",
     "payment.preview": (
-        "Confirm: {amount} {party}{target} {verb} {date} को।\n"
+        "Confirm: {amount} {party}{target} {verb} {date} को।{warning}\n"
         "Reply YES record करने के लिए, NO cancel के लिए।"
+    ),
+    "payment.duplicate_warning": (
+        "⚠️ यह पहले से record किए गए payment जैसा लगता है: {party}, {amount} {date} को। अगर यह "
+        "एक अलग, जानबूझकर किया गया payment है, तो जारी रखने के लिए YES भेजें।"
     ),
     # ── Create order ───────────────────────────────────────────────────────
     "order.start": "यह order किसके लिए है? (dealer का नाम)",
@@ -632,6 +640,14 @@ MESSAGES: dict[str, str] = {
     "order.total": "Total: {amount}",
     "order.preview_header": "{dealer} के लिए order confirm करें:",
     "order.preview_footer": "Reply YES बनाने के लिए, NO cancel के लिए।",
+    "order.duplicate_warning": (
+        "⚠️ यह इस dealer के existing invoice ({number}) जैसा लगता है — same date और total। "
+        "अगर यह एक अलग, जानबूझकर किया गया order है, तो जारी रखने के लिए YES भेजें।"
+    ),
+    "order.credit_limit_warning": (
+        "⚠️ यह order {dealer} का outstanding {prospective} तक ले जाएगा, जो उनकी {limit} की "
+        "credit limit से ज़्यादा है।"
+    ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "कौन सा invoice? उसका invoice number भेजें, या 'cancel'।",
     "edit.invoice_not_found": (
@@ -733,6 +749,7 @@ MESSAGES: dict[str, str] = {
     ),
     "product.value_invalid": "कृपया एक number भेजें, जैसे 450।",
     "product.value_nonneg": "कृपया zero या उससे ज़्यादा number भेजें।",
+    "product.value_positive": "कृपया zero से ज़्यादा number भेजें।",
     "product.gone_value": "वह product अब available नहीं है।",
     "product.not_set": "set नहीं",
     "product.updated_price": "{name} की price {new} की (पहले {old} थी)।",
@@ -800,6 +817,10 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.gstin_ask": "{name} का अभी का GSTIN {current} है। नया GSTIN क्या हो?",
     "party.edit.days_invalid": "कृपया दिनों की एक पूरी संख्या भेजें, जैसे 30।",
+    "party.edit.phone_invalid": (
+        "वह सही phone number नहीं लगता। अगर Indian नहीं है तो country code शामिल करें, जैसे "
+        "+919876543210।"
+    ),
     "party.edit.gstin_invalid": "वह सही GSTIN नहीं लगता। कृपया जांच कर दोबारा भेजें, या 'cancel'।",
     "party.edit.value_preview": "{name} का {field} बदलकर {new} करें?",
     "party.edit.success": "✅ {name} का {field} {new} हो गया (पहले {old} था)।",

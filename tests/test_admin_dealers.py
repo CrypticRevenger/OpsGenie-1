@@ -71,7 +71,7 @@ async def test_update_dealer(client: AsyncClient) -> None:
     company_id = await _create_company(client)
     create_resp = await client.post(
         f"/admin/companies/{company_id}/dealers",
-        json={"name": "Old Name", "phone": "+911111111111"},
+        json={"name": "Old Name", "phone": "+919111111111"},
     )
     dealer_id = create_resp.json()["id"]
 
@@ -81,7 +81,28 @@ async def test_update_dealer(client: AsyncClient) -> None:
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["name"] == "New Name"
-    assert data["phone"] == "+911111111111"
+    assert data["phone"] == "+919111111111"
+
+
+@pytest.mark.asyncio
+async def test_create_dealer_normalizes_bare_phone_number(client: AsyncClient) -> None:
+    company_id = await _create_company(client)
+    resp = await client.post(
+        f"/admin/companies/{company_id}/dealers",
+        json={"name": "Bare Number Dealer", "phone": "9876543210"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["phone"] == "+919876543210"
+
+
+@pytest.mark.asyncio
+async def test_create_dealer_rejects_invalid_phone(client: AsyncClient) -> None:
+    company_id = await _create_company(client)
+    resp = await client.post(
+        f"/admin/companies/{company_id}/dealers",
+        json={"name": "Bad Phone Dealer", "phone": "123"},
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.asyncio

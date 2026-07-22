@@ -172,6 +172,14 @@ class Settings(BaseSettings):
     agent_max_steps: int = Field(default=5, alias="AGENT_MAX_STEPS")
     agent_history_turns: int = Field(default=10, alias="AGENT_HISTORY_TURNS")
 
+    # Default region for parsing a dealer/supplier phone number typed without
+    # an explicit country code (see app/services/phone.py) — distinct from
+    # Company.whatsapp_number's own validation, which always requires an
+    # explicit country code. "IN" today since every pilot distributor is
+    # Indian; a future distributor with e.g. Nepalese/Bangladeshi dealers
+    # just needs this env var changed, not a code change.
+    default_phone_region: str = Field(default="IN", alias="DEFAULT_PHONE_REGION")
+
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: str) -> str:

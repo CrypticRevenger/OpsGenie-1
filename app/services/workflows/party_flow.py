@@ -32,6 +32,7 @@ from app.services.gst import validate_gstin
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import _classify_entry_mode, _is, _parse_bulk_party_line
+from app.services.phone import InvalidPhoneNumberError, normalize_party_phone
 
 # ── Add dealer ────────────────────────────────────────────────────────────────
 
@@ -118,7 +119,10 @@ async def handle_add_dealer_workflow_message(db: AsyncSession, company: Company,
 
     if step == "awaiting_phone":
         if not _is(stripped, "skip"):
-            scratch["phone"] = stripped
+            try:
+                scratch["phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
         scratch["step"] = "awaiting_credit"
         company.workflow_scratch = scratch
         name = scratch.get("name", "them")
@@ -237,7 +241,10 @@ async def handle_add_supplier_workflow_message(
 
     if step == "awaiting_phone":
         if not _is(stripped, "skip"):
-            scratch["phone"] = stripped
+            try:
+                scratch["phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
         scratch["step"] = "awaiting_credit"
         company.workflow_scratch = scratch
         name = scratch.get("name", "they")
@@ -442,8 +449,11 @@ async def _handle_edit_party_workflow_message(
             return t("party.edit.gone_value", loc)
 
         if field == "phone":
-            new_value_raw = stripped
-            new_value_display = stripped
+            try:
+                new_value_raw = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("party.edit.phone_invalid", loc)
+            new_value_display = new_value_raw
         elif field == "credit_limit":
             try:
                 value = parse_amount(stripped)

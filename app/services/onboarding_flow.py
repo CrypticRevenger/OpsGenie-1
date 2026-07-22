@@ -48,11 +48,12 @@ from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.followup import _parse_relative_date
 from app.services.gst import parse_gst_rate
-from app.services.importer.normalizer import parse_amount
+from app.services.importer.normalizer import parse_nonnegative_amount, parse_positive_amount
 from app.services.importer.parties import find_or_create_party, find_party
 from app.services.money_format import format_inr
 from app.services.party_completeness import parties_missing_fields
 from app.services.party_outstanding import calculate_outstanding_for_company
+from app.services.phone import InvalidPhoneNumberError, normalize_party_phone
 from app.services.snapshot import business_now
 
 # Language/script is picked *first* (a pre-step), so every question after it is
@@ -201,15 +202,15 @@ def _parse_bulk_line(line: str) -> dict:
     gst_raw = _bulk_field(parts, 5)
 
     try:
-        purchase_price = parse_amount(purchase_raw) if purchase_raw else None
+        purchase_price = parse_positive_amount(purchase_raw) if purchase_raw else None
     except ValueError as exc:
         raise ValueError(f"'{name}': purchase price — {exc}") from exc
     try:
-        selling_price = parse_amount(selling_raw) if selling_raw else None
+        selling_price = parse_positive_amount(selling_raw) if selling_raw else None
     except ValueError as exc:
         raise ValueError(f"'{name}': selling price — {exc}") from exc
     try:
-        stock = parse_amount(stock_raw) if stock_raw else Decimal("0")
+        stock = parse_nonnegative_amount(stock_raw) if stock_raw else Decimal("0")
     except ValueError as exc:
         raise ValueError(f"'{name}': stock — {exc}") from exc
     try:
@@ -239,7 +240,13 @@ def _parse_bulk_party_line(line: str) -> dict:
     if not name:
         raise ValueError(f"'{line}' has no name")
 
-    phone = _bulk_field(parts, 1)
+    phone_raw = _bulk_field(parts, 1)
+    phone = None
+    if phone_raw:
+        try:
+            phone = normalize_party_phone(phone_raw)
+        except InvalidPhoneNumberError as exc:
+            raise ValueError(f"'{name}': phone — {exc}") from exc
     credit_raw = _bulk_field(parts, 2)
     credit_days = None
     if credit_raw:
@@ -986,7 +993,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         quantity = Decimal("0")
         if not _is(stripped, "skip"):
             try:
-                quantity = parse_amount(stripped)
+                quantity = parse_nonnegative_amount(stripped)
             except ValueError:
                 return t("onboarding.product.quantity_invalid", loc)
         scratch["quantity"] = str(quantity)
@@ -1006,7 +1013,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         price = None
         if not _is(stripped, "skip"):
             try:
-                price = parse_amount(stripped)
+                price = parse_positive_amount(stripped)
             except ValueError:
                 return t("onboarding.product.price_invalid", loc)
         scratch["price"] = str(price) if price is not None else None
@@ -1019,7 +1026,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         purchase_price = None
         if not _is(stripped, "skip", "done"):
             try:
-                purchase_price = parse_amount(stripped)
+                purchase_price = parse_positive_amount(stripped)
             except ValueError:
                 return t("onboarding.product.purchase_invalid", loc)
         if company.gst_varies_by_product:
@@ -1091,7 +1098,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.dealer_awaiting_phone:
         if not _is(stripped, "skip"):
-            scratch["phone"] = stripped
+            try:
+                scratch["phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.dealer_awaiting_credit
         name = scratch.get("name", "them")
@@ -1177,7 +1187,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.dealer_missing_phone:
         if not _is(stripped, "skip"):
-            scratch["fill_phone"] = stripped
+            try:
+                scratch["fill_phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.dealer_missing_credit
         name = scratch.get("fill_name", "them")
@@ -1261,7 +1274,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.supplier_awaiting_phone:
         if not _is(stripped, "skip"):
-            scratch["phone"] = stripped
+            try:
+                scratch["phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.supplier_awaiting_credit
         return t("onboarding.supplier.credit_ask", loc, name=scratch.get("name", "they"))
@@ -1346,7 +1362,10 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.supplier_missing_phone:
         if not _is(stripped, "skip"):
-            scratch["fill_phone"] = stripped
+            try:
+                scratch["fill_phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
         company.onboarding_scratch = scratch
         company.onboarding_state = OnboardingState.supplier_missing_credit
         name = scratch.get("fill_name", "them")
@@ -1380,7 +1399,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
     # ── 5. Opening cash ──────────────────────────────────────────────────────
     if state == OnboardingState.awaiting_opening_balance:
         try:
-            amount = parse_amount(stripped)
+            amount = parse_nonnegative_amount(stripped)
         except ValueError:
             return t("onboarding.opening.invalid", loc)
         company.opening_balance = amount
@@ -1416,7 +1435,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.receivable_amount:
         try:
-            amount = parse_amount(stripped)
+            amount = parse_positive_amount(stripped)
         except ValueError:
             return t("onboarding.receivable.amount_invalid", loc)
         scratch["amount"] = str(amount)
@@ -1477,7 +1496,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
 
     if state == OnboardingState.payable_amount:
         try:
-            amount = parse_amount(stripped)
+            amount = parse_positive_amount(stripped)
         except ValueError:
             return t("onboarding.payable.amount_invalid", loc)
         scratch["amount"] = str(amount)

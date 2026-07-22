@@ -41,8 +41,8 @@ from app.services.importer.base import BaseImporter
 from app.services.importer.errors import UnrecognisedFormatError
 from app.services.importer.normalizer import (
     normalise_header,
-    parse_amount,
     parse_date,
+    parse_positive_amount,
     row_by_normalised_header,
 )
 from app.services.importer.parties import find_or_create_party
@@ -181,6 +181,17 @@ async def allocate_payment_fifo(
     FIFO-across-all-open-invoices behavior, unchanged for CSV imports (which
     never name an invoice) and for a party with only one open invoice.
     """
+    if amount <= 0:
+        # Defense-in-depth: run_payment_import already guards this with
+        # parse_positive_amount before calling here, but without this check
+        # amount<=0 would silently return an empty allocation list below
+        # (the loop's `if remaining_to_allocate <= 0: break` exits
+        # immediately) — zero Payments written, yet the caller would still
+        # see a normal empty-but-not-raised return and record a false
+        # success. Every caller (CSV import AND writes/payments.py's
+        # record_payment) gets this guarantee, not just the guarded one.
+        raise ValueError(f"payment amount must be greater than zero (got {amount})")
+
     invoices_with_outstanding = await open_invoices_with_outstanding(
         db, company_id=company_id, direction=direction, party_id=party_id, invoice_id=invoice_id
     )
@@ -281,7 +292,7 @@ async def run_payment_import(
             if not party_name:
                 raise ValueError("party_name is required")
             payment_date = parse_date(canonical["payment_date"])
-            amount = parse_amount(canonical["amount"])
+            amount = parse_positive_amount(canonical["amount"])
             method = canonical.get("method", "").strip()
             voucher_reference = canonical.get("voucher_reference", "").strip()
             source_file = canonical.get("source_file", "").strip() or filename

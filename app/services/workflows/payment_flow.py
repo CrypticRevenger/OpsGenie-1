@@ -50,6 +50,7 @@ from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.pending_operation import PendingOperationType
 from app.models.supplier import Supplier
+from app.services.duplicate_check import find_similar_payment
 from app.services.importer.normalizer import parse_amount
 from app.services.importer.payment_row import open_invoices_with_outstanding
 from app.services.money_format import format_inr
@@ -325,6 +326,35 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
             t("payment.verb_from", loc) if direction == "receivable" else t("payment.verb_to", loc)
         )
         target = t("payment.target_invoice", loc, number=invoice_number) if invoice_number else ""
+
+        # Advisory, non-blocking heads-up — a party can legitimately make two
+        # same-day, same-amount payments, so this only warns, never refuses.
+        # A brand-new party never reaches this step (the flow already ends at
+        # awaiting_new_party_confirm), so the party is guaranteed to exist.
+        party = (
+            await _find_dealer(db, company.id, party_name)
+            if direction == "receivable"
+            else await _find_supplier(db, company.id, party_name)
+        )
+        warning = ""
+        if party is not None:
+            duplicate = await find_similar_payment(
+                db,
+                company_id=company.id,
+                direction=direction,
+                party_id=party.id,
+                payment_date=payment_date,
+                amount=amount,
+            )
+            if duplicate is not None:
+                warning = "\n" + t(
+                    "payment.duplicate_warning",
+                    loc,
+                    party=party_name,
+                    amount=format_inr(amount),
+                    date=payment_date.isoformat(),
+                )
+
         preview = t(
             "payment.preview",
             loc,
@@ -333,6 +363,7 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
             party=party_name,
             target=target,
             date=payment_date.isoformat(),
+            warning=warning,
         )
         await create_pending_operation(
             db,
