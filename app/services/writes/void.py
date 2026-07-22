@@ -34,11 +34,19 @@ from app.models.product import Product
 from app.models.supplier import Supplier
 
 
-def _recompute_invoice_status(invoice: Invoice, paid_total: Decimal) -> None:
+def recompute_invoice_status(invoice: Invoice, paid_total: Decimal) -> None:
     """Same three-way rule followup.py's _record_payment_and_close already
     uses for a fresh payment, applied in reverse for a void: Paid only when
     fully covered, Partially_Paid when something remains applied, Pending
-    when nothing does."""
+    when nothing does.
+
+    Public because three modules now depend on it — this one,
+    writes/edit_invoice_payment.py, and api/admin/payments.py's delete route.
+    Any path that removes or changes a Payment must call it, or the invoice
+    keeps a status that no longer matches its payments and every
+    _OPEN_STATUSES-based outstanding figure silently disagrees with the
+    ledger report.
+    """
     if paid_total <= 0:
         invoice.status = InvoiceStatus.Pending
     elif paid_total >= invoice.total_amount:
@@ -91,7 +99,7 @@ async def void_payment(
         .all()
     )
     paid_total = sum(paid_rows, Decimal("0.00"))
-    _recompute_invoice_status(invoice, paid_total)
+    recompute_invoice_status(invoice, paid_total)
 
     db.add(
         BusinessEvent(

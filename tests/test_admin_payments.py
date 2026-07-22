@@ -18,6 +18,7 @@ from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.payment import Payment
 from app.models.supplier import Supplier
+from app.services.party_outstanding import calculate_party_outstanding
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -304,3 +305,71 @@ async def test_delete_payment_not_found(client: AsyncClient, db: AsyncSession) -
     company_id = await _make_company(db)
     resp = await client.delete(f"/admin/companies/{company_id}/payments/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_only_payment_reopens_a_paid_invoice(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """Deleting the payment that closed an invoice must reopen it.
+
+    Regression: the route used to delete the row and leave status=Paid, which
+    _OPEN_STATUSES excludes — so calculate_party_outstanding reported 0 for
+    money that was owed again, while the party's ledger report (which filters
+    only Draft/Cancelled) still showed the full balance.
+    """
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Dealer Reopen")
+    invoice = await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-PAY-REOPEN",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("50000.00"),
+    )
+    payment = await _make_payment(db, company_id, invoice.id, Decimal("50000.00"))
+    invoice.status = InvoiceStatus.Paid
+    await db.commit()
+
+    resp = await client.delete(f"/admin/companies/{company_id}/payments/{payment.id}")
+    assert resp.status_code == 204
+
+    await db.refresh(invoice)
+    assert invoice.status == InvoiceStatus.Pending
+
+    outstanding = await calculate_party_outstanding(
+        db, direction="receivable", party_id=dealer_id
+    )
+    assert outstanding == Decimal("50000.00")
+
+
+@pytest.mark.asyncio
+async def test_delete_one_of_two_payments_downgrades_paid_to_partially_paid(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Dealer Partial")
+    invoice = await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-PAY-PARTIAL",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("1000.00"),
+    )
+    kept = await _make_payment(db, company_id, invoice.id, Decimal("400.00"))
+    removed = await _make_payment(db, company_id, invoice.id, Decimal("600.00"))
+    invoice.status = InvoiceStatus.Paid
+    await db.commit()
+
+    resp = await client.delete(f"/admin/companies/{company_id}/payments/{removed.id}")
+    assert resp.status_code == 204
+
+    await db.refresh(invoice)
+    assert invoice.status == InvoiceStatus.Partially_Paid
+    # The surviving payment still nets against the invoice.
+    assert (
+        await calculate_party_outstanding(db, direction="receivable", party_id=dealer_id)
+    ) == Decimal("600.00")
+    assert kept.id is not None
