@@ -59,6 +59,7 @@ _GRAY_TEXT = (107, 114, 128)  # #6b7280 — secondary text (address, dates)
 _GRAY_LINE = (229, 231, 235)  # #e5e7eb — hairline rules
 _INK = (17, 24, 39)  # #111827 — body text
 _WHITE = (255, 255, 255)
+_PAID = (185, 28, 28)  # #b91c1c — muted red, for the Payment Made (-) deduction
 
 _MARGIN = 15
 _PAGE_WIDTH = 210
@@ -161,7 +162,7 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
         align="C", color=_WHITE, fill=_BRAND,
     )
     styled_cell(
-        money(result.total_amount), x=right_x, w=right_w, size=14, style="B",
+        money(result.balance_due), x=right_x, w=right_w, size=14, style="B",
         height=9, align="C", color=_WHITE, fill=_BRAND,
     )
     right_bottom_y = pdf.get_y()
@@ -236,11 +237,17 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
     label_w, value_w = 40, 30
 
     def totals_row(
-        label: str, value: str, *, bold: bool = False, tint: bool = False, size: int = 10
+        label: str,
+        value: str,
+        *,
+        bold: bool = False,
+        tint: bool = False,
+        size: int = 10,
+        color: tuple[int, int, int] | None = None,
     ) -> None:
         pdf.set_x(totals_x)
         pdf.set_font(latin, "B" if bold else "", size)
-        pdf.set_text_color(*(_BRAND_DARK if bold else _INK))
+        pdf.set_text_color(*(color or (_BRAND_DARK if bold else _INK)))
         if tint:
             pdf.set_fill_color(*_BRAND_TINT)
         pdf.cell(label_w, 8 if bold else 7, label, align="R", fill=tint, new_x="RIGHT", new_y="TOP")
@@ -253,7 +260,16 @@ def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
     # No single "(X%)" label here — lines can carry different GST rates (see
     # the per-line GST% column above), so a lone percentage would mislead.
     totals_row("GST", money(result.gst_amount))
-    totals_row("Total", money(result.total_amount), bold=True, tint=True, size=12)
+    if result.advance_paid > 0:
+        # Only shown when a real advance was recorded — an invoice with no
+        # advance keeps the single bold Total row below, matching the
+        # simpler common case rather than always printing a redundant
+        # "Payment Made: Rs. 0.00" line on every invoice.
+        totals_row("Total", money(result.total_amount), bold=True)
+        totals_row("Payment Made", f"(-) {money(result.advance_paid)}", color=_PAID)
+        totals_row("Balance Due", money(result.balance_due), bold=True, tint=True, size=12)
+    else:
+        totals_row("Total", money(result.total_amount), bold=True, tint=True, size=12)
     pdf.ln(8)
 
     # ── Footer ───────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.invoice_item import InvoiceItem
+from app.models.payment import Payment
 from app.models.pending_operation import PendingOperation
 from app.models.product import Product
 from app.services.snapshot import business_now
@@ -754,3 +755,197 @@ async def test_new_dealer_skips_duplicate_and_credit_checks(
 
         await _send(client, bare_sender, "YES")
         assert "created" in sent[-1].lower()
+
+
+@pytest.mark.asyncio
+async def test_preview_always_shows_payment_made_and_balance_due(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # 10 x 55.00 = 550.00
+        await _send(client, bare_sender, "done")
+        preview = sent[-1]
+        assert "confirm" in preview.lower()
+        assert "payment made" in preview.lower()
+        assert "balance due" in preview.lower()
+        assert "550" in preview
+        assert "advance" in preview.lower()  # footer mentions the option
+
+
+@pytest.mark.asyncio
+async def test_advance_reply_asks_amount_then_updates_preview(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # total = 550.00
+        await _send(client, bare_sender, "done")
+
+        await _send(client, bare_sender, "advance")
+        assert "how much" in sent[-1].lower()
+
+        await _send(client, bare_sender, "200")
+        preview = sent[-1]
+        assert "confirm" in preview.lower()
+        assert "200" in preview  # Payment Made
+        assert "350" in preview  # Balance Due = 550 - 200
+
+    # Nothing written to the DB yet — still just a pending confirmation.
+    invoice_count = len(
+        (await db.execute(select(Invoice).where(Invoice.company_id == company_id)))
+        .scalars()
+        .all()
+    )
+    assert invoice_count == 0
+
+
+@pytest.mark.asyncio
+async def test_advance_then_yes_creates_partially_paid_invoice_with_payment_row(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # total = 550.00
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "advance")
+        await _send(client, bare_sender, "200")
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+        assert "200" in sent[-1]  # Payment Made
+        assert "350" in sent[-1]  # Balance Due
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.status == InvoiceStatus.Partially_Paid
+    assert invoice.total_amount == Decimal("550.00")
+
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is not None
+    assert payment.amount == Decimal("200.00")
+
+
+@pytest.mark.asyncio
+async def test_advance_covering_full_total_creates_paid_invoice(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # total = 550.00
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "advance")
+        await _send(client, bare_sender, "550")  # full amount paid upfront
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice.status == InvoiceStatus.Paid
+
+
+@pytest.mark.asyncio
+async def test_advance_exceeding_total_rejected_order_not_created(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # total = 550.00
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "advance")
+
+        await _send(client, bare_sender, "600")  # more than the 550 total
+        assert "more than the order total" in sent[-1].lower()
+
+        # The original PendingOperation is still intact and can still be confirmed.
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice_count = len(
+        (await db.execute(select(Invoice).where(Invoice.company_id == company_id)))
+        .scalars()
+        .all()
+    )
+    assert invoice_count == 1  # created without an advance, the 600 reply was simply rejected
+
+
+@pytest.mark.asyncio
+async def test_advance_non_numeric_reasked(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "advance")
+
+        await _send(client, bare_sender, "a lot")
+        assert "greater than zero" in sent[-1].lower()
+
+        await _send(client, bare_sender, "100")
+        assert "confirm" in sent[-1].lower()
+        assert "100" in sent[-1]

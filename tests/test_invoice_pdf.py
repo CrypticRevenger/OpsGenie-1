@@ -14,17 +14,21 @@ No DB — a pure function over a CreateOrderResult.
 
 from __future__ import annotations
 
+import io
 import logging
 from datetime import date
 from decimal import Decimal
 from types import SimpleNamespace
 
 import app.services.reports.pdf_common as pdf_common
+import pdfplumber
 from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.writes.orders import CreateOrderResult, OrderLine
 
 
-def _result(*, dealer_name: str, product_name: str) -> CreateOrderResult:
+def _result(
+    *, dealer_name: str, product_name: str, advance_paid: Decimal = Decimal("0.00")
+) -> CreateOrderResult:
     line = OrderLine(
         product_id=None,
         product_name=product_name,
@@ -34,6 +38,7 @@ def _result(*, dealer_name: str, product_name: str) -> CreateOrderResult:
         gst_rate=Decimal("5"),
         gst_amount=Decimal("200"),
     )
+    total_amount = Decimal("4200")
     return CreateOrderResult(
         invoice_id=None,
         invoice_number="WA-abc1234567",
@@ -45,9 +50,16 @@ def _result(*, dealer_name: str, product_name: str) -> CreateOrderResult:
         lines=[line],
         subtotal=Decimal("4000"),
         gst_amount=Decimal("200"),
-        total_amount=Decimal("4200"),
+        total_amount=total_amount,
         negative_stock_warnings=[],
+        advance_paid=advance_paid,
+        balance_due=total_amount - advance_paid,
     )
+
+
+def _extract_text(pdf_bytes: bytes) -> str:
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        return pdf.pages[0].extract_text() or ""
 
 
 def test_pdf_renders_ascii_names() -> None:
@@ -98,6 +110,40 @@ def test_pdf_embeds_unicode_fonts_for_regional_names(caplog) -> None:
     # No character rendered as a missing/notdef box (the fpdf2 fallback bug the
     # per-cell font selection specifically avoids).
     assert not any("missing the following glyphs" in r.getMessage() for r in caplog.records)
+
+
+def test_pdf_shows_payment_made_and_balance_due_when_advance_paid() -> None:
+    company = SimpleNamespace(
+        business_name="AP BIOCARE",
+        gst_number="21ABCDE1234F1Z5",
+        city="Berhampur",
+        whatsapp_number="+919876500000",
+    )
+    result = _result(
+        dealer_name="Ram Traders", product_name="Rice", advance_paid=Decimal("1000.00")
+    )
+    out = generate_invoice_pdf(company, result)
+    text = _extract_text(out)
+    assert "Payment Made" in text
+    assert "Balance Due" in text
+    # The header badge shows the remaining balance (4200 - 1000 = 3200), not the total.
+    assert "3,200" in text
+
+
+def test_pdf_omits_payment_made_and_balance_due_when_no_advance() -> None:
+    company = SimpleNamespace(
+        business_name="AP BIOCARE",
+        gst_number="21ABCDE1234F1Z5",
+        city="Berhampur",
+        whatsapp_number="+919876500000",
+    )
+    result = _result(dealer_name="Ram Traders", product_name="Rice")
+    out = generate_invoice_pdf(company, result)
+    text = _extract_text(out)
+    assert "Payment Made" not in text
+    assert "Balance Due" not in text
+    # The header badge shows the full total when nothing has been paid.
+    assert "4,200" in text
 
 
 def test_pdf_falls_back_to_core_font_when_bundled_fonts_absent(monkeypatch, tmp_path) -> None:

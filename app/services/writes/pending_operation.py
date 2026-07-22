@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.pending_operation import PendingOperation, PendingOperationType
+from app.services.importer.normalizer import parse_positive_amount
 from app.services.invoice_delivery import send_invoice_document
 from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.money_format import format_inr
@@ -161,6 +162,9 @@ async def execute_pending_operation(
                 company,
                 dealer_name=payload["dealer_name"],
                 items=payload["items"],
+                advance_paid=(
+                    Decimal(payload["advance_paid"]) if payload.get("advance_paid") else None
+                ),
             )
         except (ValueError, KeyError, TypeError) as exc:
             # Same reasoning as the record_payment branch above: a re-
@@ -228,6 +232,8 @@ async def execute_pending_operation(
             subtotal=format_inr(result.subtotal),
             gst=format_inr(result.gst_amount),
             total=format_inr(result.total_amount),
+            payment_made=format_inr(result.advance_paid),
+            balance_due=format_inr(result.balance_due),
             warning=warning,
             pdf_note=pdf_note,
         )
@@ -377,6 +383,47 @@ async def handle_pending_operation_reply(
     db: AsyncSession, company: Company, op: PendingOperation, text: str
 ) -> str:
     stripped = text.strip().lower()
+    loc = resolve_locale(company)
+
+    if op.operation_type == PendingOperationType.create_order:
+        # Local import: order_flow.py imports create_pending_operation from
+        # this module, so importing it back at module level here would be a
+        # circular import — same reason payment_reminder_confirm is imported
+        # locally below, not at the top of this file.
+        from app.services.workflows.order_flow import compute_order_math, render_order_preview
+
+        if (
+            op.payload.get("awaiting_advance_amount")
+            and stripped not in _YES_WORDS
+            and stripped not in _NO_WORDS
+        ):
+            try:
+                advance = parse_positive_amount(text.strip())
+            except ValueError:
+                return t("order.advance_amount_invalid", loc)
+            _subtotal, _gst_amount, total = compute_order_math(
+                op.payload["items"], company.gst_rate
+            )
+            if advance > total:
+                return t("order.advance_exceeds_total", loc, total=format_inr(total))
+            op.payload = {
+                **op.payload,
+                "advance_paid": str(advance),
+                "awaiting_advance_amount": False,
+            }
+            return render_order_preview(
+                dealer_name=op.payload["dealer_name"],
+                items=op.payload["items"],
+                company_gst_rate=company.gst_rate,
+                advance_paid=advance,
+                duplicate_invoice_number=op.payload["duplicate_invoice_number"],
+                credit_limit_breach=op.payload["credit_limit_breach"],
+                loc=loc,
+            )
+        if stripped in ("advance", "add advance", "advance paid"):
+            op.payload = {**op.payload, "awaiting_advance_amount": True}
+            return t("order.advance_amount_ask", loc)
+
     if stripped in _YES_WORDS:
         return await execute_pending_operation(db, company, op)
     if stripped in _NO_WORDS:
@@ -391,10 +438,15 @@ async def handle_pending_operation_reply(
         )
         await db.delete(op)
         _clear_active_pending_operation(company)
-        message = t("workflow.cancelled", resolve_locale(company))
+        message = t("workflow.cancelled", loc)
         if reminder_queue:
             from app.services.workflows.payment_reminder_confirm import advance_reminder_queue
 
             message += advance_reminder_queue(company, reminder_queue)
         return message
-    return t("pending.reply_yes_no", resolve_locale(company))
+    if op.operation_type == PendingOperationType.create_order:
+        # Reuse the preview's own footer wording (mentions YES/NO/ADVANCE)
+        # rather than the generic yes/no-only fallback every other
+        # operation type uses below.
+        return t("order.preview_footer", loc)
+    return t("pending.reply_yes_no", loc)

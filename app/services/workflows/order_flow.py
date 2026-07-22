@@ -66,31 +66,51 @@ def start_order_workflow(company: Company) -> str:
     return t("order.start", resolve_locale(company))
 
 
-async def _preview_and_finalize(
-    db: AsyncSession, company: Company, scratch: dict, loc: Locale
-) -> tuple[str, dict]:
-    """Builds the confirmation preview text and the PendingOperation payload
-    from the collected raw items — never a precomputed total on its own, but
-    a preview naturally has to show one; execute-time re-derives everything
-    fresh against current prices/stock rather than trusting this text.
-
-    The subtotal/GST/total breakdown must mirror what writes/orders.py's
-    create_order actually commits (each line's own GST rate — its own
-    override if set, else the company default — summed to a total), so the
-    user confirms the same number they'll be invoiced for. A bare line-total
-    sum with no GST would understate the real invoice total for any
-    GST-configured company.
-
-    Also surfaces two advisory, non-blocking warnings (mirroring
-    writes/orders.py's negative_stock_warnings "flag, never block" tier) when
-    the dealer already exists in the DB — a brand-new, not-yet-confirmed
-    dealer has no row/credit_limit/history to check against, so both are
-    skipped for one: a likely-duplicate order (same dealer/date/total as an
-    existing invoice) and a credit-limit breach (this order would push the
-    dealer's outstanding past their credit_limit, when one is on file).
+def compute_order_math(
+    items: list[dict], company_gst_rate: Decimal
+) -> tuple[Decimal, Decimal, Decimal]:
+    """subtotal, gst_amount, total — the exact math writes/orders.py::
+    create_order re-derives at confirm time, duplicated here in pure form
+    (no db, no i18n) so both the initial preview and the post-ADVANCE
+    re-render in pending_operation.py can get the current total (e.g. to
+    validate an advance against it) without needing the full item-line
+    rendering render_order_preview below does.
     """
-    dealer_name = scratch["dealer_name"]
-    items = scratch["items"]
+    subtotal = Decimal("0.00")
+    gst_amount = Decimal("0.00")
+    for item in items:
+        price = Decimal(item["price"]) if item.get("price") is not None else Decimal("0.00")
+        quantity = Decimal(item["quantity"])
+        line_total = (price * quantity).quantize(Decimal("0.01"))
+        item_gst_raw = item.get("gst_rate")
+        line_gst_rate = Decimal(item_gst_raw) if item_gst_raw is not None else company_gst_rate
+        subtotal += line_total
+        gst_amount += (line_total * line_gst_rate / Decimal("100")).quantize(Decimal("0.01"))
+    return subtotal, gst_amount, subtotal + gst_amount
+
+
+def render_order_preview(
+    *,
+    dealer_name: str,
+    items: list[dict],
+    company_gst_rate: Decimal,
+    advance_paid: Decimal,
+    duplicate_invoice_number: str | None,
+    credit_limit_breach: dict | None,
+    loc: Locale,
+) -> str:
+    """Builds the full preview text from scratch every call — item lines,
+    Subtotal/GST/Total, Payment Made/Balance Due (always shown, even when
+    advance_paid is 0, so the ADVANCE option is contextually visible on
+    every order, not just when one exists), and the two advisory warnings
+    rendered fresh from their cached facts rather than cached as text —
+    deliberately, so a locale change mid-conversation can never show stale
+    wording for a fact (a duplicate invoice number, a credit-limit breach)
+    that's still true. Called both for the first preview (order_flow.py)
+    and to redraw it after an advance amount is entered
+    (writes/pending_operation.py) — same output either way, given the same
+    inputs, since nothing here touches the DB.
+    """
     lines = []
     subtotal = Decimal("0.00")
     gst_amount = Decimal("0.00")
@@ -100,7 +120,7 @@ async def _preview_and_finalize(
         quantity = Decimal(item["quantity"])
         line_total = (price * quantity).quantize(Decimal("0.01"))
         item_gst_raw = item.get("gst_rate")
-        line_gst_rate = Decimal(item_gst_raw) if item_gst_raw is not None else company.gst_rate
+        line_gst_rate = Decimal(item_gst_raw) if item_gst_raw is not None else company_gst_rate
         line_gst_amount = (line_total * line_gst_rate / Decimal("100")).quantize(Decimal("0.01"))
         subtotal += line_total
         gst_amount += line_gst_amount
@@ -124,36 +144,25 @@ async def _preview_and_finalize(
             t("order.gst", loc, rate_label=rate_label, amount=format_inr(gst_amount))
         )
     total_lines.append(t("order.total", loc, amount=format_inr(total)))
+    balance_due = total - advance_paid
+    total_lines.append(t("order.payment_made", loc, amount=format_inr(advance_paid)))
+    total_lines.append(t("order.balance_due", loc, amount=format_inr(balance_due)))
 
     warning_lines: list[str] = []
-    dealer = await _match_dealer(db, company.id, dealer_name)
-    if dealer is not None:
-        today = business_now(company.timezone).date()
-        duplicate = await find_similar_order(
-            db, company_id=company.id, dealer_id=dealer.id, invoice_date=today, total_amount=total
+    if duplicate_invoice_number is not None:
+        warning_lines.append(t("order.duplicate_warning", loc, number=duplicate_invoice_number))
+    if credit_limit_breach is not None:
+        warning_lines.append(
+            t(
+                "order.credit_limit_warning",
+                loc,
+                dealer=credit_limit_breach["dealer"],
+                prospective=format_inr(Decimal(credit_limit_breach["prospective"])),
+                limit=format_inr(Decimal(credit_limit_breach["limit"])),
+            )
         )
-        if duplicate is not None:
-            warning_lines.append(
-                t("order.duplicate_warning", loc, number=duplicate.invoice_number)
-            )
 
-        if dealer.credit_limit is not None:
-            prospective_total = (
-                await calculate_party_outstanding(db, direction="receivable", party_id=dealer.id)
-                + total
-            )
-            if prospective_total > dealer.credit_limit:
-                warning_lines.append(
-                    t(
-                        "order.credit_limit_warning",
-                        loc,
-                        dealer=dealer.name,
-                        prospective=format_inr(prospective_total),
-                        limit=format_inr(dealer.credit_limit),
-                    )
-                )
-
-    preview = (
+    return (
         t("order.preview_header", loc, dealer=dealer_name)
         + "\n"
         + "\n".join(lines)
@@ -163,7 +172,69 @@ async def _preview_and_finalize(
         + "\n"
         + t("order.preview_footer", loc)
     )
-    payload = {"dealer_name": dealer_name, "items": items}
+
+
+async def _preview_and_finalize(
+    db: AsyncSession, company: Company, scratch: dict, loc: Locale
+) -> tuple[str, dict]:
+    """Builds the confirmation preview text and the PendingOperation payload
+    from the collected raw items — never a precomputed total on its own, but
+    a preview naturally has to show one; execute-time re-derives everything
+    fresh against current prices/stock rather than trusting this text.
+
+    Also surfaces two advisory, non-blocking warnings (mirroring
+    writes/orders.py's negative_stock_warnings "flag, never block" tier) when
+    the dealer already exists in the DB — a brand-new, not-yet-confirmed
+    dealer has no row/credit_limit/history to check against, so both are
+    skipped for one: a likely-duplicate order (same dealer/date/total as an
+    existing invoice) and a credit-limit breach (this order would push the
+    dealer's outstanding past their credit_limit, when one is on file). Only
+    these two facts (not any rendered text) go into the payload — see
+    render_order_preview's docstring for why.
+    """
+    dealer_name = scratch["dealer_name"]
+    items = scratch["items"]
+    _subtotal, _gst_amount, total = compute_order_math(items, company.gst_rate)
+
+    duplicate_invoice_number: str | None = None
+    credit_limit_breach: dict | None = None
+    dealer = await _match_dealer(db, company.id, dealer_name)
+    if dealer is not None:
+        today = business_now(company.timezone).date()
+        duplicate = await find_similar_order(
+            db, company_id=company.id, dealer_id=dealer.id, invoice_date=today, total_amount=total
+        )
+        if duplicate is not None:
+            duplicate_invoice_number = duplicate.invoice_number
+
+        if dealer.credit_limit is not None:
+            prospective_total = (
+                await calculate_party_outstanding(db, direction="receivable", party_id=dealer.id)
+                + total
+            )
+            if prospective_total > dealer.credit_limit:
+                credit_limit_breach = {
+                    "dealer": dealer.name,
+                    "prospective": str(prospective_total),
+                    "limit": str(dealer.credit_limit),
+                }
+
+    preview = render_order_preview(
+        dealer_name=dealer_name,
+        items=items,
+        company_gst_rate=company.gst_rate,
+        advance_paid=Decimal("0.00"),
+        duplicate_invoice_number=duplicate_invoice_number,
+        credit_limit_breach=credit_limit_breach,
+        loc=loc,
+    )
+    payload = {
+        "dealer_name": dealer_name,
+        "items": items,
+        "advance_paid": None,
+        "duplicate_invoice_number": duplicate_invoice_number,
+        "credit_limit_breach": credit_limit_breach,
+    }
     return preview, payload
 
 

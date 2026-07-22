@@ -23,9 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.company import Company
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.invoice_item import InvoiceItem
+from app.models.payment import PaymentSource
 from app.models.product import Product
 from app.services.gst import effective_gst_rate
 from app.services.importer.parties import find_or_create_party
+from app.services.importer.payment_row import allocate_payment_fifo
 from app.services.snapshot import business_now
 
 _CENTS = Decimal("0.01")
@@ -59,6 +61,8 @@ class CreateOrderResult:
     gst_amount: Decimal
     total_amount: Decimal
     negative_stock_warnings: list[str]
+    advance_paid: Decimal = Decimal("0.00")
+    balance_due: Decimal = Decimal("0.00")
 
 
 async def _resolve_product(db: AsyncSession, company_id: uuid.UUID, item: dict) -> Product:
@@ -105,13 +109,23 @@ async def create_order(
     *,
     dealer_name: str,
     items: list[dict],
+    advance_paid: Decimal | None = None,
 ) -> CreateOrderResult:
     """Record a WhatsApp-guided order as a receivable invoice against a
     dealer, decrementing catalogue stock for each line.
 
+    advance_paid (optional — a dealer paying something upfront when the
+    order is placed) is recorded via the exact same allocate_payment_fifo
+    already used by CSV import's paid_amount column and record_payment's
+    WhatsApp path, not a bespoke advance-recording path — so status
+    transitions (Paid/Partially_Paid), the Payment/BusinessEvent audit
+    trail, and "amount exceeds outstanding" all come for free and can never
+    drift from how every other payment in this system is recorded.
+
     Raises ValueError on re-validation failure (a quantity of zero or less,
-    or a product with no price collected) — the caller turns this into a
-    friendly reply rather than committing bad data.
+    a product with no price collected, or an advance_paid that exceeds the
+    order's own total) — the caller turns this into a friendly reply rather
+    than committing bad data.
     """
     if not items:
         raise ValueError("An order needs at least one product")
@@ -185,6 +199,26 @@ async def create_order(
             )
         )
 
+    advance = advance_paid if advance_paid is not None else Decimal("0.00")
+    if advance > 0:
+        await allocate_payment_fifo(
+            db,
+            company_id=company.id,
+            direction="receivable",
+            party_id=dealer.id,
+            party_name=dealer.name,
+            amount=advance,
+            payment_date=today,
+            method="",
+            voucher_reference="",
+            source_file="whatsapp",
+            row_number=0,
+            source_row_key=f"whatsapp:{uuid.uuid4()}",
+            source=PaymentSource.whatsapp,
+            created_by="whatsapp_workflow",
+            invoice_id=invoice.id,
+        )
+
     return CreateOrderResult(
         invoice_id=invoice.id,
         invoice_number=invoice_number,
@@ -198,4 +232,6 @@ async def create_order(
         gst_amount=gst_amount,
         total_amount=total_amount,
         negative_stock_warnings=negative_stock_warnings,
+        advance_paid=advance,
+        balance_due=total_amount - advance,
     )

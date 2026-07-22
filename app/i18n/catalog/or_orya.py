@@ -643,8 +643,19 @@ MESSAGES: dict[str, str] = {
     "order.subtotal": "Subtotal: {amount}",
     "order.gst": "GST{rate_label}: {amount}",
     "order.total": "Total: {amount}",
+    "order.payment_made": "Payment Made: {amount}",
+    "order.balance_due": "Balance Due: {amount}",
+    "order.advance_amount_ask": "Dealer advance ରେ କେତେ ଦେଲେ? (ଯେମିତି 5000)",
+    "order.advance_amount_invalid": "ଦୟାକରି zero ଠାରୁ ଅଧିକ number ପଠାନ୍ତୁ, ଯେମିତି 5000।",
+    "order.advance_exceeds_total": (
+        "ଏହା order ର {total} total ଠାରୁ ଅଧିକ। କମ amount ପଠାନ୍ତୁ, କିମ୍ବା ବିନା advance ରେ "
+        "order ତିଆରି କରିବାକୁ YES reply କରନ୍ତୁ।"
+    ),
     "order.preview_header": "{dealer} ପାଇଁ order confirm କରନ୍ତୁ:",
-    "order.preview_footer": "Reply YES ତିଆରି କରିବାକୁ, NO cancel କରିବାକୁ।",
+    "order.preview_footer": (
+        "Reply YES ତିଆରି କରିବାକୁ, NO cancel କରିବାକୁ, କିମ୍ବା ADVANCE ଯଦି dealer ପୂର୍ବରୁ "
+        "କିଛି pay କରିସାରିଛନ୍ତି।"
+    ),
     "order.duplicate_warning": (
         "⚠️ ଏହା ଏ dealer ର existing invoice ({number}) ପରି ଲାଗୁଛି — same date ଏବଂ total। ଯଦି "
         "ଏହା ଏକ ଅଲଗା, ଇଚ୍ଛାକୃତ order, ଜାରି ରଖିବାକୁ YES ପଠାନ୍ତୁ।"
@@ -855,7 +866,8 @@ MESSAGES: dict[str, str] = {
     ),
     "pending.order_success": (
         "✅ Order {number} {dealer} ପାଇଁ ତିଆରି ହେଲା।\n{lines}\n"
-        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"
+        "Payment Made: {payment_made}\nBalance Due: {balance_due}{warning}{pdf_note}"
     ),
     "pending.gst_failed": "GST update ହେଲା ନାହିଁ: {error}। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
     "pending.gst_success": "✅ {target} ର GST {rate} set ହେଲା।",

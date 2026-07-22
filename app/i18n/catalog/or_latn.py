@@ -690,8 +690,19 @@ MESSAGES: dict[str, str] = {
     "order.subtotal": "Subtotal: {amount}",
     "order.gst": "GST{rate_label}: {amount}",
     "order.total": "Total: {amount}",
+    "order.payment_made": "Payment Made: {amount}",
+    "order.balance_due": "Balance Due: {amount}",
+    "order.advance_amount_ask": "Dealer advance re kete dele? (jaise 5000)",
+    "order.advance_amount_invalid": "Daya kari zero tharu adhika number pathantu, jaise 5000.",
+    "order.advance_exceeds_total": (
+        "Eha order ra {total} total tharu adhika. Kami amount pathantu, kimba bina advance "
+        "re order tiari karibaku YES reply karantu."
+    ),
     "order.preview_header": "{dealer} paain order confirm karantu:",
-    "order.preview_footer": "Reply YES tiari karibaku, NO cancel karibaku.",
+    "order.preview_footer": (
+        "Reply YES tiari karibaku, NO cancel karibaku, kimba ADVANCE jadi dealer pahile "
+        "thu kichi pay kari sarile."
+    ),
     "order.duplicate_warning": (
         "⚠️ Eha e dealer ra existing invoice ({number}) jaisa lagichi — same date au total. "
         "Jadi eha eka alaga, jaanibujhi kari heigala order, jaari rakhibaku YES pathantu."
@@ -957,7 +968,8 @@ MESSAGES: dict[str, str] = {
     ),
     "pending.order_success": (
         "✅ Order {number} {dealer} paain tiari hela.\n{lines}\n"
-        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}{warning}{pdf_note}"
+        "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"
+        "Payment Made: {payment_made}\nBalance Due: {balance_due}{warning}{pdf_note}"
     ),
     "pending.gst_failed": "GST update heli nahin: {error}. Daya kari puni arambha karantu.",
     "pending.gst_success": "✅ {target} ra GST {rate} set hela.",
