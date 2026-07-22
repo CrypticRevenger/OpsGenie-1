@@ -14,6 +14,7 @@ already models both directions), so this module serves both via a single
 from __future__ import annotations
 
 import uuid
+from datetime import date
 from decimal import Decimal
 from typing import Literal
 
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.payment import Payment
+from app.services.reports.statuses import EXCLUDED_STATUSES
 
 Direction = Literal["receivable", "payable"]
 
@@ -79,6 +81,55 @@ async def calculate_outstanding_for_company(
     paid_rows = await db.execute(
         select(Payment.invoice_id, func.sum(Payment.amount))
         .where(Payment.invoice_id.in_(invoice_ids))
+        .group_by(Payment.invoice_id)
+    )
+    paid_by_invoice: dict[uuid.UUID, Decimal] = dict(paid_rows.all())
+
+    outstanding_by_party: dict[uuid.UUID, Decimal] = {}
+    for invoice_id, party_id, total_amount in rows:
+        paid = paid_by_invoice.get(invoice_id, Decimal("0.00"))
+        outstanding_by_party[party_id] = (
+            outstanding_by_party.get(party_id, Decimal("0.00")) + total_amount - paid
+        )
+    return outstanding_by_party
+
+
+async def calculate_outstanding_for_company_as_of(
+    db: AsyncSession, *, company_id: uuid.UUID, direction: Direction, as_of_date: date
+) -> dict[uuid.UUID, Decimal]:
+    """Outstanding for every dealer/supplier in a company AS OF A PAST DATE —
+    the historical counterpart to calculate_outstanding_for_company above,
+    for trend comparisons (see app/services/trend_analytics.py).
+
+    calculate_outstanding_for_company can only ever answer "as of now" — it
+    filters Invoice.status.in_(_OPEN_STATUSES), a mutable field that reflects
+    only the invoice's CURRENT state, not what it was on a past date. This
+    instead sums signed invoice-debit/payment-credit entries bounded by
+    as_of_date, the same approach app/services/reports/ledger.py's
+    _ledger_entries/_load_ledger_data already uses for one party's opening
+    balance — batched across every party in one company (2 queries, not one
+    per party), matching calculate_outstanding_for_company's own shape.
+    Draft/Cancelled invoices are excluded (app/services/reports/statuses.py::
+    EXCLUDED_STATUSES) since neither ever represented a real receivable/
+    payable, even historically.
+    """
+    party_column = Invoice.dealer_id if direction == "receivable" else Invoice.supplier_id
+    invoice_stmt = select(Invoice.id, party_column, Invoice.total_amount).where(
+        Invoice.company_id == company_id,
+        Invoice.direction == InvoiceDirection(direction),
+        Invoice.status.notin_(EXCLUDED_STATUSES),
+        Invoice.invoice_date <= as_of_date,
+        party_column.is_not(None),
+    )
+    rows = (await db.execute(invoice_stmt)).all()
+    if not rows:
+        return {}
+
+    invoice_ids = [r[0] for r in rows]
+
+    paid_rows = await db.execute(
+        select(Payment.invoice_id, func.sum(Payment.amount))
+        .where(Payment.invoice_id.in_(invoice_ids), Payment.payment_date <= as_of_date)
         .group_by(Payment.invoice_id)
     )
     paid_by_invoice: dict[uuid.UUID, Decimal] = dict(paid_rows.all())

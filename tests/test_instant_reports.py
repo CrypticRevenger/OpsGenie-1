@@ -25,6 +25,7 @@ from app.models.payment import Payment, PaymentSource
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services import instant_reports
+from app.services.snapshot import business_now
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -69,6 +70,7 @@ async def test_empty_states_never_crash(db: AsyncSession) -> None:
         (instant_reports.all_invoices_reply, "don't have any invoices"),
         (instant_reports.recent_payments_reply, "don't have any payments"),
         (instant_reports.all_payments_reply, "don't have any payments"),
+        (instant_reports.trend_report_reply, "not enough dealer order activity"),
     ]
     for fn, expected_substring in expectations:
         reply = await fn(db, company)
@@ -507,3 +509,53 @@ async def test_sales_impact_unresolvable_product_returns_none(db: AsyncSession) 
         db, company, "if I sell 50 kg of quinoa"
     )
     assert result is None
+
+
+async def _make_trend_invoice(
+    db: AsyncSession,
+    company: Company,
+    dealer: Dealer,
+    *,
+    total: Decimal,
+    invoice_date: date,
+) -> Invoice:
+    invoice = Invoice(
+        company_id=company.id,
+        invoice_number=f"INV-{uuid.uuid4().hex[:10]}",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer.id,
+        invoice_date=invoice_date,
+        due_date=invoice_date + timedelta(days=14),
+        subtotal=total,
+        gst_amount=Decimal("0.00"),
+        total_amount=total,
+        status=InvoiceStatus.Pending,
+        source=InvoiceSource.csv_import,
+    )
+    db.add(invoice)
+    await db.commit()
+    return invoice
+
+
+@pytest.mark.asyncio
+async def test_trend_report_reply_shows_rising_dealer_and_cash_headline(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    today = business_now(company.timezone).date()
+    dealer = Dealer(company_id=company.id, name="Rising Traders")
+    db.add(dealer)
+    await db.flush()
+
+    # Current 30d window: 2 orders totaling 5000 (clears the evidence floor).
+    await _make_trend_invoice(db, company, dealer, total=Decimal("3000"), invoice_date=today)
+    await _make_trend_invoice(
+        db, company, dealer, total=Decimal("2000"), invoice_date=today - timedelta(days=3)
+    )
+    # Prior 30d window: 1 order totaling 500 -> a clear riser.
+    await _make_trend_invoice(
+        db, company, dealer, total=Decimal("500"), invoice_date=today - timedelta(days=35)
+    )
+
+    reply = await instant_reports.trend_report_reply(db, company)
+    assert "Rising Traders" in reply
+    assert "Dealer Trend" in reply
+    assert "Cash Trend" in reply

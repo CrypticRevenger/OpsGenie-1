@@ -81,6 +81,12 @@ _HELP_TEXT = """*OpsGenie Help*
 • payment register (ya receipt register) — is mahine ki receipts & payments
 • day book — is mahine ke sabhi invoice aur payment, ek hi list me
 • outstanding report (ya aging report) — 0-30/31-60/61-90/90+ din ke buckets, Excel + PDF
+• trend report (ya business trends) — hafta-wise cash, dealer aur product trends, Excel
+
+*Marketing*
+• broadcast (ya /broadcast) — opted-in dealers ko message bhejein (all, overdue, ya name se pick)
+• opt in all dealers — jinhone opt-out nahi kiya unhe broadcast me opt in karein (confirm zaroori)
+• edit dealer — 'marketing' reply karke ek dealer ko opt in/opt out karein
 
 *Quick Access*
 • menu — type karne ki jagah options tap karein
@@ -211,6 +217,29 @@ MESSAGES: dict[str, str] = {
         "Aapka {report_name} ({period}) taiyar hai.\nDownload ({ttl} min valid):\n{links}"
     ),
     "reports.ledger.not_found": "'{name}' se milta koi dealer ya supplier nahi mila.",
+    # ── Business Trends report ────────────────────────────────────────────
+    "reports.trend.headline": (
+        "📈 Collections {collections_pct}, Payments {payments_pct}, Net Cash {net_delta} · "
+        "{dealers_slowing} dealer slow ho rahe hain · {products_declining} product girr rahe hain"
+    ),
+    "reports.trend.header": "Cash Trend (is hafte vs pichle hafte)",
+    "reports.trend.collections_line": "Collections: {current} (pehle {prior} tha)",
+    "reports.trend.payments_line": "Supplier Payments: {current} (pehle {prior} tha)",
+    "reports.trend.net_line": "Net Cash Movement: {current} (pehle {prior} tha)",
+    "reports.trend.sales_line": "Sales (Invoiced): {current} (pehle {prior} tha)",
+    "reports.trend.dealers_header": "Dealer Trend (pichle 30 din vs uske pehle 30 din)",
+    "reports.trend.dealers_none": "Abhi dealer order activity kam hai, trend nahi dikha sakte.",
+    "reports.trend.dealer_rising_line": (
+        "▲ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.dealer_falling_line": (
+        "▼ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.products_header": "Product Sales Trend (pichle 30 din vs uske pehle 30 din)",
+    "reports.trend.products_none": "Abhi sales activity kam hai, product trend nahi dikha sakte.",
+    "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.full_detail_link": "Har dealer aur product (Excel, {ttl} min valid): {link}",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -574,6 +603,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "Is mahine ke sabhi invoice aur payment",
     "menu.row.outstanding_report.title": "Outstanding Report",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ din ke buckets",
+    "menu.row.trend_report.title": "Business Trends",
+    "menu.row.trend_report.desc": "Hafta & mahina wise, dealers, products",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "Abhi record kiya payment void karein",
     "menu.row.undo_order.title": "Undo Order",
@@ -849,6 +880,43 @@ MESSAGES: dict[str, str] = {
     "stock_take.failed": "Stock take apply nahi ho paya: {error}. Kripya dobara shuru karein.",
     "stock_take.result_line": "- {name}: {new}",
     "stock_take.success": "✅ {count} product(s) ka stock update hua:\n{lines}{warning}",
+    # ── Marketing broadcast (guided workflow) ───────────────────────────────
+    "broadcast.segment_ask": (
+        "Yeh broadcast kise milna chahiye?\n1. Sabhi dealers\n2. Overdue balance wale dealers\n"
+        "3. Naam se specific dealers chunein\nReply karein 1, 2, ya 3 — ya 'cancel'."
+    ),
+    "broadcast.segment_invalid": "Kripya reply karein 1, 2, ya 3 — ya 'cancel'.",
+    "broadcast.segment.all": "sabhi dealers",
+    "broadcast.segment.overdue": "overdue balance wale dealers",
+    "broadcast.segment.specific": "aapke chune hue dealers",
+    "broadcast.dealer_names_ask": (
+        "Dealer ke naam bhejein, ek line me ek (ya comma se alag), ya 'cancel'."
+    ),
+    "broadcast.dealer_names_none_matched": (
+        "In me se koi bhi naam file me kisi dealer se match nahi hua: {names}. Kripya dobara "
+        "koshish karein, ya 'cancel'."
+    ),
+    "broadcast.dealer_names_unmatched": (
+        "\n(Match nahi hue: {names} — spelling jaanch kar alag se edit karein agar zaroorat ho.)"
+    ),
+    "broadcast.message_ask": (
+        "Yeh opt-in kiye {count} dealer(s) tak pahunchega. Kya message bhejna hai?"
+    ),
+    "broadcast.message_empty": "Kripya broadcast karne ke liye ek message bhejein, ya 'cancel'.",
+    "broadcast.no_opted_in": (
+        "{segment} me se kisi ne bhi abhi tak marketing broadcasts opt in nahi kiya. Unhe opt "
+        "in karne ko kahein, ya 'edit dealer' / 'opt in all dealers' use karein."
+    ),
+    "broadcast.confirm_prompt": (
+        "{count} dealer(s) ko yeh bhejein?{capped_note}\n\n\"{message}\"\n\n"
+        "Reply karein YES bhejne ke liye, NO cancel karne ke liye."
+    ),
+    "broadcast.confirm_capped": " (har broadcast me max {cap} tak)",
+    "broadcast.opt_in_all_none": "Har dealer pehle se hi opt in hai.",
+    "broadcast.opt_in_all_confirm": (
+        "{count} dealer(s) ko marketing broadcasts me opt in karein? Reply karein YES confirm "
+        "karne ke liye, NO cancel karne ke liye."
+    ),
     "party.dealer.mode_prompt": (
         "Apne dealers add karein. Reply 'one by one' ek-ek karke add karne ke liye, "
         "ya 'bulk' sabko ek saath bhejne ke liye (jaise Ram Traders, 9876543210, 15). "
@@ -876,11 +944,19 @@ MESSAGES: dict[str, str] = {
         "Kripya reply karein 'one by one' ya 'bulk' — ya rukne ke liye 'done'."
     ),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
-    "party.edit.field_prompt": (
+    "party.edit.field_prompt_dealer": (
+        "Kya edit karna hai — phone, credit limit, payment terms, GSTIN, ya marketing opt-in? "
+        "Reply karein 'phone', 'credit limit', 'payment terms', 'gstin', ya 'marketing'."
+    ),
+    "party.edit.field_invalid_dealer": (
+        "Kripya reply karein 'phone', 'credit limit', 'payment terms', 'gstin', ya 'marketing' "
+        "— ya 'cancel'."
+    ),
+    "party.edit.field_prompt_supplier": (
         "Kya edit karna hai — phone, credit limit, payment terms, ya GSTIN? "
         "Reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin'."
     ),
-    "party.edit.field_invalid": (
+    "party.edit.field_invalid_supplier": (
         "Kripya reply karein 'phone', 'credit limit', 'payment terms', ya 'gstin' — ya 'cancel'."
     ),
     "party.edit.name_ask_dealer": "Kaun sa dealer? Unka naam bhejein, ya 'cancel'.",
@@ -906,6 +982,15 @@ MESSAGES: dict[str, str] = {
         "(jaise 30)"
     ),
     "party.edit.gstin_ask": "{name} ka abhi ka GSTIN {current} hai. Naya GSTIN kya ho?",
+    "party.edit.marketing_ask": (
+        "{name} ka marketing opt-in abhi {current} hai. Reply karein 'yes'/'opt in' ya "
+        "'no'/'opt out'."
+    ),
+    "party.edit.marketing_invalid": (
+        "Kripya reply karein 'yes'/'opt in' ya 'no'/'opt out', ya 'cancel'."
+    ),
+    "party.edit.opted_in": "opted in",
+    "party.edit.opted_out": "opted out",
     "party.edit.days_invalid": "Kripya dinon ki ek puri sankhya bhejein, jaise 30.",
     "party.edit.phone_invalid": (
         "Woh sahi phone number nahi lagta. Agar Indian nahi hai to country code shamil "
@@ -982,6 +1067,16 @@ MESSAGES: dict[str, str] = {
     "pending.edit_payment_success": (
         "✅ Invoice {number} ke payment ka {field} {new} ho gaya (pehle {old} tha)."
     ),
+    "pending.broadcast_failed": (
+        "Woh broadcast bhej nahi paye: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.broadcast_success": (
+        "✅ Broadcast {total} me se {sent} dealer(s) ko bhej diya ({failed} fail hue)."
+    ),
+    "pending.opt_in_all_failed": (
+        "Dealers opt in nahi ho paye: {error}. Kripya dobara shuru karein."
+    ),
+    "pending.opt_in_all_success": "✅ {count} dealer(s) marketing broadcasts me opt in ho gaye.",
     "pending.unknown": "Us confirmation me kuch gadbad ho gayi. Kripya dobara shuru karein.",
     # ── Menu prompt / follow-up / notifications / evening ──────────────────
     "menu.prompt": "Reply karein 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

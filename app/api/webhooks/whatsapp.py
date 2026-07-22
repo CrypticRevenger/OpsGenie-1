@@ -53,6 +53,7 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
 from app.models.notification_log import NotificationLog
+from app.models.pending_operation import PendingOperationType
 from app.models.supplier import Supplier
 from app.services import instant_reports
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
@@ -71,6 +72,10 @@ from app.services.whatsapp_client import (
     WhatsAppSendResult,
     send_interactive_list_message,
     send_text_message,
+)
+from app.services.workflows.broadcast_flow import (
+    handle_broadcast_workflow_message,
+    start_broadcast_workflow,
 )
 from app.services.workflows.edit_flow import (
     handle_edit_invoice_workflow_message,
@@ -125,6 +130,7 @@ from app.services.workflows.void_flow import (
     start_void_payment_workflow,
 )
 from app.services.writes.pending_operation import (
+    create_pending_operation,
     get_pending_operation,
     handle_pending_operation_reply,
 )
@@ -149,6 +155,7 @@ _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[s
     "edit_dealer": handle_edit_dealer_workflow_message,
     "edit_supplier": handle_edit_supplier_workflow_message,
     "stock_take": handle_stock_take_workflow_message,
+    "broadcast_dealers": handle_broadcast_workflow_message,
     # Not in _WORKFLOW_START_TRIGGERS below — this one is only ever started
     # programmatically, by check_supplier_payment_reminders /
     # advance_reminder_queue (app/services/workflows/payment_reminder_confirm.py),
@@ -240,6 +247,10 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "stock count": start_stock_take_workflow,
     "bulk stock update": start_stock_take_workflow,
     "stocktake": start_stock_take_workflow,
+    "broadcast": start_broadcast_workflow,
+    "send broadcast": start_broadcast_workflow,
+    "marketing broadcast": start_broadcast_workflow,
+    "message dealers": start_broadcast_workflow,
     # Slash-command shortcuts — same handlers as the phrases above, just a
     # fixed, guessable form so a user can lean on /help's list instead of
     # having to phrase the request naturally.
@@ -260,6 +271,7 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "/edit_dealer": start_edit_dealer_workflow,
     "/edit_supplier": start_edit_supplier_workflow,
     "/stock_take": start_stock_take_workflow,
+    "/broadcast": start_broadcast_workflow,
 }
 
 
@@ -273,6 +285,23 @@ async def _export_link_reply(db: AsyncSession, company: Company) -> str:
     link = generate_export_link(company, base_url=settings.public_base_url)
     ttl = settings.export_link_ttl_minutes
     return t("reports.export.ready", resolve_locale(company), ttl=ttl, link=link)
+
+
+async def _opt_in_all_dealers_reply(db: AsyncSession, company: Company) -> str:
+    """Bulk "opt in all dealers" — skips straight to a PendingOperation
+    confirm (no active_workflow needed, it's a single yes/no) since it's a
+    real bulk data mutation, not a stateless reply like _export_link_reply.
+    """
+    loc = resolve_locale(company)
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Dealer)
+        .where(Dealer.company_id == company.id, Dealer.marketing_opt_in.is_(False))
+    )
+    if not count:
+        return t("broadcast.opt_in_all_none", loc)
+    await create_pending_operation(db, company, PendingOperationType.bulk_opt_in_dealers, {})
+    return t("broadcast.opt_in_all_confirm", loc, count=count)
 
 
 def _current_month_str(company: Company) -> str:
@@ -557,6 +586,11 @@ _MENU_LAYOUT: list[dict] = [
                         "menu.row.outstanding_report.title",
                         "menu.row.outstanding_report.desc",
                     ),
+                    (
+                        "trend report",
+                        "menu.row.trend_report.title",
+                        "menu.row.trend_report.desc",
+                    ),
                 ],
             ),
         ],
@@ -746,12 +780,17 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "outstanding report": _aging_report_reply,
     "aging report": _aging_report_reply,
     "outstanding aging report": _aging_report_reply,
+    "trend report": instant_reports.trend_report_reply,
+    "business trends": instant_reports.trend_report_reply,
+    "trends": instant_reports.trend_report_reply,
+    "sales trend": instant_reports.trend_report_reply,
     "/gst_report": _gst_report_reply,
     "/sales_register": _sales_register_reply,
     "/purchase_register": _purchase_register_reply,
     "/payment_register": _payment_register_reply,
     "/day_book": _day_book_reply,
     "/outstanding_report": _aging_report_reply,
+    "/trend_report": instant_reports.trend_report_reply,
     "cash": instant_reports.cash_position_reply,
     "cash position": instant_reports.cash_position_reply,
     "/cash": instant_reports.cash_position_reply,
@@ -799,6 +838,10 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "language": _change_language_reply,
     "script": _change_language_reply,
     "/language": _change_language_reply,
+    "opt in all dealers": _opt_in_all_dealers_reply,
+    "opt in all": _opt_in_all_dealers_reply,
+    "enable marketing for all dealers": _opt_in_all_dealers_reply,
+    "/opt_in_all_dealers": _opt_in_all_dealers_reply,
 }
 
 logger = logging.getLogger(__name__)

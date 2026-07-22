@@ -46,6 +46,15 @@ class PendingOperationType(enum.StrEnum):
     void_order = "void_order"
     edit_invoice = "edit_invoice"
     edit_payment = "edit_payment"
+    # Marketing broadcast — see app/services/workflows/broadcast_flow.py +
+    # app/services/writes/broadcast.py. payload stores {segment, dealer_ids,
+    # message} — filter criteria only, never a resolved recipient list, so
+    # execute_pending_operation re-derives who's actually opted-in fresh.
+    broadcast_dealers = "broadcast_dealers"
+    # Bulk "opt every currently-not-opted-in dealer into marketing" — pilot-
+    # scale convenience for a distributor onboarding an existing dealer base.
+    # payload is always {} — nothing to go stale.
+    bulk_opt_in_dealers = "bulk_opt_in_dealers"
 
 
 class PendingOperation(UUIDMixin, TimestampMixin, Base):

@@ -75,6 +75,11 @@ class BusinessEventType(enum.StrEnum):
     cash_shortage_forecast_sent = "cash_shortage_forecast_sent"
     stock_out_forecast_sent = "stock_out_forecast_sent"
     predue_nudge_sent = "predue_nudge_sent"
+    # Marketing broadcast completed — company-level (entity_type="company"),
+    # one row per broadcast carrying segment + attempted/sent/failed counts
+    # in payload. Per-dealer delivery detail lives in NotificationLog, not
+    # here — see app/services/writes/broadcast.py.
+    marketing_broadcast_sent = "marketing_broadcast_sent"
 
 
 class BusinessEvent(UUIDMixin, Base):

@@ -25,6 +25,7 @@ from app.services.party_outstanding import calculate_party_outstanding
 from app.services.reports import aging, ledger, registers
 from app.services.reports.period import InvalidPeriodError, resolve_period
 from app.services.reports.registry import REPORTS, ReportContext
+from app.services.snapshot import business_now
 from openpyxl import load_workbook
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -581,3 +582,33 @@ async def test_registry_pdf_builders_all_produce_valid_pdfs(db: AsyncSession) ->
         )
         out = await spec.build_pdf(db, company, ctx)
         assert out[:4] == b"%PDF"
+
+
+@pytest.mark.asyncio
+async def test_registry_trend_report_has_three_sheets(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = Dealer(company_id=company.id, name="Trend Registry Dealer")
+    db.add(dealer)
+    await db.commit()
+    await db.refresh(dealer)
+    # business_now, not date.today() — build_trend_report_workbook resolves
+    # "today" via the company's business timezone (defaults to IST), and this
+    # must land in the same calendar day for the seeded invoice to count.
+    today = business_now(company.timezone).date()
+    invoice = _invoice(
+        company,
+        direction=InvoiceDirection.receivable,
+        dealer=dealer,
+        invoice_date=today,
+        due_date=today + timedelta(days=14),
+        total=Decimal("1000"),
+    )
+    db.add(invoice)
+    await db.commit()
+
+    out = await REPORTS["trend"].build_xlsx(db, company, ReportContext())
+    wb = _load(out)
+    assert wb.sheetnames == ["Cash Trend", "Dealer Trend", "Product Sales Trend"]
+    cash_rows = list(wb["Cash Trend"].iter_rows(values_only=True))
+    header_row = next(r for r in cash_rows if r[0] == "Metric")
+    assert header_row == ("Metric", "This Week", "Last Week", "Δ")

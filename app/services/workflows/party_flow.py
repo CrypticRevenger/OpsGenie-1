@@ -290,16 +290,18 @@ _FIELD_TO_ATTR = {
     "credit_limit": "credit_limit",
     "payment_terms": "payment_terms_days",
     "gst_number": "gst_number",
+    "marketing_opt_in": "marketing_opt_in",
 }
 _FIELD_DISPLAY = {
     "phone": "phone",
     "credit_limit": "credit limit",
     "payment_terms": "payment terms",
     "gst_number": "GSTIN",
+    "marketing_opt_in": "marketing opt-in",
 }
 
 
-def _classify_party_field(text: str) -> str | None:
+def _classify_party_field(text: str, *, party_type: str) -> str | None:
     normalized = text.strip().lower()
     if normalized in ("phone", "phone number", "mobile", "mobile number"):
         return "phone"
@@ -309,6 +311,19 @@ def _classify_party_field(text: str) -> str | None:
         return "payment_terms"
     if normalized in ("gstin", "gst", "gst number", "gst_number"):
         return "gst_number"
+    # Marketing consent only exists on Dealer (broadcast is dealer-facing) —
+    # a supplier has no such column, so this keyword must never resolve for
+    # party_type == "supplier".
+    if party_type == "dealer" and normalized in (
+        "marketing",
+        "marketing opt in",
+        "marketing_opt_in",
+        "opt in",
+        "opt-in",
+        "whatsapp marketing",
+        "promotions",
+    ):
+        return "marketing_opt_in"
     return None
 
 
@@ -317,6 +332,8 @@ def _format_field_value(field: str, value: object, loc: Locale) -> str:
         return t("product.not_set", loc)
     if field == "credit_limit":
         return format_inr(value)  # type: ignore[arg-type]
+    if field == "marketing_opt_in":
+        return t("party.edit.opted_in", loc) if value else t("party.edit.opted_out", loc)
     return str(value)
 
 
@@ -340,6 +357,7 @@ def _current_value_prompt(party: Dealer | Supplier, field: str, loc: Locale) -> 
         "credit_limit": "party.edit.credit_limit_ask",
         "payment_terms": "party.edit.payment_terms_ask",
         "gst_number": "party.edit.gstin_ask",
+        "marketing_opt_in": "party.edit.marketing_ask",
     }[field]
     return t(key, loc, name=party.name, current=current)
 
@@ -347,13 +365,15 @@ def _current_value_prompt(party: Dealer | Supplier, field: str, loc: Locale) -> 
 def start_edit_dealer_workflow(company: Company) -> str:
     company.active_workflow = "edit_dealer"
     company.workflow_scratch = {"step": "awaiting_field"}
-    return t("party.edit.field_prompt", resolve_locale(company))
+    # Dealer-only field_prompt mentions marketing opt-in — the supplier
+    # variant doesn't, since Supplier has no marketing_opt_in column.
+    return t("party.edit.field_prompt_dealer", resolve_locale(company))
 
 
 def start_edit_supplier_workflow(company: Company) -> str:
     company.active_workflow = "edit_supplier"
     company.workflow_scratch = {"step": "awaiting_field"}
-    return t("party.edit.field_prompt", resolve_locale(company))
+    return t("party.edit.field_prompt_supplier", resolve_locale(company))
 
 
 async def _handle_edit_party_workflow_message(
@@ -375,9 +395,14 @@ async def _handle_edit_party_workflow_message(
     step = scratch.get("step")
 
     if step == "awaiting_field":
-        field = _classify_party_field(stripped)
+        field = _classify_party_field(stripped, party_type=party_type)
         if field is None:
-            return t("party.edit.field_invalid", loc)
+            key = (
+                "party.edit.field_invalid_dealer"
+                if party_type == "dealer"
+                else "party.edit.field_invalid_supplier"
+            )
+            return t(key, loc)
         scratch = {"step": "awaiting_name", "field": field}
         company.workflow_scratch = scratch
         key = (
@@ -472,6 +497,17 @@ async def _handle_edit_party_workflow_message(
                 return t("product.value_nonneg", loc)
             new_value_raw = str(days)
             new_value_display = str(days)
+        elif field == "marketing_opt_in":
+            if _is(stripped, "yes", "y", "opt in", "on"):
+                opt_in = True
+            elif _is(stripped, "no", "n", "opt out", "off"):
+                opt_in = False
+            else:
+                return t("party.edit.marketing_invalid", loc)
+            new_value_raw = "true" if opt_in else "false"
+            new_value_display = (
+                t("party.edit.opted_in", loc) if opt_in else t("party.edit.opted_out", loc)
+            )
         else:
             candidate_gstin = stripped.strip().upper()
             if not validate_gstin(candidate_gstin):
@@ -508,6 +544,8 @@ async def _handle_edit_party_workflow_message(
             setattr(party, attr, Decimal(new_value_raw))
         elif field == "payment_terms":
             setattr(party, attr, int(new_value_raw))
+        elif field == "marketing_opt_in":
+            setattr(party, attr, new_value_raw == "true")
         else:
             setattr(party, attr, new_value_raw)
         new_display = _format_field_value(field, getattr(party, attr), loc)

@@ -18,6 +18,7 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.dealer import Dealer
@@ -35,6 +36,7 @@ from app.services.agent.read_tools import (
     _list_top_creditors,
     _list_top_debtors,
 )
+from app.services.company_export import generate_export_link
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr, format_signed_inr
 from app.services.onboarding_flow import _format_quantity
@@ -46,7 +48,8 @@ from app.services.query_menu import (
     build_suppliers_report,
 )
 from app.services.sales_impact_parser import parse_sales_impact_query
-from app.services.snapshot import build_snapshot
+from app.services.snapshot import build_snapshot, business_now
+from app.services.trend_analytics import DealerTrend, ProductSalesTrend, build_trend_report
 
 # WhatsApp's text message body caps around 4096 characters — comfortably
 # fits this many lines with room for a header/footer, generous enough that
@@ -106,6 +109,151 @@ async def upcoming_collections_reply(db: AsyncSession, company: Company) -> str:
 async def upcoming_payments_reply(db: AsyncSession, company: Company) -> str:
     s = await build_snapshot(db, company.id)
     return build_suppliers_report(s)
+
+
+_TREND_TOP_N = 3
+
+
+def _pct_change_display(current: Decimal, prior: Decimal) -> str:
+    """Arrow + percentage — a symbol/number, not a translated word (same
+    "universal, not translated" treatment emoji get elsewhere in this
+    catalog), so it's safe to interpolate into any locale without a key.
+    """
+    if prior == 0:
+        return "↑ —%" if current > 0 else "→ 0%"
+    pct = (current - prior) / prior * 100
+    arrow = "↑" if pct > 0 else ("↓" if pct < 0 else "→")
+    return f"{arrow} {abs(pct):.0f}%"
+
+
+def _format_signed_qty(delta: Decimal) -> str:
+    text = _format_quantity(abs(delta))
+    return f"+{text}" if delta >= 0 else f"-{text}"
+
+
+def _top_movers(items: list, key) -> tuple[list, list]:
+    """Top N risers (largest positive delta) and top N fallers (largest
+    negative delta), each sorted so the biggest mover is first.
+    """
+    rising = sorted((i for i in items if key(i) > 0), key=key, reverse=True)[:_TREND_TOP_N]
+    falling = sorted((i for i in items if key(i) < 0), key=key)[:_TREND_TOP_N]
+    return rising, falling
+
+
+def _dealer_trend_line(d: DealerTrend, key: str, loc) -> str:
+    return t(
+        key,
+        loc,
+        name=d.dealer_name,
+        value_delta=format_signed_inr(d.value_delta),
+        outstanding_delta=format_signed_inr(d.outstanding_delta),
+    )
+
+
+def _product_trend_line(p: ProductSalesTrend, key: str, loc) -> str:
+    return t(
+        key,
+        loc,
+        name=p.product_name,
+        unit_delta=_format_signed_qty(p.units_delta),
+        revenue_delta=format_signed_inr(p.revenue_current - p.revenue_prior),
+    )
+
+
+async def trend_report_reply(db: AsyncSession, company: Company) -> str:
+    """"trend report"/"business trends" — a hybrid reply: a one-line
+    headline, the cash/dealer/product detail sections, then a link to the
+    full Business Trends workbook (every dealer/product, not just the top 3
+    each way shown here). See app/services/trend_analytics.py for the
+    underlying math and app/services/reports/trend.py for the workbook.
+    """
+    loc = resolve_locale(company)
+    today = business_now(company.timezone).date()
+    report = await build_trend_report(db, company.id, today)
+    cash = report.cash
+
+    dealers_slowing = sum(1 for d in report.dealers if d.value_delta < 0)
+    products_declining = sum(1 for p in report.products if p.units_delta < 0)
+    lines = [
+        t(
+            "reports.trend.headline",
+            loc,
+            collections_pct=_pct_change_display(cash.collections_current, cash.collections_prior),
+            payments_pct=_pct_change_display(cash.payments_current, cash.payments_prior),
+            net_delta=format_signed_inr(cash.net_cash_current - cash.net_cash_prior),
+            dealers_slowing=dealers_slowing,
+            products_declining=products_declining,
+        ),
+        "",
+        t("reports.trend.header", loc),
+        t(
+            "reports.trend.collections_line",
+            loc,
+            current=format_inr(cash.collections_current),
+            prior=format_inr(cash.collections_prior),
+        ),
+        t(
+            "reports.trend.payments_line",
+            loc,
+            current=format_inr(cash.payments_current),
+            prior=format_inr(cash.payments_prior),
+        ),
+        t(
+            "reports.trend.net_line",
+            loc,
+            current=format_signed_inr(cash.net_cash_current),
+            prior=format_signed_inr(cash.net_cash_prior),
+        ),
+        t(
+            "reports.trend.sales_line",
+            loc,
+            current=format_inr(cash.sales_current),
+            prior=format_inr(cash.sales_prior),
+        ),
+        "",
+        t("reports.trend.dealers_header", loc),
+    ]
+
+    dealers_rising, dealers_falling = _top_movers(report.dealers, lambda d: d.value_delta)
+    if not dealers_rising and not dealers_falling:
+        lines.append(t("reports.trend.dealers_none", loc))
+    else:
+        lines += [
+            _dealer_trend_line(d, "reports.trend.dealer_rising_line", loc) for d in dealers_rising
+        ]
+        lines += [
+            _dealer_trend_line(d, "reports.trend.dealer_falling_line", loc)
+            for d in dealers_falling
+        ]
+
+    lines += ["", t("reports.trend.products_header", loc)]
+    products_rising, products_falling = _top_movers(report.products, lambda p: p.units_delta)
+    if not products_rising and not products_falling:
+        lines.append(t("reports.trend.products_none", loc))
+    else:
+        lines += [
+            _product_trend_line(p, "reports.trend.product_rising_line", loc)
+            for p in products_rising
+        ]
+        lines += [
+            _product_trend_line(p, "reports.trend.product_falling_line", loc)
+            for p in products_falling
+        ]
+
+    settings = get_settings()
+    if settings.export_link_secret and settings.public_base_url:
+        link = generate_export_link(company, base_url=settings.public_base_url, report="trend")
+        lines += [
+            "",
+            t(
+                "reports.trend.full_detail_link",
+                loc,
+                link=link,
+                ttl=settings.export_link_ttl_minutes,
+            ),
+        ]
+
+    return "\n".join(lines)
 
 
 def _party_line(name: str, phone: str | None, outstanding: str, loc) -> str:

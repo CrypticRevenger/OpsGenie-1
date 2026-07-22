@@ -102,6 +102,25 @@ class Settings(BaseSettings):
         default="en_US", alias="INVOICE_DOCUMENT_TEMPLATE_LANGUAGE"
     )
 
+    # Marketing broadcast to dealers (see app/services/writes/broadcast.py). A
+    # dealer has typically never messaged first, so outside their own 24h
+    # session window this must be a Meta-approved marketing template, same
+    # reasoning/convention as invoice_document_template_name above. None
+    # until approved; unset means a broadcast to a dealer outside their 24h
+    # window is skipped (recorded failed_to_send) for that dealer, never
+    # blocking the rest of the send loop.
+    broadcast_template_name: str | None = Field(default=None, alias="BROADCAST_TEMPLATE_NAME")
+    broadcast_template_language: str = Field(
+        default="en_US", alias="BROADCAST_TEMPLATE_LANGUAGE"
+    )
+    # Pilot-scale cap on recipients per single broadcast send — the send loop
+    # is synchronous inside one webhook request (no background-task
+    # infrastructure exists in this codebase), so an unbounded loop risks a
+    # slow/timed-out request. Configurable rather than hardcoded so a
+    # distributor with a larger dealer network isn't blocked by a code
+    # constant.
+    max_broadcast_recipients: int = Field(default=50, alias="MAX_BROADCAST_RECIPIENTS")
+
     # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
     # every scheduler_poll_interval_minutes and, per company, acts when the
     # company's own business-local hour matches these targets. NotificationEngine

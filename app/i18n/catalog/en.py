@@ -81,6 +81,12 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • payment register (or receipt register) — receipts & payments this month
 • day book — every invoice and payment this month, in one list
 • outstanding report (or aging report) — 0-30/31-60/61-90/90+ day buckets, Excel + PDF
+• trend report (or business trends) — week-over-week cash, dealer & product trends, Excel
+
+*Marketing*
+• broadcast (or /broadcast) — send a message to opted-in dealers (all, overdue, or picked by name)
+• opt in all dealers — opt every dealer who hasn't opted out into broadcasts (confirm required)
+• edit dealer — reply 'marketing' to opt one dealer in or out
 
 *Quick Access*
 • menu — tap through your options instead of typing
@@ -213,6 +219,31 @@ MESSAGES: dict[str, str] = {
         "Your {report_name} ({period}) is ready.\nDownload (valid {ttl} min):\n{links}"
     ),
     "reports.ledger.not_found": "I couldn't find a dealer or supplier matching '{name}'.",
+    # ── Business Trends report ("trend report"/"business trends") ──────────
+    "reports.trend.headline": (
+        "📈 Collections {collections_pct}, Payments {payments_pct}, Net Cash {net_delta} · "
+        "{dealers_slowing} dealer(s) slowing · {products_declining} product(s) declining"
+    ),
+    "reports.trend.header": "Cash Trend (this week vs last week)",
+    "reports.trend.collections_line": "Collections: {current} (was {prior})",
+    "reports.trend.payments_line": "Supplier Payments: {current} (was {prior})",
+    "reports.trend.net_line": "Net Cash Movement: {current} (was {prior})",
+    "reports.trend.sales_line": "Sales (Invoiced): {current} (was {prior})",
+    "reports.trend.dealers_header": "Dealer Trend (last 30 days vs prior 30 days)",
+    "reports.trend.dealers_none": "Not enough dealer order activity yet to show a trend.",
+    "reports.trend.dealer_rising_line": (
+        "▲ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.dealer_falling_line": (
+        "▼ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.products_header": "Product Sales Trend (last 30 days vs prior 30 days)",
+    "reports.trend.products_none": "Not enough sales activity yet to show a product trend.",
+    "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.full_detail_link": (
+        "Every dealer & product (Excel, valid {ttl} min): {link}"
+    ),
     # ── Help text (single block; command keywords stay English triggers) ───
     "menu.help_text": _HELP_TEXT_EN,
     # ── Onboarding: guided business setup (shown after language is chosen) ──
@@ -601,6 +632,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "Every invoice & payment, one list",
     "menu.row.outstanding_report.title": "Outstanding Report",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ day buckets",
+    "menu.row.trend_report.title": "Business Trends",
+    "menu.row.trend_report.desc": "Week & month over month, dealers, products",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "Void the payment you just recorded",
     "menu.row.undo_order.title": "Undo Order",
@@ -860,6 +893,42 @@ MESSAGES: dict[str, str] = {
     "stock_take.failed": "Couldn't apply the stock take: {error}. Please start again.",
     "stock_take.result_line": "- {name}: {new}",
     "stock_take.success": "✅ Stock updated for {count} product(s):\n{lines}{warning}",
+    # ── Marketing broadcast (guided workflow) ───────────────────────────────
+    "broadcast.segment_ask": (
+        "Who should get this broadcast?\n1. All dealers\n2. Dealers with an overdue balance\n"
+        "3. Pick specific dealers by name\nReply 1, 2, or 3 — or 'cancel'."
+    ),
+    "broadcast.segment_invalid": "Please reply 1, 2, or 3 — or 'cancel'.",
+    "broadcast.segment.all": "all dealers",
+    "broadcast.segment.overdue": "dealers with an overdue balance",
+    "broadcast.segment.specific": "the dealers you picked",
+    "broadcast.dealer_names_ask": (
+        "Send the dealer name(s), one per line (or comma-separated), or 'cancel'."
+    ),
+    "broadcast.dealer_names_none_matched": (
+        "I couldn't match any of these to a dealer on file: {names}. Please try again, "
+        "or 'cancel'."
+    ),
+    "broadcast.dealer_names_unmatched": (
+        "\n(Couldn't match: {names} — check the spelling and edit them in separately if needed.)"
+    ),
+    "broadcast.message_ask": (
+        "This will reach {count} dealer(s) once opted in. What message should I send?"
+    ),
+    "broadcast.message_empty": "Please send a message to broadcast, or 'cancel'.",
+    "broadcast.no_opted_in": (
+        "None of {segment} have opted into marketing broadcasts yet. Ask them to opt in, "
+        "or use 'edit dealer' / 'opt in all dealers'."
+    ),
+    "broadcast.confirm_prompt": (
+        "Send this to {count} dealer(s)?{capped_note}\n\n\"{message}\"\n\n"
+        "Reply YES to send, NO to cancel."
+    ),
+    "broadcast.confirm_capped": " (capped at {cap} per broadcast)",
+    "broadcast.opt_in_all_none": "Every dealer is already opted in.",
+    "broadcast.opt_in_all_confirm": (
+        "Opt {count} dealer(s) into marketing broadcasts? Reply YES to confirm, NO to cancel."
+    ),
     # ── Party: add-dealer / add-supplier workflow (mode / done wording) ────
     "party.dealer.mode_prompt": (
         "Let's add dealers. Reply 'one by one' to add them individually, "
@@ -882,11 +951,19 @@ MESSAGES: dict[str, str] = {
     ),
     "party.supplier.mode_invalid": "Please reply 'one by one' or 'bulk' — or 'done' to stop.",
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
-    "party.edit.field_prompt": (
+    "party.edit.field_prompt_dealer": (
+        "What do you want to edit — phone, credit limit, payment terms, GSTIN, or marketing "
+        "opt-in? Reply 'phone', 'credit limit', 'payment terms', 'gstin', or 'marketing'."
+    ),
+    "party.edit.field_invalid_dealer": (
+        "Please reply 'phone', 'credit limit', 'payment terms', 'gstin', or 'marketing' — "
+        "or 'cancel'."
+    ),
+    "party.edit.field_prompt_supplier": (
         "What do you want to edit — phone, credit limit, payment terms, or GSTIN? "
         "Reply 'phone', 'credit limit', 'payment terms', or 'gstin'."
     ),
-    "party.edit.field_invalid": (
+    "party.edit.field_invalid_supplier": (
         "Please reply 'phone', 'credit limit', 'payment terms', or 'gstin' — or 'cancel'."
     ),
     "party.edit.name_ask_dealer": "Which dealer? Send their name, or 'cancel'.",
@@ -915,6 +992,13 @@ MESSAGES: dict[str, str] = {
         "in days? (e.g. 30)"
     ),
     "party.edit.gstin_ask": "{name}'s current GSTIN is {current}. What should the new GSTIN be?",
+    "party.edit.marketing_ask": (
+        "{name}'s marketing opt-in is currently {current}. Reply 'yes'/'opt in' or "
+        "'no'/'opt out'."
+    ),
+    "party.edit.marketing_invalid": "Please reply 'yes'/'opt in' or 'no'/'opt out', or 'cancel'.",
+    "party.edit.opted_in": "opted in",
+    "party.edit.opted_out": "opted out",
     "party.edit.days_invalid": "Please send a whole number of days, e.g. 30.",
     "party.edit.phone_invalid": (
         "That doesn't look like a valid phone number. Include the country code if it's not "
@@ -977,6 +1061,12 @@ MESSAGES: dict[str, str] = {
     "pending.edit_payment_success": (
         "✅ Payment on invoice {number}: {field} updated to {new} (was {old})."
     ),
+    "pending.broadcast_failed": "Couldn't send that broadcast: {error}. Please start again.",
+    "pending.broadcast_success": (
+        "✅ Broadcast sent to {sent} of {total} dealer(s) ({failed} failed)."
+    ),
+    "pending.opt_in_all_failed": "Couldn't opt dealers in: {error}. Please start again.",
+    "pending.opt_in_all_success": "✅ Opted {count} dealer(s) into marketing broadcasts.",
     "pending.unknown": "Something went wrong with that confirmation. Please start again.",
     # ── Numbered-menu prompt (shared: follow-up fallback, briefing footer) ──
     "menu.prompt": "Reply 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

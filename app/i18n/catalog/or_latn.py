@@ -80,6 +80,12 @@ _HELP_TEXT = """*OpsGenie Help*
 • payment register (kimba receipt register) — e mahara receipts o payments
 • day book — e mahara sabu invoice o payment, eka list re
 • outstanding report (kimba aging report) — 0-30/31-60/61-90/90+ dina bucket, Excel + PDF
+• trend report (kimba business trends) — saptaha-wise cash, dealer o product trends, Excel
+
+*Marketing*
+• broadcast (kimba /broadcast) — opted-in dealer manaku message (all, overdue, kimba nama re pick)
+• opt in all dealers — je opt-out kari nahanti, taku broadcast re opt in karantu (confirm darkar)
+• edit dealer — 'marketing' reply kari eka dealer ku opt in/opt out karantu
 
 *Quick Access*
 • menu — type karibaru option tap karantu
@@ -210,6 +216,29 @@ MESSAGES: dict[str, str] = {
         "Apanka {report_name} ({period}) taiyar.\nDownload ({ttl} min valid):\n{links}"
     ),
     "reports.ledger.not_found": "'{name}' saha milu thiba kono dealer kimba supplier milila nahin.",
+    # ── Business Trends report ────────────────────────────────────────────
+    "reports.trend.headline": (
+        "📈 Collections {collections_pct}, Payments {payments_pct}, Net Cash {net_delta} · "
+        "{dealers_slowing} dealer slow heuchhanti · {products_declining} product kami jauchhi"
+    ),
+    "reports.trend.header": "Cash Trend (e saptaha vs agara saptaha)",
+    "reports.trend.collections_line": "Collections: {current} (agaru {prior} thila)",
+    "reports.trend.payments_line": "Supplier Payments: {current} (agaru {prior} thila)",
+    "reports.trend.net_line": "Net Cash Movement: {current} (agaru {prior} thila)",
+    "reports.trend.sales_line": "Sales (Invoiced): {current} (agaru {prior} thila)",
+    "reports.trend.dealers_header": "Dealer Trend (agara 30 dina vs tara agara 30 dina)",
+    "reports.trend.dealers_none": "Ebe dealer order activity kami achhi, trend dekhauhi paribun.",
+    "reports.trend.dealer_rising_line": (
+        "▲ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.dealer_falling_line": (
+        "▼ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.products_header": "Product Sales Trend (agara 30 dina vs tara agara 30 dina)",
+    "reports.trend.products_none": "Ebe sales activity kami achhi, product trend dekhauhi paribun.",
+    "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.full_detail_link": "Prati dealer o product (Excel, {ttl} min valid): {link}",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -588,6 +617,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "E mahara sabu invoice o payment",
     "menu.row.outstanding_report.title": "Outstanding Report",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ dina bucket",
+    "menu.row.trend_report.title": "Business Trends",
+    "menu.row.trend_report.desc": "Saptaha o mahara wise, dealer, product",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "Ebe record kariba payment void karantu",
     "menu.row.undo_order.title": "Undo Order",
@@ -863,6 +894,44 @@ MESSAGES: dict[str, str] = {
     "stock_take.failed": "Stock take apply heli nahin: {error}. Daya kari puni arambha karantu.",
     "stock_take.result_line": "- {name}: {new}",
     "stock_take.success": "✅ {count} product(s) ra stock update hela:\n{lines}{warning}",
+    # ── Marketing broadcast (guided workflow) ───────────────────────────────
+    "broadcast.segment_ask": (
+        "E broadcast kaaku milibaku chahin?\n1. Saba dealer\n2. Overdue balance thiba dealer\n"
+        "3. Nama re specific dealer chunantu\nReply karantu 1, 2, kimba 3 — kimba 'cancel'."
+    ),
+    "broadcast.segment_invalid": "Daya kari reply karantu 1, 2, kimba 3 — kimba 'cancel'.",
+    "broadcast.segment.all": "saba dealer",
+    "broadcast.segment.overdue": "overdue balance thiba dealer",
+    "broadcast.segment.specific": "apana chuni thiba dealer",
+    "broadcast.dealer_names_ask": (
+        "Dealer nama pathantu, eka line re eka (kimba comma re alaga), kimba 'cancel'."
+    ),
+    "broadcast.dealer_names_none_matched": (
+        "Ei nama manankaru kono ta bhi file re thiba dealer sathe match hela nahin: {names}. "
+        "Daya kari puni cheshta karantu, kimba 'cancel'."
+    ),
+    "broadcast.dealer_names_unmatched": (
+        "\n(Match hela nahin: {names} — spelling check kari alaga re edit karantu darkar helei.)"
+    ),
+    "broadcast.message_ask": (
+        "Eha opt-in kari thiba {count} dealer(s) paryanta pahunchiba. Kana message pathiba?"
+    ),
+    "broadcast.message_empty": "Daya kari broadcast pain eka message pathantu, kimba 'cancel'.",
+    "broadcast.no_opted_in": (
+        "{segment} madhyaru kehi bhi ebe paryanta marketing broadcasts opt in kari nahanti. "
+        "Semananku opt in karibaku kahantu, kimba 'edit dealer' / 'opt in all dealers' use "
+        "karantu."
+    ),
+    "broadcast.confirm_prompt": (
+        "{count} dealer(s) ku eha pathantu?{capped_note}\n\n\"{message}\"\n\n"
+        "Reply karantu YES pathibaku, NO cancel karibaku."
+    ),
+    "broadcast.confirm_capped": " (prati broadcast re max {cap} paryanta)",
+    "broadcast.opt_in_all_none": "Pratyeka dealer age ru opt in achhanti.",
+    "broadcast.opt_in_all_confirm": (
+        "{count} dealer(s) ku marketing broadcasts re opt in karantu? Reply karantu YES "
+        "confirm karibaku, NO cancel karibaku."
+    ),
     "party.dealer.mode_prompt": (
         "Apanka dealers add karantu. Reply 'one by one' gotie gotie add karibaku, "
         "kimba 'bulk' sabu ekathi pathaibaku (jaise Ram Traders, 9876543210, 15). "
@@ -890,11 +959,20 @@ MESSAGES: dict[str, str] = {
         "Daya kari reply karantu 'one by one' kimba 'bulk' — kimba rahibaku 'done'."
     ),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
-    "party.edit.field_prompt": (
+    "party.edit.field_prompt_dealer": (
+        "Kana edit karibe — phone, credit limit, payment terms, GSTIN, kimba marketing "
+        "opt-in? Reply karantu 'phone', 'credit limit', 'payment terms', 'gstin', kimba "
+        "'marketing'."
+    ),
+    "party.edit.field_invalid_dealer": (
+        "Daya kari reply karantu 'phone', 'credit limit', 'payment terms', 'gstin', kimba "
+        "'marketing' — kimba 'cancel'."
+    ),
+    "party.edit.field_prompt_supplier": (
         "Kana edit karibe — phone, credit limit, payment terms, kimba GSTIN? "
         "Reply karantu 'phone', 'credit limit', 'payment terms', kimba 'gstin'."
     ),
-    "party.edit.field_invalid": (
+    "party.edit.field_invalid_supplier": (
         "Daya kari reply karantu 'phone', 'credit limit', 'payment terms', kimba 'gstin' — "
         "kimba 'cancel'."
     ),
@@ -921,6 +999,15 @@ MESSAGES: dict[str, str] = {
         "(jemiti 30)"
     ),
     "party.edit.gstin_ask": "{name} ra bartaman ra GSTIN {current}. Nua GSTIN kana heba?",
+    "party.edit.marketing_ask": (
+        "{name} ra marketing opt-in bartaman {current}. Reply karantu 'yes'/'opt in' kimba "
+        "'no'/'opt out'."
+    ),
+    "party.edit.marketing_invalid": (
+        "Daya kari reply karantu 'yes'/'opt in' kimba 'no'/'opt out', kimba 'cancel'."
+    ),
+    "party.edit.opted_in": "opted in",
+    "party.edit.opted_out": "opted out",
     "party.edit.days_invalid": "Daya kari dina ra eka purna sankhya pathantu, jemiti 30.",
     "party.edit.phone_invalid": (
         "Seha thik phone number pari lagunahin. Jadi Indian nahin, country code sameta "
@@ -998,6 +1085,16 @@ MESSAGES: dict[str, str] = {
     "pending.edit_payment_success": (
         "✅ Invoice {number} ra payment ra {field} {new} hela (purbaru {old} thila)."
     ),
+    "pending.broadcast_failed": (
+        "Se broadcast pathaa heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.broadcast_success": (
+        "✅ Broadcast {total} madhyaru {sent} dealer(s) ku pathagala ({failed} fail hela)."
+    ),
+    "pending.opt_in_all_failed": (
+        "Dealer manaku opt in karaa heli nahin: {error}. Daya kari puni arambha karantu."
+    ),
+    "pending.opt_in_all_success": "✅ {count} dealer(s) marketing broadcasts re opt in hela.",
     "pending.unknown": "Se confirmation re kichi bhul heigala. Daya kari puni arambha karantu.",
     # ── Menu prompt / follow-up / notifications / evening ──────────────────
     "menu.prompt": "Reply karantu 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",
