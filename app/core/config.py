@@ -121,6 +121,21 @@ class Settings(BaseSettings):
     # constant.
     max_broadcast_recipients: int = Field(default=50, alias="MAX_BROADCAST_RECIPIENTS")
 
+    # Dealer-direct overdue reminders (see
+    # app/services/notifications.py::check_dealer_overdue_alerts) — same
+    # "Meta-approved template outside the 24h session window" reasoning as
+    # broadcast_template_name above, since a dealer flagged overdue has
+    # typically never messaged the distributor's number first. None until
+    # approved; unset means the direct-to-dealer send is skipped (recorded
+    # failed_to_send) for a dealer outside their 24h window, never blocking
+    # the existing distributor-facing alert.
+    dealer_reminder_template_name: str | None = Field(
+        default=None, alias="DEALER_REMINDER_TEMPLATE_NAME"
+    )
+    dealer_reminder_template_language: str = Field(
+        default="en_US", alias="DEALER_REMINDER_TEMPLATE_LANGUAGE"
+    )
+
     # Phase 11 — APScheduler (see app/core/scheduler.py). One poll job ticks
     # every scheduler_poll_interval_minutes and, per company, acts when the
     # company's own business-local hour matches these targets. NotificationEngine

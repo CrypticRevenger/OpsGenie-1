@@ -26,7 +26,7 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • overdue / overdue dealers — days overdue & risk level (or reply 4 / /dealer_risk)
 • balance <name> — outstanding for one dealer, e.g. balance Ram Traders
 • add dealer (or /add_dealer) — add a new dealer: name, phone, credit days
-• edit dealer (or /edit_dealer) — update a dealer's phone, credit limit, payment terms, or GSTIN
+• edit dealer (or /edit_dealer) — update phone, credit limit, terms, GSTIN, or direct reminders
 
 *Suppliers (you owe them)*
 • suppliers / all suppliers — every supplier with phone & outstanding
@@ -967,12 +967,13 @@ MESSAGES: dict[str, str] = {
     "party.supplier.mode_invalid": "Please reply 'one by one' or 'bulk' — or 'done' to stop.",
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
     "party.edit.field_prompt_dealer": (
-        "What do you want to edit — phone, credit limit, payment terms, GSTIN, or marketing "
-        "opt-in? Reply 'phone', 'credit limit', 'payment terms', 'gstin', or 'marketing'."
+        "What do you want to edit — phone, credit limit, payment terms, GSTIN, marketing "
+        "opt-in, or direct reminders? Reply 'phone', 'credit limit', 'payment terms', 'gstin', "
+        "'marketing', or 'reminders'."
     ),
     "party.edit.field_invalid_dealer": (
-        "Please reply 'phone', 'credit limit', 'payment terms', 'gstin', or 'marketing' — "
-        "or 'cancel'."
+        "Please reply 'phone', 'credit limit', 'payment terms', 'gstin', 'marketing', or "
+        "'reminders' — or 'cancel'."
     ),
     "party.edit.field_prompt_supplier": (
         "What do you want to edit — phone, credit limit, payment terms, or GSTIN? "
@@ -1014,6 +1015,15 @@ MESSAGES: dict[str, str] = {
     "party.edit.marketing_invalid": "Please reply 'yes'/'opt in' or 'no'/'opt out', or 'cancel'.",
     "party.edit.opted_in": "opted in",
     "party.edit.opted_out": "opted out",
+    "party.edit.direct_reminders_ask": (
+        "{name}'s direct reminders are currently {current}. Reply 'yes'/'enable' or "
+        "'no'/'disable'."
+    ),
+    "party.edit.direct_reminders_invalid": (
+        "Please reply 'yes'/'enable' or 'no'/'disable', or 'cancel'."
+    ),
+    "party.edit.reminders_enabled": "enabled",
+    "party.edit.reminders_disabled": "disabled",
     "party.edit.days_invalid": "Please send a whole number of days, e.g. 30.",
     "party.edit.phone_invalid": (
         "That doesn't look like a valid phone number. Include the country code if it's not "
@@ -1158,6 +1168,15 @@ MESSAGES: dict[str, str] = {
         "{dealer} — {amount} — now {days} days overdue.\n"
         "No follow-up recorded in 3 days.\n"
         "Suggested: call today before placing new order."
+    ),
+    # Sent straight to the dealer's own WhatsApp (not the distributor) —
+    # only when that dealer has direct_reminders_enabled. Kept polite/plain,
+    # no interactive reply expected (a dealer's reply lands on the same
+    # webhook as any other unrecognized sender and is simply ignored — see
+    # Dealer.direct_reminders_enabled's docstring).
+    "notify.dealer_direct_reminder": (
+        "Hi {dealer}, this is a reminder from {business} — a payment of {amount} was due "
+        "{days} day(s) ago. Please arrange payment at your earliest convenience. Thank you!"
     ),
     # ── Proactive early-warning alerts (7-day forecasts) ────────────────────
     "notify.cash_shortage_forecast": (

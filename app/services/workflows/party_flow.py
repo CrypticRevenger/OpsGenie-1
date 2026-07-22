@@ -291,6 +291,7 @@ _FIELD_TO_ATTR = {
     "payment_terms": "payment_terms_days",
     "gst_number": "gst_number",
     "marketing_opt_in": "marketing_opt_in",
+    "direct_reminders_enabled": "direct_reminders_enabled",
 }
 _FIELD_DISPLAY = {
     "phone": "phone",
@@ -298,6 +299,19 @@ _FIELD_DISPLAY = {
     "payment_terms": "payment terms",
     "gst_number": "GSTIN",
     "marketing_opt_in": "marketing opt-in",
+    "direct_reminders_enabled": "direct reminders",
+}
+# Boolean-valued fields share the same yes/no parsing and a per-field
+# true/false i18n label pair — pulled into one lookup rather than repeating
+# near-identical branches per field, same reuse rationale as elsewhere in
+# this module (onboarding_flow's bulk-party-line parser, etc.).
+_BOOLEAN_FIELD_LABELS = {
+    "marketing_opt_in": ("party.edit.opted_in", "party.edit.opted_out"),
+    "direct_reminders_enabled": ("party.edit.reminders_enabled", "party.edit.reminders_disabled"),
+}
+_BOOLEAN_FIELD_INVALID_KEY = {
+    "marketing_opt_in": "party.edit.marketing_invalid",
+    "direct_reminders_enabled": "party.edit.direct_reminders_invalid",
 }
 
 
@@ -311,9 +325,10 @@ def _classify_party_field(text: str, *, party_type: str) -> str | None:
         return "payment_terms"
     if normalized in ("gstin", "gst", "gst number", "gst_number"):
         return "gst_number"
-    # Marketing consent only exists on Dealer (broadcast is dealer-facing) —
-    # a supplier has no such column, so this keyword must never resolve for
-    # party_type == "supplier".
+    # Marketing consent and direct reminders only exist on Dealer (broadcast
+    # and overdue reminders are both dealer-facing) — a supplier has neither
+    # column, so these keywords must never resolve for party_type ==
+    # "supplier".
     if party_type == "dealer" and normalized in (
         "marketing",
         "marketing opt in",
@@ -324,6 +339,15 @@ def _classify_party_field(text: str, *, party_type: str) -> str | None:
         "promotions",
     ):
         return "marketing_opt_in"
+    if party_type == "dealer" and normalized in (
+        "reminders",
+        "reminder",
+        "direct reminders",
+        "direct_reminders",
+        "dealer reminders",
+        "overdue reminders",
+    ):
+        return "direct_reminders_enabled"
     return None
 
 
@@ -332,8 +356,9 @@ def _format_field_value(field: str, value: object, loc: Locale) -> str:
         return t("product.not_set", loc)
     if field == "credit_limit":
         return format_inr(value)  # type: ignore[arg-type]
-    if field == "marketing_opt_in":
-        return t("party.edit.opted_in", loc) if value else t("party.edit.opted_out", loc)
+    if field in _BOOLEAN_FIELD_LABELS:
+        true_key, false_key = _BOOLEAN_FIELD_LABELS[field]
+        return t(true_key, loc) if value else t(false_key, loc)
     return str(value)
 
 
@@ -358,6 +383,7 @@ def _current_value_prompt(party: Dealer | Supplier, field: str, loc: Locale) -> 
         "payment_terms": "party.edit.payment_terms_ask",
         "gst_number": "party.edit.gstin_ask",
         "marketing_opt_in": "party.edit.marketing_ask",
+        "direct_reminders_enabled": "party.edit.direct_reminders_ask",
     }[field]
     return t(key, loc, name=party.name, current=current)
 
@@ -497,17 +523,16 @@ async def _handle_edit_party_workflow_message(
                 return t("product.value_nonneg", loc)
             new_value_raw = str(days)
             new_value_display = str(days)
-        elif field == "marketing_opt_in":
-            if _is(stripped, "yes", "y", "opt in", "on"):
-                opt_in = True
-            elif _is(stripped, "no", "n", "opt out", "off"):
-                opt_in = False
+        elif field in _BOOLEAN_FIELD_LABELS:
+            if _is(stripped, "yes", "y", "opt in", "on", "enable"):
+                flag = True
+            elif _is(stripped, "no", "n", "opt out", "off", "disable"):
+                flag = False
             else:
-                return t("party.edit.marketing_invalid", loc)
-            new_value_raw = "true" if opt_in else "false"
-            new_value_display = (
-                t("party.edit.opted_in", loc) if opt_in else t("party.edit.opted_out", loc)
-            )
+                return t(_BOOLEAN_FIELD_INVALID_KEY[field], loc)
+            new_value_raw = "true" if flag else "false"
+            true_key, false_key = _BOOLEAN_FIELD_LABELS[field]
+            new_value_display = t(true_key, loc) if flag else t(false_key, loc)
         else:
             candidate_gstin = stripped.strip().upper()
             if not validate_gstin(candidate_gstin):
@@ -544,7 +569,7 @@ async def _handle_edit_party_workflow_message(
             setattr(party, attr, Decimal(new_value_raw))
         elif field == "payment_terms":
             setattr(party, attr, int(new_value_raw))
-        elif field == "marketing_opt_in":
+        elif field in _BOOLEAN_FIELD_LABELS:
             setattr(party, attr, new_value_raw == "true")
         else:
             setattr(party, attr, new_value_raw)

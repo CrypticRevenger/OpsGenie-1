@@ -24,7 +24,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • overdue / overdue dealers — कितने दिन लेट और रिस्क लेवल (या 4 / /dealer_risk)
 • balance <name> — एक डीलर का बकाया, जैसे balance Ram Traders
 • add dealer (या /add_dealer) — नया dealer add करें: नाम, फ़ोन, credit दिन
-• edit dealer (या /edit_dealer) — dealer का phone, credit limit, terms, या GSTIN बदलें
+• edit dealer (या /edit_dealer) — phone, credit limit, terms, GSTIN, या direct reminders बदलें
 
 *सप्लायर (जिन्हें आप देते हैं)*
 • suppliers / all suppliers — हर सप्लायर फ़ोन और बकाया के साथ
@@ -886,12 +886,13 @@ MESSAGES: dict[str, str] = {
     "party.supplier.mode_invalid": ("कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।"),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
     "party.edit.field_prompt_dealer": (
-        "क्या edit करना है — phone, credit limit, payment terms, GSTIN, या marketing opt-in? "
-        "Reply करें 'phone', 'credit limit', 'payment terms', 'gstin', या 'marketing'।"
+        "क्या edit करना है — phone, credit limit, payment terms, GSTIN, marketing opt-in, या "
+        "direct reminders? Reply करें 'phone', 'credit limit', 'payment terms', 'gstin', "
+        "'marketing', या 'reminders'।"
     ),
     "party.edit.field_invalid_dealer": (
-        "कृपया reply करें 'phone', 'credit limit', 'payment terms', 'gstin', या 'marketing' "
-        "— या 'cancel'।"
+        "कृपया reply करें 'phone', 'credit limit', 'payment terms', 'gstin', 'marketing', या "
+        "'reminders' — या 'cancel'।"
     ),
     "party.edit.field_prompt_supplier": (
         "क्या edit करना है — phone, credit limit, payment terms, या GSTIN? "
@@ -926,6 +927,15 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.opted_in": "opted in",
     "party.edit.opted_out": "opted out",
+    "party.edit.direct_reminders_ask": (
+        "{name} के direct reminders अभी {current} हैं। Reply करें 'yes'/'enable' या "
+        "'no'/'disable'।"
+    ),
+    "party.edit.direct_reminders_invalid": (
+        "कृपया reply करें 'yes'/'enable' या 'no'/'disable', या 'cancel'।"
+    ),
+    "party.edit.reminders_enabled": "enabled",
+    "party.edit.reminders_disabled": "disabled",
     "party.edit.days_invalid": "कृपया दिनों की एक पूरी संख्या भेजें, जैसे 30।",
     "party.edit.phone_invalid": (
         "वह सही phone number नहीं लगता। अगर Indian नहीं है तो country code शामिल करें, जैसे "
@@ -1070,6 +1080,10 @@ MESSAGES: dict[str, str] = {
         "{dealer} — {amount} — अब {days} दिन overdue।\n"
         "3 दिन से कोई follow-up नहीं।\n"
         "Suggestion: नया order देने से पहले आज call करें।"
+    ),
+    "notify.dealer_direct_reminder": (
+        "नमस्ते {dealer}, यह {business} की ओर से एक याद दिलाना है — {amount} का payment "
+        "{days} दिन पहले due था। कृपया जल्द से जल्द payment करें। धन्यवाद!"
     ),
     # ── Proactive early-warning alerts (7-day forecasts) — DRAFT for founder review ─
     "notify.cash_shortage_forecast": (

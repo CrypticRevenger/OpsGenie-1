@@ -99,6 +99,13 @@ class OverdueDealer:
     late_payment_count_6mo: int
     risk_level: str  # "High" | "Medium" | "Low" — thresholds match RecommendationEngine's
     credit_limit: Decimal | None  # RecommendationEngine's "call_dealer" threshold
+    # Both default so existing hand-built OverdueDealer(...) test fixtures
+    # (which predate the dealer-direct-reminder feature) keep working
+    # unchanged. Carried here rather than re-queried by the notification rule
+    # that consumes them (check_dealer_overdue_alerts) — Snapshot already
+    # joins Dealer for name/credit_limit, so this is free.
+    dealer_phone: str | None = None
+    direct_reminders_enabled: bool = False
 
 
 @dataclass
@@ -322,7 +329,14 @@ async def _overdue_dealers(
     db: AsyncSession, company_id: uuid.UUID, today: date
 ) -> list[OverdueDealer]:
     stmt = (
-        select(Invoice.dealer_id, Dealer.name, Dealer.credit_limit, Invoice.due_date)
+        select(
+            Invoice.dealer_id,
+            Dealer.name,
+            Dealer.credit_limit,
+            Dealer.phone,
+            Dealer.direct_reminders_enabled,
+            Invoice.due_date,
+        )
         .join(Dealer, Invoice.dealer_id == Dealer.id)
         .where(
             Invoice.company_id == company_id,
@@ -338,9 +352,13 @@ async def _overdue_dealers(
     oldest_due_date_by_dealer: dict[uuid.UUID, date] = {}
     name_by_dealer: dict[uuid.UUID, str] = {}
     credit_limit_by_dealer: dict[uuid.UUID, Decimal | None] = {}
-    for dealer_id, dealer_name, credit_limit, due_date in rows:
+    phone_by_dealer: dict[uuid.UUID, str | None] = {}
+    direct_reminders_by_dealer: dict[uuid.UUID, bool] = {}
+    for dealer_id, dealer_name, credit_limit, phone, direct_reminders_enabled, due_date in rows:
         name_by_dealer[dealer_id] = dealer_name
         credit_limit_by_dealer[dealer_id] = credit_limit
+        phone_by_dealer[dealer_id] = phone
+        direct_reminders_by_dealer[dealer_id] = direct_reminders_enabled
         current_oldest = oldest_due_date_by_dealer.get(dealer_id)
         if current_oldest is None or due_date < current_oldest:
             oldest_due_date_by_dealer[dealer_id] = due_date
@@ -362,6 +380,8 @@ async def _overdue_dealers(
                 late_payment_count_6mo=late_counts.get(dealer_id, 0),
                 risk_level=_risk_level(days_overdue),
                 credit_limit=credit_limit_by_dealer[dealer_id],
+                dealer_phone=phone_by_dealer[dealer_id],
+                direct_reminders_enabled=direct_reminders_by_dealer[dealer_id],
             )
         )
     result.sort(key=lambda d: d.outstanding, reverse=True)

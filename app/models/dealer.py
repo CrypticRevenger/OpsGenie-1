@@ -46,6 +46,13 @@ class Dealer(UUIDMixin, TimestampMixin, Base):
     # via the edit-dealer flow or the founder's "opt in all dealers" bulk
     # command, never automatically.
     marketing_opt_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Direct overdue-reminder consent (see
+    # app/services/notifications.py::check_dealer_overdue_alerts) — the
+    # distributor's per-dealer opt-in to also reminding this dealer directly
+    # on their own WhatsApp, not only the distributor. Defaults False, same
+    # opt-in-not-opt-out precedent as marketing_opt_in above; toggled via the
+    # edit-dealer flow, never automatically.
+    direct_reminders_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # ── Relationships ────────────────────────────────────────────────────────
     company: Mapped[Company] = relationship("Company", back_populates="dealers")

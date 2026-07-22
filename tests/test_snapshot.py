@@ -51,9 +51,20 @@ async def _make_company(db: AsyncSession, opening_balance: Decimal = Decimal("0.
 
 
 async def _make_dealer(
-    db: AsyncSession, company_id: uuid.UUID, name: str, credit_limit=None
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    name: str,
+    credit_limit=None,
+    phone: str | None = None,
+    direct_reminders_enabled: bool = False,
 ) -> uuid.UUID:
-    dealer = Dealer(company_id=company_id, name=name, credit_limit=credit_limit)
+    dealer = Dealer(
+        company_id=company_id,
+        name=name,
+        credit_limit=credit_limit,
+        phone=phone,
+        direct_reminders_enabled=direct_reminders_enabled,
+    )
     db.add(dealer)
     await db.commit()
     await db.refresh(dealer)
@@ -337,6 +348,35 @@ async def test_overdue_dealer_days_overdue_uses_oldest_unpaid_invoice(db: AsyncS
     assert overdue.outstanding == Decimal("15000.00")
     assert overdue.risk_level == "High"
     assert overdue.credit_limit == Decimal("1000.00")
+
+
+@pytest.mark.asyncio
+async def test_overdue_dealer_carries_phone_and_direct_reminders_consent(
+    db: AsyncSession,
+) -> None:
+    """check_dealer_overdue_alerts (app/services/notifications.py) reads
+    dealer_phone/direct_reminders_enabled straight off OverdueDealer rather
+    than re-querying Dealer — this proves _overdue_dealers actually
+    populates both from the real row.
+    """
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(
+        db, company_id, "Dealer F", phone="+919876500001", direct_reminders_enabled=True
+    )
+    await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-OD-CONSENT",
+        direction=InvoiceDirection.receivable,
+        dealer_id=dealer_id,
+        total_amount=Decimal("7000.00"),
+        due_date=TODAY - timedelta(days=10),
+    )
+
+    snapshot = await build_snapshot(db, company_id)
+    overdue = next(d for d in snapshot.overdue_dealers if d.dealer_name == "Dealer F")
+    assert overdue.dealer_phone == "+919876500001"
+    assert overdue.direct_reminders_enabled is True
 
 
 @pytest.mark.asyncio

@@ -25,7 +25,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • overdue / overdue dealers — kete dina late & risk level (kimba 4 / /dealer_risk)
 • balance <name> — gotie dealer ra baki, jaise balance Ram Traders
 • add dealer (kimba /add_dealer) — natun dealer add karantu: naam, phone, credit dina
-• edit dealer (kimba /edit_dealer) — dealer ra phone, credit limit, terms, kimba GSTIN badalantu
+• edit dealer (kimba /edit_dealer) — phone, credit limit, terms, GSTIN, kimba reminders badalantu
 
 *Suppliers (jieman ku apana denti)*
 • suppliers / all suppliers — pratyeka supplier phone & baki saha
@@ -977,13 +977,13 @@ MESSAGES: dict[str, str] = {
     ),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
     "party.edit.field_prompt_dealer": (
-        "Kana edit karibe — phone, credit limit, payment terms, GSTIN, kimba marketing "
-        "opt-in? Reply karantu 'phone', 'credit limit', 'payment terms', 'gstin', kimba "
-        "'marketing'."
+        "Kana edit karibe — phone, credit limit, payment terms, GSTIN, marketing opt-in, "
+        "kimba direct reminders? Reply karantu 'phone', 'credit limit', 'payment terms', "
+        "'gstin', 'marketing', kimba 'reminders'."
     ),
     "party.edit.field_invalid_dealer": (
-        "Daya kari reply karantu 'phone', 'credit limit', 'payment terms', 'gstin', kimba "
-        "'marketing' — kimba 'cancel'."
+        "Daya kari reply karantu 'phone', 'credit limit', 'payment terms', 'gstin', "
+        "'marketing', kimba 'reminders' — kimba 'cancel'."
     ),
     "party.edit.field_prompt_supplier": (
         "Kana edit karibe — phone, credit limit, payment terms, kimba GSTIN? "
@@ -1025,6 +1025,15 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.opted_in": "opted in",
     "party.edit.opted_out": "opted out",
+    "party.edit.direct_reminders_ask": (
+        "{name} ra direct reminders bartaman {current}. Reply karantu 'yes'/'enable' kimba "
+        "'no'/'disable'."
+    ),
+    "party.edit.direct_reminders_invalid": (
+        "Daya kari reply karantu 'yes'/'enable' kimba 'no'/'disable', kimba 'cancel'."
+    ),
+    "party.edit.reminders_enabled": "enabled",
+    "party.edit.reminders_disabled": "disabled",
     "party.edit.days_invalid": "Daya kari dina ra eka purna sankhya pathantu, jemiti 30.",
     "party.edit.phone_invalid": (
         "Seha thik phone number pari lagunahin. Jadi Indian nahin, country code sameta "
@@ -1194,6 +1203,10 @@ MESSAGES: dict[str, str] = {
         "{dealer} — {amount} — ebe {days} dina overdue.\n"
         "3 dina ru kono follow-up nahin.\n"
         "Suggestion: natun order dei aage aji call karantu."
+    ),
+    "notify.dealer_direct_reminder": (
+        "Hi {dealer}, eha {business} tarafaru eka yaad karai deba — {amount} ra payment "
+        "{days} dina agaru due thila. Daya kari jaldi payment karantu. Dhanyabad!"
     ),
     # ── Proactive early-warning alerts (7-day forecasts) — DRAFT for founder review ─
     "notify.cash_shortage_forecast": (

@@ -62,9 +62,11 @@ from app.services.stock_forecast import StockOutForecast, build_stock_out_foreca
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
+    send_template_message,
     send_text_message,
 )
 from app.services.workflows.payment_reminder_confirm import start_reminder_confirm
+from app.services.writes.broadcast import SESSION_WINDOW_HOURS, recently_messaged
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +79,16 @@ _STALE_DATA_HOURS = 24
 
 _STALE_DATA_REASON = "stale_data"
 _BRIEFING_FAILED_REASON = "briefing_failed"
+
+# Dealer-direct overdue reminder (see check_dealer_overdue_alerts) — a
+# separate NotificationLog notification_type from "dealer_overdue_alert"
+# above since that one goes to the distributor's own number and this one
+# goes straight to the dealer. Deliberately not one of the two types
+# instant_reports.delivery_status_reply surfaces: like
+# supplier_payment_reminder/dealer_overdue_alert, this is an automated
+# background nudge the distributor only ever enabled (once, per dealer),
+# never a message they personally triggered.
+_DEALER_DIRECT_REMINDER_TYPE = "dealer_direct_reminder"
 
 # Cap how many company names are itemised in a single founder digest so the
 # WhatsApp message stays readable; any beyond this are summarised as a count.
@@ -321,6 +333,47 @@ async def check_supplier_payment_reminders(
 # ── Rule 2: dealer High Risk, no follow-up in 3 days ────────────────────────
 
 
+async def _send_dealer_direct_reminder(
+    db: AsyncSession, company: Company, dealer_phone: str, message: str
+) -> bool:
+    """Proactively message a dealer's own WhatsApp — same free-form-vs-
+    template branch as app/services/writes/broadcast.py's send loop (a
+    dealer flagged overdue has typically never messaged the distributor's
+    number first, so outside their own 24h session window this needs a
+    Meta-approved template), reused rather than duplicated. Never raises —
+    same fail-open contract as _send_and_log.
+    """
+    settings = get_settings()
+    since = datetime.now(UTC) - timedelta(hours=SESSION_WINDOW_HOURS)
+    send_result = None
+    try:
+        if await recently_messaged(db, company.id, dealer_phone, since):
+            send_result = await send_text_message(dealer_phone, message)
+        elif not settings.dealer_reminder_template_name:
+            raise WhatsAppNotConfiguredError("DEALER_REMINDER_TEMPLATE_NAME not configured")
+        else:
+            send_result = await send_template_message(
+                dealer_phone,
+                settings.dealer_reminder_template_name,
+                settings.dealer_reminder_template_language,
+                body_params=[message],
+            )
+    except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
+        logger.warning("Dealer direct reminder to %s not sent: %s", dealer_phone, exc)
+
+    db.add(
+        NotificationLog(
+            company_id=company.id,
+            notification_type=_DEALER_DIRECT_REMINDER_TYPE,
+            recipient_whatsapp=dealer_phone,
+            message_text=message,
+            whatsapp_message_id=send_result.message_id if send_result else None,
+            delivery_status="sent" if send_result else "failed_to_send",
+        )
+    )
+    return send_result is not None
+
+
 async def check_dealer_overdue_alerts(
     db: AsyncSession, company: Company, snapshot: Snapshot, now: datetime
 ) -> int:
@@ -355,6 +408,27 @@ async def check_dealer_overdue_alerts(
             notification_type="dealer_overdue_alert",
             message=message,
         )
+
+        # Direct-to-dealer reminder — only when the distributor has
+        # explicitly consented to this dealer (see Dealer.direct_reminders_
+        # enabled's docstring) and a phone is actually on file. Shares this
+        # same dedup window/gate as the founder-facing alert above rather
+        # than tracking its own — both are triggered by the exact same
+        # "still overdue, no recent contact" fact about this one dealer.
+        dealer_reminder_sent = False
+        if dealer.direct_reminders_enabled and dealer.dealer_phone:
+            dealer_message = t(
+                "notify.dealer_direct_reminder",
+                resolve_locale(company),
+                dealer=dealer.dealer_name,
+                business=company.business_name,
+                amount=format_inr(dealer.outstanding),
+                days=dealer.days_overdue,
+            )
+            dealer_reminder_sent = await _send_dealer_direct_reminder(
+                db, company, dealer.dealer_phone, dealer_message
+            )
+
         db.add(
             ActivityTimeline(
                 company_id=company.id,
@@ -376,6 +450,7 @@ async def check_dealer_overdue_alerts(
                     "dealer_name": dealer.dealer_name,
                     "outstanding": str(dealer.outstanding),
                     "days_overdue": dealer.days_overdue,
+                    "dealer_direct_reminder_sent": dealer_reminder_sent,
                 },
                 created_by="notification_engine",
             )
