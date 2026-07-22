@@ -280,6 +280,9 @@ async def run_payment_import(
 
     for row_number, raw_row in enumerate(rows, start=1):
         try:
+            pdf_parse_error = raw_row.get("_pdf_parse_error", "").strip()
+            if pdf_parse_error:
+                raise ValueError(pdf_parse_error)
             normalised_row = row_by_normalised_header(raw_row, headers)
             canonical = PaymentImporter.normalise_row(normalised_row, header_map)
 

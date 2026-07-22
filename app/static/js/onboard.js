@@ -214,7 +214,12 @@
     const receivableFile = form.elements["import_receivable_file"].files[0];
     const payableFile = form.elements["import_payable_file"].files[0];
     const productFile = form.elements["import_product_file"].files[0];
-    if (!receivableFile && !payableFile && !productFile) {
+    const receivablePaymentsFile = form.elements["import_receivable_payments_file"].files[0];
+    const payablePaymentsFile = form.elements["import_payable_payments_file"].files[0];
+    if (
+      !receivableFile && !payableFile && !productFile &&
+      !receivablePaymentsFile && !payablePaymentsFile
+    ) {
       showStep(5);
       return;
     }
@@ -235,6 +240,16 @@
       }
       if (productFile) {
         lastResponse = await uploadImportFile("products", null, productFile);
+        rowProblems.push(...lastResponse.import_result.errors);
+      }
+      // Payments FIFO-allocate against already-imported open invoices, so
+      // they're uploaded last — after the invoices above have landed.
+      if (receivablePaymentsFile) {
+        lastResponse = await uploadImportFile("payments", "receivable", receivablePaymentsFile);
+        rowProblems.push(...lastResponse.import_result.errors);
+      }
+      if (payablePaymentsFile) {
+        lastResponse = await uploadImportFile("payments", "payable", payablePaymentsFile);
         rowProblems.push(...lastResponse.import_result.errors);
       }
       renderImportSummary(lastResponse.summary, rowProblems);

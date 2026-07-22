@@ -464,7 +464,7 @@ This document was last written at Phase 2 and hasn't tracked every endpoint adde
 
 | Item | Status |
 |------|--------|
-| `POST /admin/companies/{id}/import` | Done — Phase 3, CSV/Excel import |
+| `POST /admin/companies/{id}/import` | Done — Phase 3, CSV/Excel import; PDF (Tally voucher/invoice printouts) added later |
 | `GET /admin/companies/{id}/invoices`, `.../payments` | Done — Phase 4, invoice/payment read APIs |
 | `GET /admin/companies/{id}/cashflow` | Done — Phase 5A, cashflow engine |
 | `POST`/`GET /admin/companies/{id}/briefing` | Done — Phase 5B, LLM-narrated morning briefing |

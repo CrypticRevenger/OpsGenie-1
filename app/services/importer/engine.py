@@ -53,6 +53,10 @@ from app.services.importer.normalizer import (
     row_by_normalised_header,
 )
 from app.services.importer.parties import find_or_create_party
+from app.services.importer.pdf_extractor import (
+    extract_invoice_rows_from_pdf,
+    extract_payment_rows_from_pdf,
+)
 from app.services.importer.result import ImportResult
 
 logger = logging.getLogger(__name__)
@@ -201,17 +205,39 @@ def _stringify_cell(value: object) -> str:
     return str(value)
 
 
-def parse_file(contents: bytes, filename: str) -> tuple[list[str], list[dict[str, str]]]:
-    """Parse a CSV or Excel file into (headers, rows), keyed by the *original* header text.
+def parse_file(
+    contents: bytes,
+    filename: str,
+    *,
+    file_kind: FileKind = "invoices",
+    direction: Direction | None = None,
+) -> tuple[list[str], list[dict[str, str]]]:
+    """Parse a CSV, Excel, or PDF file into (headers, rows), keyed by the
+    *original* header text (for PDF, the canonical column names themselves —
+    see pdf_extractor.py).
 
     Cell values are stringified so downstream parsing (``normalizer.parse_date`` /
     ``parse_amount``) always receives text, regardless of source format.
 
-    Raises UnsupportedFileError for anything that isn't a well-formed .csv/.xlsx
-    (wrong extension, undecodable bytes, corrupt workbook) — callers should
-    treat this as a clean whole-file rejection, not a crash.
+    ``file_kind``/``direction`` only matter for PDF (which content-type and
+    party-side to extract); CSV/Excel parsing is unaffected and ignores them.
+
+    Raises UnsupportedFileError for anything that isn't a well-formed
+    .csv/.xlsx/.pdf (wrong extension, undecodable bytes, corrupt workbook) —
+    callers should treat this as a clean whole-file rejection, not a crash.
     """
     lower = filename.lower()
+    if lower.endswith(".pdf"):
+        if file_kind == "products":
+            raise UnsupportedFileError(
+                "PDF import isn't supported yet for product/stock catalogues — "
+                "please upload a .csv or .xlsx file."
+            )
+        if file_kind == "payments":
+            return extract_payment_rows_from_pdf(contents, filename)
+        if direction is None:
+            raise UnsupportedFileError("direction is required for a PDF invoice import.")
+        return extract_invoice_rows_from_pdf(contents, filename, direction)
     if lower.endswith(".csv"):
         try:
             text = contents.decode("utf-8-sig")
@@ -250,7 +276,9 @@ def parse_file(contents: bytes, filename: str) -> tuple[list[str], list[dict[str
             }
             rows.append(row)
         return headers, rows
-    raise UnsupportedFileError(f"Unsupported file type: {filename!r}. Expected .csv or .xlsx.")
+    raise UnsupportedFileError(
+        f"Unsupported file type: {filename!r}. Expected .csv, .xlsx, or .pdf."
+    )
 
 
 def _resolve_due_date(
@@ -470,10 +498,16 @@ async def run_import(
     payable) but ignored for "products" — products have no direction, so
     callers importing a product/stock file pass None.
     """
-    source_format = "csv" if filename.lower().endswith(".csv") else "excel"
+    lower_filename = filename.lower()
+    if lower_filename.endswith(".csv"):
+        source_format = "csv"
+    elif lower_filename.endswith(".pdf"):
+        source_format = "pdf"
+    else:
+        source_format = "excel"
     result = ImportResult(filename=filename, source_format=source_format)
 
-    headers, rows = parse_file(contents, filename)
+    headers, rows = parse_file(contents, filename, file_kind=file_kind, direction=direction)
 
     if file_kind == "products":
         from app.services.importer.product_row import run_product_import
@@ -516,6 +550,9 @@ async def run_import(
     for row_number, raw_row in enumerate(rows, start=1):
         try:
             async with db.begin_nested():
+                pdf_parse_error = raw_row.get("_pdf_parse_error", "").strip()
+                if pdf_parse_error:
+                    raise ValueError(pdf_parse_error)
                 normalised_row = row_by_normalised_header(raw_row, headers)
                 canonical = importer_cls.normalise_row(normalised_row, header_map)
                 voucher_reference = (

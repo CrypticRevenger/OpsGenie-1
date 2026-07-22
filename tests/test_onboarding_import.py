@@ -193,6 +193,71 @@ async def test_import_disabled_returns_503(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_import_payments_allocates_against_earlier_invoice(client: AsyncClient) -> None:
+    """file_kind=payments wasn't reachable through the onboarding wizard before
+    PDF support landed (the endpoint's file_kind Literal only allowed
+    invoices/products) — now it is, same as the admin route."""
+    company_id = await _register_company(client)
+
+    await client.post(
+        f"/onboard/{company_id}/import",
+        params={"direction": "receivable"},
+        files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
+    )
+
+    payments_csv = b"party_name,payment_date,amount\nRam Traders,2026-01-10,5000.00\n"
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"file_kind": "payments", "direction": "receivable"},
+        files={"file": ("receipts.csv", payments_csv, "text/csv")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["import_result"]["rows_succeeded"] == 1
+    summary = data["summary"]
+    # Ram Traders' INV-100 (5000.00) is now fully paid — receivable drops to
+    # just Shree Enterprises' outstanding INV-101 (3000.00).
+    assert summary["receivable_total"] == "3000.00"
+
+
+@pytest.mark.asyncio
+async def test_import_pdf_invoice_updates_summary(client: AsyncClient) -> None:
+    """The wizard's Dealer/Supplier invoices fields now also accept a Tally-
+    style PDF (voucher/invoice printouts), not just .csv/.xlsx."""
+    from fpdf import FPDF
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=11)
+    for line in [
+        "Bill of Supply",
+        "ACME AGRI SUPPLIES Invoice No. Dated",
+        "1 Market Road, 785 23-Jan-26",
+        "Sometown-560001",
+        "Buyer (Bill to)",
+        "M/s.Test Dealer Co Dispatched through Destination",
+        "Cuttack, Odisha",
+        "Total (cid:299) 23,992.00",
+    ]:
+        pdf.cell(0, 6, text=line, new_x="LMARGIN", new_y="NEXT")
+    contents = bytes(pdf.output())
+
+    company_id = await _register_company(client)
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"direction": "receivable"},
+        files={"file": ("sale_register.pdf", contents, "application/pdf")},
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["import_result"]["rows_succeeded"] == 1
+    assert data["import_result"]["source_format"] == "pdf"
+    summary = data["summary"]
+    assert summary["dealer_count"] == 1
+    assert summary["receivable_total"] == "23992.00"
+
+
+@pytest.mark.asyncio
 async def test_import_products_updates_summary(client: AsyncClient) -> None:
     company_id = await _register_company(client)
 
