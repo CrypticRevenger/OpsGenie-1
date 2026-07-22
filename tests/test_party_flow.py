@@ -476,6 +476,65 @@ async def test_edit_dealer_gstin_accepts_valid_and_rejects_invalid(db: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_edit_dealer_marketing_opt_in_round_trip(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders", marketing_opt_in=False)
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "marketing")
+    reply = await _send_edit_dealer(db, company, "Ram Traders")
+    assert "opted out" in reply.lower()
+    await _send_edit_dealer(db, company, "opt in")
+    reply = await _send_edit_dealer(db, company, "skip")
+    await db.commit()
+
+    assert "✅" in reply
+    assert "opted in" in reply.lower()
+    await db.refresh(dealer)
+    assert dealer.marketing_opt_in is True
+
+    event = await db.scalar(
+        select(BusinessEvent).where(BusinessEvent.event_type == BusinessEventType.party_edited)
+    )
+    assert event is not None
+    assert event.payload["field"] == "marketing_opt_in"
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_marketing_opt_in_rejects_invalid_value(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "marketing")
+    await _send_edit_dealer(db, company, "Ram Traders")
+    reply = await _send_edit_dealer(db, company, "maybe")
+    assert "yes" in reply.lower() and "no" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_value"
+
+
+@pytest.mark.asyncio
+async def test_edit_supplier_rejects_marketing_field(db: AsyncSession) -> None:
+    """Marketing consent only exists on Dealer — a supplier edit must never
+    resolve the 'marketing' keyword to a field, proving the dealer-only
+    guard in _classify_party_field actually works.
+    """
+    company = await _fresh_company(db)
+    supplier = Supplier(company_id=company.id, name="Metro Distributors")
+    db.add(supplier)
+    await db.commit()
+
+    start_edit_supplier_workflow(company)
+    reply = await _send_edit_supplier(db, company, "marketing")
+    assert company.workflow_scratch["step"] == "awaiting_field"  # never advanced
+    assert "phone" in reply.lower()  # re-shown the valid-field list
+
+
+@pytest.mark.asyncio
 async def test_edit_supplier_payment_terms_full_round_trip(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     supplier = Supplier(company_id=company.id, name="Metro Distributors", payment_terms_days=15)

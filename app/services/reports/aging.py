@@ -1,10 +1,12 @@
 """Outstanding (aging) report — every open invoice bucketed by days overdue
 (Not Due / 0-30 / 31-60 / 61-90 / 90+), grouped per party, the standard
 Tally-style aging matrix. A snapshot as of a given date, not a from/to
-period — there is no historical point-in-time outstanding calculation in
-this codebase (per party_outstanding.py, outstanding is always computed
-fresh from current invoices+payments), so `as_of` is always effectively
-"now" in practice.
+period. Uses party_outstanding.py's current-status-based
+calculate_outstanding_for_company* (Invoice.status.in_(OPEN_STATUSES)), not
+its date-bounded calculate_outstanding_for_company_as_of sibling (added for
+trend_analytics.py's week/month-over-month comparisons) — an aging bucket is
+inherently about invoices open *right now*, so `as_of` is always effectively
+"now" in practice here regardless of which helper is used.
 """
 
 from __future__ import annotations

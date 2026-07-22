@@ -79,6 +79,12 @@ _HELP_TEXT = """*OpsGenie Help*
 • payment register (या receipt register) — इस महीने की receipts & payments
 • day book — इस महीने के सभी invoice और payment, एक ही लिस्ट में
 • outstanding report (या aging report) — 0-30/31-60/61-90/90+ दिन के buckets, Excel + PDF
+• trend report (या business trends) — हफ्ता-वाइज़ cash, डीलर और प्रोडक्ट trends, Excel
+
+*Marketing*
+• broadcast (या /broadcast) — opted-in डीलरों को message भेजें (all, overdue, या नाम से pick)
+• opt in all dealers — जिन्होंने opt-out नहीं किया उन्हें broadcast में opt in करें (confirm ज़रूरी)
+• edit dealer — 'marketing' reply करके एक डीलर को opt in/opt out करें
 
 *Quick Access*
 • menu — टाइप करने की जगह options tap करें
@@ -203,6 +209,29 @@ MESSAGES: dict[str, str] = {
         "आपका {report_name} ({period}) तैयार है।\nDownload ({ttl} min valid):\n{links}"
     ),
     "reports.ledger.not_found": "'{name}' से मिलता कोई डीलर या सप्लायर नहीं मिला।",
+    # ── Business Trends report ────────────────────────────────────────────
+    "reports.trend.headline": (
+        "📈 Collections {collections_pct}, Payments {payments_pct}, Net Cash {net_delta} · "
+        "{dealers_slowing} डीलर धीमे पड़ रहे हैं · {products_declining} प्रोडक्ट गिर रहे हैं"
+    ),
+    "reports.trend.header": "Cash Trend (इस हफ्ते बनाम पिछले हफ्ते)",
+    "reports.trend.collections_line": "Collections: {current} (पहले {prior} था)",
+    "reports.trend.payments_line": "Supplier Payments: {current} (पहले {prior} था)",
+    "reports.trend.net_line": "Net Cash Movement: {current} (पहले {prior} था)",
+    "reports.trend.sales_line": "Sales (Invoiced): {current} (पहले {prior} था)",
+    "reports.trend.dealers_header": "Dealer Trend (पिछले 30 दिन बनाम उससे पहले के 30 दिन)",
+    "reports.trend.dealers_none": "अभी डीलर order activity कम है, trend नहीं दिखा सकते।",
+    "reports.trend.dealer_rising_line": (
+        "▲ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.dealer_falling_line": (
+        "▼ {name} — order value {value_delta}, outstanding {outstanding_delta}"
+    ),
+    "reports.trend.products_header": "Product Sales Trend (पिछले 30 दिन बनाम उससे पहले के 30 दिन)",
+    "reports.trend.products_none": "अभी sales activity कम है, product trend नहीं दिखा सकते।",
+    "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
+    "reports.trend.full_detail_link": "हर डीलर और प्रोडक्ट (Excel, {ttl} min valid): {link}",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -547,6 +576,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.day_book.desc": "इस महीने के सभी इनवॉइस और पेमेंट",
     "menu.row.outstanding_report.title": "आउटस्टैंडिंग रिपोर्ट",
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ दिन के बकेट",
+    "menu.row.trend_report.title": "Business Trends",
+    "menu.row.trend_report.desc": "हफ्ता और महीना वाइज़, डीलर, प्रोडक्ट",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "अभी record किया payment void करें",
     "menu.row.undo_order.title": "Undo Order",
@@ -781,6 +812,43 @@ MESSAGES: dict[str, str] = {
     "stock_take.failed": "Stock take apply नहीं हो पाया: {error}। कृपया दोबारा शुरू करें।",
     "stock_take.result_line": "- {name}: {new}",
     "stock_take.success": "✅ {count} product(s) का stock update हुआ:\n{lines}{warning}",
+    # ── Marketing broadcast (guided workflow) ───────────────────────────────
+    "broadcast.segment_ask": (
+        "यह broadcast किसे मिलना चाहिए?\n1. सभी dealers\n2. Overdue balance वाले dealers\n"
+        "3. नाम से specific dealers चुनें\nReply करें 1, 2, या 3 — या 'cancel'।"
+    ),
+    "broadcast.segment_invalid": "कृपया reply करें 1, 2, या 3 — या 'cancel'।",
+    "broadcast.segment.all": "सभी dealers",
+    "broadcast.segment.overdue": "overdue balance वाले dealers",
+    "broadcast.segment.specific": "आपके चुने हुए dealers",
+    "broadcast.dealer_names_ask": (
+        "Dealer के नाम भेजें, एक line में एक (या comma से अलग), या 'cancel'।"
+    ),
+    "broadcast.dealer_names_none_matched": (
+        "इनमें से कोई भी नाम file में किसी dealer से match नहीं हुआ: {names}। कृपया दोबारा "
+        "कोशिश करें, या 'cancel'।"
+    ),
+    "broadcast.dealer_names_unmatched": (
+        "\n(Match नहीं हुए: {names} — spelling जांच कर अलग से edit करें अगर ज़रूरत हो।)"
+    ),
+    "broadcast.message_ask": (
+        "यह opt-in किए {count} dealer(s) तक पहुंचेगा। क्या message भेजना है?"
+    ),
+    "broadcast.message_empty": "कृपया broadcast करने के लिए एक message भेजें, या 'cancel'।",
+    "broadcast.no_opted_in": (
+        "{segment} में से किसी ने भी अभी तक marketing broadcasts opt in नहीं किया। उन्हें opt "
+        "in करने को कहें, या 'edit dealer' / 'opt in all dealers' use करें।"
+    ),
+    "broadcast.confirm_prompt": (
+        "{count} dealer(s) को यह भेजें?{capped_note}\n\n\"{message}\"\n\n"
+        "Reply करें YES भेजने के लिए, NO cancel करने के लिए।"
+    ),
+    "broadcast.confirm_capped": " (हर broadcast में max {cap} तक)",
+    "broadcast.opt_in_all_none": "हर dealer पहले से ही opt in है।",
+    "broadcast.opt_in_all_confirm": (
+        "{count} dealer(s) को marketing broadcasts में opt in करें? Reply करें YES confirm "
+        "करने के लिए, NO cancel करने के लिए।"
+    ),
     "party.dealer.mode_prompt": (
         "अपने dealers add करें। Reply 'one by one' एक-एक करके add करने के लिए, "
         "या 'bulk' सबको एक साथ भेजने के लिए (जैसे Ram Traders, 9876543210, 15)। "
@@ -802,11 +870,19 @@ MESSAGES: dict[str, str] = {
     ),
     "party.supplier.mode_invalid": ("कृपया reply करें 'one by one' या 'bulk' — या रुकने के लिए 'done'।"),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
-    "party.edit.field_prompt": (
+    "party.edit.field_prompt_dealer": (
+        "क्या edit करना है — phone, credit limit, payment terms, GSTIN, या marketing opt-in? "
+        "Reply करें 'phone', 'credit limit', 'payment terms', 'gstin', या 'marketing'।"
+    ),
+    "party.edit.field_invalid_dealer": (
+        "कृपया reply करें 'phone', 'credit limit', 'payment terms', 'gstin', या 'marketing' "
+        "— या 'cancel'।"
+    ),
+    "party.edit.field_prompt_supplier": (
         "क्या edit करना है — phone, credit limit, payment terms, या GSTIN? "
         "Reply करें 'phone', 'credit limit', 'payment terms', या 'gstin'।"
     ),
-    "party.edit.field_invalid": (
+    "party.edit.field_invalid_supplier": (
         "कृपया reply करें 'phone', 'credit limit', 'payment terms', या 'gstin' — या 'cancel'।"
     ),
     "party.edit.name_ask_dealer": "कौन सा dealer? उनका नाम भेजें, या 'cancel'।",
@@ -826,6 +902,15 @@ MESSAGES: dict[str, str] = {
         "{name} के अभी के payment terms {current} days हैं। नए terms दिनों में क्या हों? (जैसे 30)"
     ),
     "party.edit.gstin_ask": "{name} का अभी का GSTIN {current} है। नया GSTIN क्या हो?",
+    "party.edit.marketing_ask": (
+        "{name} का marketing opt-in अभी {current} है। Reply करें 'yes'/'opt in' या "
+        "'no'/'opt out'।"
+    ),
+    "party.edit.marketing_invalid": (
+        "कृपया reply करें 'yes'/'opt in' या 'no'/'opt out', या 'cancel'।"
+    ),
+    "party.edit.opted_in": "opted in",
+    "party.edit.opted_out": "opted out",
     "party.edit.days_invalid": "कृपया दिनों की एक पूरी संख्या भेजें, जैसे 30।",
     "party.edit.phone_invalid": (
         "वह सही phone number नहीं लगता। अगर Indian नहीं है तो country code शामिल करें, जैसे "
@@ -885,6 +970,12 @@ MESSAGES: dict[str, str] = {
     "pending.edit_payment_success": (
         "✅ Invoice {number} के payment का {field} {new} हो गया (पहले {old} था)।"
     ),
+    "pending.broadcast_failed": "वह broadcast भेज नहीं पाए: {error}। कृपया दोबारा शुरू करें।",
+    "pending.broadcast_success": (
+        "✅ Broadcast {total} में से {sent} dealer(s) को भेज दिया ({failed} fail हुए)।"
+    ),
+    "pending.opt_in_all_failed": "Dealers opt in नहीं हो पाए: {error}। कृपया दोबारा शुरू करें।",
+    "pending.opt_in_all_success": "✅ {count} dealer(s) marketing broadcasts में opt in हो गए।",
     "pending.unknown": "उस confirmation में कुछ गड़बड़ हो गई। कृपया दोबारा शुरू करें।",
     # ── Menu prompt / follow-up / notifications / evening ──────────────────
     "menu.prompt": "Reply करें 1 Cash, 2 Collections, 3 Suppliers, 4 Dealer Risk",

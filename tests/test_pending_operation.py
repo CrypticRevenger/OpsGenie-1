@@ -16,6 +16,7 @@ from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.payment import Payment
 from app.models.pending_operation import PendingOperation, PendingOperationType
+from app.services.whatsapp_client import WhatsAppSendResult
 from app.services.writes.pending_operation import (
     create_pending_operation,
     execute_pending_operation,
@@ -270,3 +271,65 @@ async def test_get_pending_operation_returns_even_expired(db: AsyncSession) -> N
 async def test_get_pending_operation_none_when_absent(db: AsyncSession) -> None:
     found = await get_pending_operation(db, uuid.uuid4())
     assert found is None
+
+
+@pytest.mark.asyncio
+async def test_broadcast_dealers_re_derives_recipients_fresh(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Money/consent-safety property, same shape as the record_payment stale-
+    outstanding test above: payload stores only the segment/dealer_ids
+    filter criteria, never a resolved recipient list. If a dealer opts back
+    out between confirm-creation and execution, they must be excluded from
+    the actual send, not just from a stale preview count.
+    """
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id, "Opt Flip Dealer")
+    dealer.phone = _unique_phone()
+    dealer.marketing_opt_in = True
+    await db.commit()
+
+    sent_calls: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent_calls.append(to)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.writes.broadcast.send_text_message", _fake_send)
+
+    op = await create_pending_operation(
+        db,
+        company,
+        PendingOperationType.broadcast_dealers,
+        {"segment": "specific", "dealer_ids": [str(dealer.id)], "message": "Hello"},
+    )
+    await db.commit()
+
+    # Opts back out while the confirmation is in flight.
+    dealer.marketing_opt_in = False
+    await db.commit()
+
+    reply = await execute_pending_operation(db, company, op)
+    await db.commit()
+
+    assert "0 of 0" in reply.lower()
+    assert sent_calls == []
+
+
+@pytest.mark.asyncio
+async def test_bulk_opt_in_dealers_execute_success(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id, "Bulk Opt Dealer")
+    assert dealer.marketing_opt_in is False
+
+    op = await create_pending_operation(db, company, PendingOperationType.bulk_opt_in_dealers, {})
+    await db.commit()
+
+    reply = await execute_pending_operation(db, company, op)
+    await db.commit()
+
+    assert "1" in reply
+    await db.refresh(dealer)
+    assert dealer.marketing_opt_in is True
+    remaining = await db.scalar(select(PendingOperation).where(PendingOperation.id == op.id))
+    assert remaining is None

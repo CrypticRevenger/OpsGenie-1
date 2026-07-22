@@ -10,7 +10,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -40,6 +40,12 @@ class Dealer(UUIDMixin, TimestampMixin, Base):
     payment_terms_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     credit_limit: Mapped[Decimal | None] = mapped_column(Money, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Marketing broadcast consent (see app/services/writes/broadcast.py) —
+    # opt-in, defaults False. CSV import never sets this (same precedent as
+    # find_or_create_party never setting phone); a dealer becomes opted-in
+    # via the edit-dealer flow or the founder's "opt in all dealers" bulk
+    # command, never automatically.
+    marketing_opt_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # ── Relationships ────────────────────────────────────────────────────────
     company: Mapped[Company] = relationship("Company", back_populates="dealers")

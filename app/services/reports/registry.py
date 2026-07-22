@@ -24,7 +24,7 @@ from app.models.dealer import Dealer
 from app.models.supplier import Supplier
 from app.services import company_export
 from app.services.party_outstanding import Direction
-from app.services.reports import aging, ledger, registers
+from app.services.reports import aging, ledger, registers, trend
 from app.services.reports.period import ReportPeriod
 
 # aging/outstanding is always a snapshot as of "now" (per party_outstanding.py,
@@ -91,6 +91,10 @@ async def _aging_pdf(db: AsyncSession, company: Company, ctx: ReportContext) -> 
     return await aging.build_aging_report_pdf(db, company, datetime.now(UTC).date())
 
 
+async def _trend_xlsx(db: AsyncSession, company: Company, ctx: ReportContext) -> bytes:
+    return await trend.build_trend_report_workbook(db, company)
+
+
 REPORTS: dict[str, ReportSpec] = {
     spec.key: spec
     for spec in [
@@ -101,5 +105,6 @@ REPORTS: dict[str, ReportSpec] = {
         ReportSpec("purchase_register", "Purchase Register", _purchase_register_xlsx),
         ReportSpec("day_book", "Day Book", _day_book_xlsx),
         ReportSpec("aging", "Outstanding Aging Report", _aging_xlsx, _aging_pdf),
+        ReportSpec("trend", "Business Trends (Week & Month over Month)", _trend_xlsx),
     ]
 }

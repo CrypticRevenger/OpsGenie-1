@@ -36,6 +36,7 @@ from app.services.importer.normalizer import parse_positive_amount
 from app.services.invoice_delivery import send_invoice_document
 from app.services.invoice_pdf import generate_invoice_pdf
 from app.services.money_format import format_inr
+from app.services.writes.broadcast import bulk_opt_in_all_dealers, send_broadcast
 from app.services.writes.edit_invoice_payment import edit_invoice, edit_payment
 from app.services.writes.orders import create_order
 from app.services.writes.payments import record_payment
@@ -369,6 +370,43 @@ async def execute_pending_operation(
             old=result.old_value,
             new=result.new_value,
         )
+
+    if op.operation_type == PendingOperationType.broadcast_dealers:
+        payload = op.payload
+        try:
+            result = await send_broadcast(
+                db,
+                company,
+                segment=payload["segment"],
+                dealer_ids=[uuid.UUID(d) for d in payload.get("dealer_ids", [])],
+                message=payload["message"],
+            )
+        except (ValueError, KeyError, TypeError) as exc:
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return t("pending.broadcast_failed", loc, error=exc)
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return t(
+            "pending.broadcast_success",
+            loc,
+            sent=result.sent_count,
+            failed=result.failed_count,
+            total=result.attempted_count,
+        )
+
+    if op.operation_type == PendingOperationType.bulk_opt_in_dealers:
+        try:
+            count = await bulk_opt_in_all_dealers(db, company)
+        except (ValueError, KeyError, TypeError) as exc:
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            return t("pending.opt_in_all_failed", loc, error=exc)
+
+        await db.delete(op)
+        _clear_active_pending_operation(company)
+        return t("pending.opt_in_all_success", loc, count=count)
 
     # Unreachable while every PendingOperationType member has a branch above,
     # but never leave a company stuck on a confirmation type this code
