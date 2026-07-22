@@ -25,6 +25,7 @@ from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.notification_log import NotificationLog
 from app.models.payment import Payment
+from app.models.pending_operation import PendingOperation, PendingOperationType
 from app.services.followup import (
     _parse_relative_date,
     handle_follow_up_reply,
@@ -574,3 +575,65 @@ async def test_concurrent_send_attempts_only_one_wins(db: AsyncSession) -> None:
 
     results = await asyncio.gather(_attempt(), _attempt())
     assert sorted(results) == ["already_pending", "sent"]
+
+
+@pytest.mark.asyncio
+async def test_no_op_when_a_pending_operation_is_awaiting_confirmation(
+    db: AsyncSession,
+) -> None:
+    """A follow-up must never be pushed on top of a live YES/NO confirm gate.
+
+    Regression: the slot claim only checked pending_follow_up_invoice_id, so a
+    follow-up could arrive while an order/payment sat at "Reply YES to
+    confirm". The webhook dispatches pending operations *ahead* of follow-ups,
+    so the founder's "1" (meaning "the dealer paid in full") landed in
+    _YES_WORDS and executed the pending write instead — creating the order and
+    silently dropping the payment they meant to record.
+    """
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id)
+    await _make_invoice(db, company_id=company.id, dealer_id=dealer.id, due_date=TODAY)
+
+    op = PendingOperation(
+        company_id=company.id,
+        operation_type=PendingOperationType.create_order,
+        payload={},
+        expires_at=business_now(DEFAULT_BUSINESS_TIMEZONE) + timedelta(minutes=30),
+    )
+    db.add(op)
+    await db.flush()
+    company.active_pending_operation_id = op.id
+    await db.commit()
+
+    result = await send_due_today_follow_up(db, company.id)
+
+    assert result.status == "conversation_busy"
+    await db.refresh(company)
+    # The follow-up slot stays empty, so the pending confirm still owns the
+    # conversation and no follow-up message was sent.
+    assert company.pending_follow_up_invoice_id is None
+    assert company.active_pending_operation_id == op.id
+    sent = (
+        await db.execute(
+            select(NotificationLog).where(
+                NotificationLog.company_id == company.id,
+                NotificationLog.notification_type == "follow_up_sent",
+            )
+        )
+    ).scalars().all()
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_no_op_when_a_guided_workflow_is_active(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id)
+    await _make_invoice(db, company_id=company.id, dealer_id=dealer.id, due_date=TODAY)
+    company.active_workflow = "record_payment"
+    await db.commit()
+
+    result = await send_due_today_follow_up(db, company.id)
+
+    assert result.status == "conversation_busy"
+    await db.refresh(company)
+    assert company.pending_follow_up_invoice_id is None

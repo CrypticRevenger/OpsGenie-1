@@ -241,15 +241,26 @@ async def check_supplier_payment_reminders(
 
     # Only the first bill this tick becomes an interactive "did you pay
     # this?" confirmation — Company.active_workflow/active_pending_operation_id
-    # are single pointers, so anything else due the same tick queues behind
-    # it (see app/services/workflows/payment_reminder_confirm.py) and gets
-    # its own question once this one is answered. If the founder is already
-    # mid some other guided flow, none of today's bills interrupt it — they
-    # stay purely informational this cycle and get a fresh interactive
-    # question next time this rule runs (the 24h dedup below means that's
-    # tomorrow at the earliest).
+    # /pending_follow_up_invoice_id are single pointers, so anything else due
+    # the same tick queues behind it (see
+    # app/services/workflows/payment_reminder_confirm.py) and gets its own
+    # question once this one is answered. If the founder is already mid some
+    # other guided flow, none of today's bills interrupt it — they stay purely
+    # informational this cycle and get a fresh interactive question next time
+    # this rule runs (the 24h dedup below means that's tomorrow at the
+    # earliest).
+    #
+    # pending_follow_up_invoice_id is included for the same reason
+    # followup.py::send_due_today_follow_up checks the other two: a live
+    # follow-up asks "Has INV-100 been paid? 1 = paid in full" about a
+    # *receivable*, and active_workflow outranks it in the webhook's dispatch
+    # chain — so starting this confirm on top would make the founder's
+    # unchanged "1" answer a question about a *payable* instead. A directional
+    # money mix-up from a reply they never reconsidered.
     can_start_confirm = (
-        company.active_workflow is None and company.active_pending_operation_id is None
+        company.active_workflow is None
+        and company.active_pending_operation_id is None
+        and company.pending_follow_up_invoice_id is None
     )
 
     def _queue_item(p) -> dict:
@@ -944,6 +955,19 @@ async def run_notification_checks(
     (briefing failure) is scheduler-driven — so neither is part of this poll.
     `now` is overridable so the scheduler/tests can pin business time
     deterministically.
+
+    Each rule is committed as soon as it returns, never batched into one
+    commit at the end. Every rule performs real WhatsApp sends *before* its
+    dedup marker is written, so a single trailing commit means any later
+    failure — a Neon drop mid-tick, a raise inside a subsequent rule, a failed
+    commit — rolls back the dedup markers for messages that already physically
+    went out. The external cron re-ticks every ~10 minutes, sees no marker,
+    and re-sends all of them, repeating for as long as the fault persists.
+    That is the shape of the July 2026 founder-flood incident, and it is the
+    same reason app/services/writes/broadcast.py commits per recipient rather
+    than once at the end of its send loop. app/core/scheduler.py's
+    _dispatch_for_company docstring states this principle for the four
+    top-level concerns; it applies just as much *within* this pass.
     """
     company = await db.get(Company, company_id)
     if company is None:
@@ -952,11 +976,18 @@ async def run_notification_checks(
         now = business_now(company.timezone)
 
     snapshot = await build_snapshot(db, company_id)
+
     supplier = await check_supplier_payment_reminders(db, company, snapshot, now)
+    await db.commit()
     dealer = await check_dealer_overdue_alerts(db, company, snapshot, now)
+    await db.commit()
     cash_forecast = await check_cash_shortage_forecast(db, company, snapshot, now)
+    await db.commit()
     stock_out = await check_stock_out_forecasts(db, company, snapshot, now)
+    await db.commit()
     predue = await check_predue_invoice_nudges(db, company, snapshot, now)
+    await db.commit()
+
     return NotificationRunResult(
         supplier_reminders=supplier,
         dealer_alerts=dealer,
