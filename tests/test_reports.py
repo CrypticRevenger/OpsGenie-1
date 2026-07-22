@@ -612,3 +612,117 @@ async def test_registry_trend_report_has_three_sheets(db: AsyncSession) -> None:
     cash_rows = list(wb["Cash Trend"].iter_rows(values_only=True))
     header_row = next(r for r in cash_rows if r[0] == "Metric")
     assert header_row == ("Metric", "This Week", "Last Week", "Δ")
+
+
+@pytest.mark.asyncio
+async def test_sales_register_includes_imported_invoices_with_no_line_items(
+    db: AsyncSession,
+) -> None:
+    """An invoice with no InvoiceItem rows must still appear in the register.
+
+    Regression: _register_rows inner-joined InvoiceItem, and only the WhatsApp
+    order flow ever writes those — the CSV/Tally/Vyapar importers create the
+    Invoice alone. So a distributor whose books arrived by Tally export saw a
+    completely empty Sales/Purchase Register (header, no TOTAL row) while their
+    Day Book and invoice lists showed the same invoices correctly.
+    """
+    company = await _make_company(db)
+    dealer = Dealer(company_id=company.id, name="Imported Dealer", gst_number="21ABCDE1234F1Z5")
+    db.add(dealer)
+    await db.flush()
+
+    imported = _invoice(
+        company,
+        direction=InvoiceDirection.receivable,
+        dealer=dealer,
+        invoice_date=date(2026, 7, 12),
+        due_date=date(2026, 7, 26),
+        total=Decimal("11800.00"),
+        status=InvoiceStatus.Pending,
+    )
+    # What the importer actually writes: real subtotal/GST split, zero items.
+    imported.subtotal = Decimal("10000.00")
+    imported.gst_amount = Decimal("1800.00")
+    imported.source = InvoiceSource.csv_import
+    db.add(imported)
+    await db.commit()
+
+    period = resolve_period(month_str="2026-07")
+    wb = _load(await registers.build_sales_register_workbook(db, company, period))
+
+    reg_rows = list(wb["Sales Register"].iter_rows(values_only=True))
+    line = _find_row(reg_rows, col=1, value=imported.invoice_number)
+    assert line[2] == "Imported Dealer"
+    assert line[3] == "21ABCDE1234F1Z5"
+    assert line[5] == 10000  # taxable value from the invoice's own subtotal
+    assert line[6] == 18  # rate backed out of subtotal/gst_amount
+    assert line[7] == 1800
+    assert line[8] == 11800
+
+    total = _find_row(reg_rows, col=0, value="TOTAL")
+    assert total[5] == 10000
+    assert total[7] == 1800
+
+    # The rate-wise summary must agree with it, same invariant the itemised
+    # register already guarantees.
+    summary_rows = list(wb["Rate-wise Summary"].iter_rows(values_only=True))
+    summary_data = summary_rows[1:-1]
+    assert sum(r[1] for r in summary_data) == total[5]
+    assert sum(r[2] for r in summary_data) == total[7]
+
+
+@pytest.mark.asyncio
+async def test_sales_register_mixes_itemised_and_imported_invoices_in_date_order(
+    db: AsyncSession,
+) -> None:
+    company = await _make_company(db)
+    dealer = Dealer(company_id=company.id, name="Mixed Dealer")
+    db.add(dealer)
+    await db.flush()
+
+    imported = _invoice(
+        company,
+        direction=InvoiceDirection.receivable,
+        dealer=dealer,
+        invoice_date=date(2026, 7, 5),
+        due_date=date(2026, 7, 20),
+        total=Decimal("1050.00"),
+    )
+    imported.subtotal = Decimal("1000.00")
+    imported.gst_amount = Decimal("50.00")
+    itemised = _invoice(
+        company,
+        direction=InvoiceDirection.receivable,
+        dealer=dealer,
+        invoice_date=date(2026, 7, 20),
+        due_date=date(2026, 8, 4),
+        total=Decimal("224.00"),
+    )
+    db.add_all([imported, itemised])
+    await db.flush()
+    db.add(
+        InvoiceItem(
+            invoice_id=itemised.id,
+            description="Soap",
+            quantity=Decimal("2"),
+            unit_price=Decimal("100"),
+            line_total=Decimal("200"),
+            gst_rate=Decimal("12"),
+            gst_amount=Decimal("24"),
+        )
+    )
+    await db.commit()
+
+    period = resolve_period(month_str="2026-07")
+    wb = _load(await registers.build_sales_register_workbook(db, company, period))
+    reg_rows = list(wb["Sales Register"].iter_rows(values_only=True))
+
+    data = [r for r in reg_rows if r[1] in (imported.invoice_number, itemised.invoice_number)]
+    assert len(data) == 2
+    # Sorted by invoice date across both sources, not itemised-then-imported.
+    assert data[0][1] == imported.invoice_number
+    assert data[1][1] == itemised.invoice_number
+
+    total = _find_row(reg_rows, col=0, value="TOTAL")
+    assert total[5] == 1200  # 1000 imported + 200 itemised
+    assert total[7] == 74  # 50 + 24
