@@ -103,15 +103,16 @@ async def execute_pending_operation(
         # docstring. Not a normal record_payment field.
         reminder_queue = payload.get("reminder_queue")
         try:
-            result = await record_payment(
-                db,
-                company,
-                direction=payload["direction"],
-                party_name=payload["party_name"],
-                amount=Decimal(payload["amount"]),
-                payment_date=date.fromisoformat(payload["payment_date"]),
-                invoice_id=uuid.UUID(payload_invoice_id) if payload_invoice_id else None,
-            )
+            async with db.begin_nested():
+                result = await record_payment(
+                    db,
+                    company,
+                    direction=payload["direction"],
+                    party_name=payload["party_name"],
+                    amount=Decimal(payload["amount"]),
+                    payment_date=date.fromisoformat(payload["payment_date"]),
+                    invoice_id=uuid.UUID(payload_invoice_id) if payload_invoice_id else None,
+                )
         except (ValueError, KeyError, TypeError) as exc:
             # ValueError covers the real re-validation failures
             # (allocate_payment_fifo's no-open-invoice / exceeds-outstanding).
@@ -158,20 +159,29 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.create_order:
         payload = op.payload
         try:
-            result = await create_order(
-                db,
-                company,
-                dealer_name=payload["dealer_name"],
-                items=payload["items"],
-                advance_paid=(
-                    Decimal(payload["advance_paid"]) if payload.get("advance_paid") else None
-                ),
-            )
+            async with db.begin_nested():
+                result = await create_order(
+                    db,
+                    company,
+                    dealer_name=payload["dealer_name"],
+                    items=payload["items"],
+                    advance_paid=(
+                        Decimal(payload["advance_paid"]) if payload.get("advance_paid") else None
+                    ),
+                )
         except (ValueError, KeyError, TypeError) as exc:
             # Same reasoning as the record_payment branch above: a re-
             # validation failure (e.g. a product deleted between preview and
             # confirm, or a price genuinely missing) degrades to a friendly
             # reply rather than aborting the whole webhook batch's commit.
+            #
+            # The begin_nested() SAVEPOINT above is what makes that degradation
+            # honest. create_order decrements stock and adds the Invoice +
+            # InvoiceItems *before* it can raise on the advance's FIFO
+            # allocation, and the webhook commits unconditionally at the end of
+            # the request — so without the savepoint those partial mutations
+            # were committed while this reply told the distributor the order
+            # failed. Same pattern the CSV importers already use per row.
             await db.delete(op)
             _clear_active_pending_operation(company)
             return t("pending.order_failed", loc, error=exc)
@@ -243,13 +253,14 @@ async def execute_pending_operation(
         payload = op.payload
         payload_gst_rate = payload.get("gst_rate")
         try:
-            result = await update_gst(
-                db,
-                company,
-                scope=payload["scope"],
-                gst_rate=Decimal(payload_gst_rate) if payload_gst_rate is not None else None,
-                product_name=payload.get("product_name"),
-            )
+            async with db.begin_nested():
+                result = await update_gst(
+                    db,
+                    company,
+                    scope=payload["scope"],
+                    gst_rate=Decimal(payload_gst_rate) if payload_gst_rate is not None else None,
+                    product_name=payload.get("product_name"),
+                )
         except (ValueError, KeyError, TypeError) as exc:
             # Same reasoning as the record_payment/create_order branches
             # above: a re-validation failure (e.g. the product was deleted
@@ -272,12 +283,13 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.void_payment:
         payload = op.payload
         try:
-            result = await void_payment(
-                db,
-                company,
-                payment_id=uuid.UUID(payload["payment_id"]),
-                reason=payload.get("reason"),
-            )
+            async with db.begin_nested():
+                result = await void_payment(
+                    db,
+                    company,
+                    payment_id=uuid.UUID(payload["payment_id"]),
+                    reason=payload.get("reason"),
+                )
         except (ValueError, KeyError, TypeError) as exc:
             await db.delete(op)
             _clear_active_pending_operation(company)
@@ -296,12 +308,13 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.void_order:
         payload = op.payload
         try:
-            result = await void_order(
-                db,
-                company,
-                invoice_id=uuid.UUID(payload["invoice_id"]),
-                reason=payload.get("reason"),
-            )
+            async with db.begin_nested():
+                result = await void_order(
+                    db,
+                    company,
+                    invoice_id=uuid.UUID(payload["invoice_id"]),
+                    reason=payload.get("reason"),
+                )
         except (ValueError, KeyError, TypeError) as exc:
             await db.delete(op)
             _clear_active_pending_operation(company)
@@ -320,14 +333,15 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.edit_invoice:
         payload = op.payload
         try:
-            result = await edit_invoice(
-                db,
-                company,
-                invoice_id=uuid.UUID(payload["invoice_id"]),
-                field=payload["field"],
-                new_value=payload["new_value"],
-                reason=payload.get("reason"),
-            )
+            async with db.begin_nested():
+                result = await edit_invoice(
+                    db,
+                    company,
+                    invoice_id=uuid.UUID(payload["invoice_id"]),
+                    field=payload["field"],
+                    new_value=payload["new_value"],
+                    reason=payload.get("reason"),
+                )
         except (ValueError, KeyError, TypeError) as exc:
             await db.delete(op)
             _clear_active_pending_operation(company)
@@ -347,14 +361,15 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.edit_payment:
         payload = op.payload
         try:
-            result = await edit_payment(
-                db,
-                company,
-                payment_id=uuid.UUID(payload["payment_id"]),
-                field=payload["field"],
-                new_value=payload["new_value"],
-                reason=payload.get("reason"),
-            )
+            async with db.begin_nested():
+                result = await edit_payment(
+                    db,
+                    company,
+                    payment_id=uuid.UUID(payload["payment_id"]),
+                    field=payload["field"],
+                    new_value=payload["new_value"],
+                    reason=payload.get("reason"),
+                )
         except (ValueError, KeyError, TypeError) as exc:
             await db.delete(op)
             _clear_active_pending_operation(company)
@@ -374,12 +389,19 @@ async def execute_pending_operation(
     if op.operation_type == PendingOperationType.broadcast_dealers:
         payload = op.payload
         try:
+            # Deliberately NOT wrapped in db.begin_nested() like every other
+            # write branch here: send_broadcast commits per recipient by
+            # design, and a savepoint around a function that commits would
+            # defeat both. Its idempotency comes from batch_id instead — op.id
+            # is stable across the Meta redelivery that a failed final commit
+            # triggers, so a resumed broadcast skips dealers already messaged.
             result = await send_broadcast(
                 db,
                 company,
                 segment=payload["segment"],
                 dealer_ids=[uuid.UUID(d) for d in payload.get("dealer_ids", [])],
                 message=payload["message"],
+                batch_id=op.id,
             )
         except (ValueError, KeyError, TypeError) as exc:
             await db.delete(op)
@@ -398,7 +420,8 @@ async def execute_pending_operation(
 
     if op.operation_type == PendingOperationType.bulk_opt_in_dealers:
         try:
-            count = await bulk_opt_in_all_dealers(db, company)
+            async with db.begin_nested():
+                count = await bulk_opt_in_all_dealers(db, company)
         except (ValueError, KeyError, TypeError) as exc:
             await db.delete(op)
             _clear_active_pending_operation(company)

@@ -178,7 +178,18 @@ async def handle_stock_take_workflow_message(db: AsyncSession, company: Company,
         company.active_workflow = None
         company.workflow_scratch = None
         try:
-            results = await apply_stock_take(db, company, adjustments=adjustments, reason=reason)
+            # SAVEPOINT so a mid-batch failure really does discard the whole
+            # batch. apply_stock_take mutates each product and adds its audit
+            # event as it loops, then raises if a later product turns out to be
+            # gone — and the webhook commits unconditionally at the end of the
+            # request, so without this the already-processed products stayed
+            # committed while the reply below said the stock take failed.
+            # That contradicted apply_stock_take's own docstring ("rather than
+            # committing a partial batch silently").
+            async with db.begin_nested():
+                results = await apply_stock_take(
+                    db, company, adjustments=adjustments, reason=reason
+                )
         except ValueError as exc:
             return t("stock_take.failed", loc, error=exc)
 
