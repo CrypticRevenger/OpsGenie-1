@@ -37,7 +37,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def _unique_phone() -> str:
-    return f"+91{uuid.uuid4().int % 10_000_000_000:010d}"
+    """A unique but *valid* Indian mobile number.
+
+    The first digit must be 6-9 or app/services/phone.py's validator rejects
+    it. A bare `% 10_000_000_000` produced a leading 0-5 about 60% of the
+    time, which made every test routing through onboarding fail intermittently
+    (see the KeyError: 'company_id' flake).
+    """
+    return f"+91{6 + uuid.uuid4().int % 4}{uuid.uuid4().int % 1_000_000_000:09d}"
 
 
 async def _make_company(db: AsyncSession, name: str = "Export Test Co") -> Company:
@@ -185,6 +192,9 @@ async def test_website_import_data_reflects_in_excel_export(
         },
     )
     company_id = register.json()["company_id"]
+    # Both public onboarding routes now require the capability token issued at
+    # registration (app/services/onboarding_token.py).
+    token = register.json()["onboarding_token"]
 
     receivable_csv = (
         b"invoice_number,direction,party_name,invoice_date,due_date,"
@@ -197,13 +207,13 @@ async def test_website_import_data_reflects_in_excel_export(
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("sales.csv", receivable_csv, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "products"},
+        params={"token": token, "file_kind": "products"},
         files={"file": ("stock.csv", product_csv, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -322,7 +332,12 @@ async def test_public_export_endpoint_valid_link(db: AsyncSession) -> None:
 async def test_public_export_endpoint_rejects_tampered_signature(db: AsyncSession) -> None:
     company = await _make_company(db)
     link = generate_export_link(company, base_url="http://test")
-    path = link.removeprefix("http://test")[:-1] + "0"  # flip last signature char
+    # Flip the last signature character to something guaranteed *different* —
+    # hardcoding "0" silently produced an identical (valid) signature whenever
+    # the real last char was already "0", so this test passed a tampered-link
+    # check it had never actually performed, ~1 run in 16.
+    original = link.removeprefix("http://test")
+    path = original[:-1] + ("1" if original[-1] == "0" else "0")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
