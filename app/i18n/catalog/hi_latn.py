@@ -26,7 +26,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • overdue / overdue dealers — kitne din late & risk level (ya 4 / /dealer_risk)
 • balance <name> — ek dealer ka baaki, jaise balance Ram Traders
 • add dealer (ya /add_dealer) — naya dealer add karein: naam, phone, credit din
-• edit dealer (ya /edit_dealer) — dealer ka phone, credit limit, terms, ya GSTIN badlein
+• edit dealer (ya /edit_dealer) — phone, credit limit, terms, GSTIN, ya direct reminders badlein
 
 *Suppliers (jinhe aap dete hain)*
 • suppliers / all suppliers — har supplier phone & baaki ke saath
@@ -962,12 +962,13 @@ MESSAGES: dict[str, str] = {
     ),
     # ── Edit dealer / edit supplier (phone, credit limit, terms, GSTIN) ─────
     "party.edit.field_prompt_dealer": (
-        "Kya edit karna hai — phone, credit limit, payment terms, GSTIN, ya marketing opt-in? "
-        "Reply karein 'phone', 'credit limit', 'payment terms', 'gstin', ya 'marketing'."
+        "Kya edit karna hai — phone, credit limit, payment terms, GSTIN, marketing opt-in, ya "
+        "direct reminders? Reply karein 'phone', 'credit limit', 'payment terms', 'gstin', "
+        "'marketing', ya 'reminders'."
     ),
     "party.edit.field_invalid_dealer": (
-        "Kripya reply karein 'phone', 'credit limit', 'payment terms', 'gstin', ya 'marketing' "
-        "— ya 'cancel'."
+        "Kripya reply karein 'phone', 'credit limit', 'payment terms', 'gstin', 'marketing', ya "
+        "'reminders' — ya 'cancel'."
     ),
     "party.edit.field_prompt_supplier": (
         "Kya edit karna hai — phone, credit limit, payment terms, ya GSTIN? "
@@ -1008,6 +1009,15 @@ MESSAGES: dict[str, str] = {
     ),
     "party.edit.opted_in": "opted in",
     "party.edit.opted_out": "opted out",
+    "party.edit.direct_reminders_ask": (
+        "{name} ke direct reminders abhi {current} hain. Reply karein 'yes'/'enable' ya "
+        "'no'/'disable'."
+    ),
+    "party.edit.direct_reminders_invalid": (
+        "Kripya reply karein 'yes'/'enable' ya 'no'/'disable', ya 'cancel'."
+    ),
+    "party.edit.reminders_enabled": "enabled",
+    "party.edit.reminders_disabled": "disabled",
     "party.edit.days_invalid": "Kripya dinon ki ek puri sankhya bhejein, jaise 30.",
     "party.edit.phone_invalid": (
         "Woh sahi phone number nahi lagta. Agar Indian nahi hai to country code shamil "
@@ -1178,6 +1188,10 @@ MESSAGES: dict[str, str] = {
         "{dealer} — {amount} — ab {days} din overdue.\n"
         "3 din se koi follow-up nahi.\n"
         "Suggestion: naya order dene se pehle aaj call karein."
+    ),
+    "notify.dealer_direct_reminder": (
+        "Hi {dealer}, yeh {business} ki taraf se ek yaad dilaana hai — {amount} ka payment "
+        "{days} din pehle due tha. Kripya jald se jald payment karein. Dhanyavaad!"
     ),
     # ── Proactive early-warning alerts (7-day forecasts) — DRAFT for founder review ─
     "notify.cash_shortage_forecast": (

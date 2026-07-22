@@ -44,7 +44,7 @@ _NOTIFICATION_TYPE = "marketing_broadcast"
 # A dealer inside their own 24h WhatsApp session window (has messaged the
 # business number recently) can be reached with a free-form send, saving a
 # template send for everyone else. Meta's own session window is 24h.
-_SESSION_WINDOW_HOURS = 24
+SESSION_WINDOW_HOURS = 24
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,7 @@ async def resolve_broadcast_recipients(
     return list((await db.scalars(stmt)).all())
 
 
-async def _recently_messaged(
+async def recently_messaged(
     db: AsyncSession, company_id: uuid.UUID, phone: str, since: datetime
 ) -> bool:
     """Whether this dealer's phone appears as the sender of an inbound
@@ -102,6 +102,11 @@ async def _recently_messaged(
     inbound handler normalizes the sender the same way
     (_normalize_to_e164) before writing payload["from"] on the
     whatsapp_message_received BusinessEvent — these compare directly.
+
+    Shared with app/services/notifications.py's dealer-direct-reminder send
+    (same free-form-vs-template decision for a dealer proactively messaged
+    outside a broadcast) — kept here, not duplicated, since this module
+    owns the concept first.
     """
     found = await db.scalar(
         select(BusinessEvent.id).where(
@@ -127,14 +132,14 @@ async def send_broadcast(
         db, company.id, segment=segment, dealer_ids=dealer_ids
     )
     dealers = [d for d in dealers if d.phone][: settings.max_broadcast_recipients]
-    since = datetime.now(UTC) - timedelta(hours=_SESSION_WINDOW_HOURS)
+    since = datetime.now(UTC) - timedelta(hours=SESSION_WINDOW_HOURS)
 
     sent = 0
     failed = 0
     for dealer in dealers:
         message_id: str | None = None
         try:
-            if await _recently_messaged(db, company.id, dealer.phone, since):
+            if await recently_messaged(db, company.id, dealer.phone, since):
                 result = await send_text_message(dealer.phone, message)
             elif not settings.broadcast_template_name:
                 raise WhatsAppNotConfiguredError("BROADCAST_TEMPLATE_NAME not configured")

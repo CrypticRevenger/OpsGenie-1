@@ -18,6 +18,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from app.core.config import get_settings
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
@@ -345,6 +346,203 @@ async def test_dealer_alert_dedups_when_recent_followup_exists(
     await db.commit()
     assert sent == 0
     assert recorded_sends == []
+
+
+@pytest.mark.asyncio
+async def test_dealer_alert_also_reminds_dealer_directly_when_enabled(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    dealer = _overdue_dealer(
+        risk_level="High", dealer_phone=_unique_phone(), direct_reminders_enabled=True
+    )
+    # Inside the dealer's own 24h session window -> free-form send_text_message,
+    # same as the founder alert (no template needed).
+    db.add(
+        BusinessEvent(
+            company_id=company.id,
+            event_type=BusinessEventType.whatsapp_message_received,
+            entity_type="company",
+            entity_id=company.id,
+            payload={"from": dealer.dealer_phone},
+            created_by="test",
+        )
+    )
+    await db.commit()
+
+    snap = _snapshot(company.id, overdue_dealers=[dealer])
+    sent = await check_dealer_overdue_alerts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert len(recorded_sends) == 2  # founder alert + dealer-direct reminder
+    dealer_message = next(body for to, body in recorded_sends if to == dealer.dealer_phone)
+    assert dealer.dealer_name in dealer_message
+    assert company.business_name in dealer_message
+
+    log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "dealer_direct_reminder",
+        )
+    )
+    assert log is not None
+    assert log.recipient_whatsapp == dealer.dealer_phone
+    assert log.delivery_status == "sent"
+
+    event = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.company_id == company.id,
+            BusinessEvent.event_type == BusinessEventType.reminder_sent,
+            BusinessEvent.entity_type == "dealer",
+        )
+    )
+    assert event.payload["dealer_direct_reminder_sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_dealer_alert_skips_direct_reminder_when_not_enabled(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    dealer = _overdue_dealer(risk_level="High", dealer_phone=_unique_phone())  # opted-out default
+    snap = _snapshot(company.id, overdue_dealers=[dealer])
+    sent = await check_dealer_overdue_alerts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert len(recorded_sends) == 1  # founder alert only
+    assert recorded_sends[0][0] == company.whatsapp_number
+    log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "dealer_direct_reminder",
+        )
+    )
+    assert log is None
+
+
+@pytest.mark.asyncio
+async def test_dealer_alert_skips_direct_reminder_without_phone_on_file(
+    db: AsyncSession, recorded_sends
+) -> None:
+    company = await _make_company(db)
+    dealer = _overdue_dealer(risk_level="High", dealer_phone=None, direct_reminders_enabled=True)
+    snap = _snapshot(company.id, overdue_dealers=[dealer])
+    sent = await check_dealer_overdue_alerts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert len(recorded_sends) == 1  # founder alert only — no phone to reach the dealer on
+
+
+@pytest.mark.asyncio
+async def test_dealer_direct_reminder_uses_template_outside_session_window(
+    db: AsyncSession, recorded_sends, monkeypatch
+) -> None:
+    """No whatsapp_message_received event for this dealer's phone -> outside
+    the 24h free-form window, so this must go out as the configured template
+    instead of send_text_message (mirrors broadcast's own branch).
+    """
+    company = await _make_company(db)
+    dealer = _overdue_dealer(
+        risk_level="High", dealer_phone=_unique_phone(), direct_reminders_enabled=True
+    )
+    monkeypatch.setattr(get_settings(), "dealer_reminder_template_name", "dealer_reminder_tmpl")
+    template_calls: list[tuple[str, str, str]] = []
+
+    async def _fake_send_template(to, template_name, language_code, body_params=None, **kwargs):
+        template_calls.append((to, template_name, body_params[0] if body_params else ""))
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.notifications.send_template_message", _fake_send_template)
+
+    snap = _snapshot(company.id, overdue_dealers=[dealer])
+    sent = await check_dealer_overdue_alerts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert len(recorded_sends) == 1  # only the founder's free-form alert
+    assert len(template_calls) == 1
+    assert template_calls[0][0] == dealer.dealer_phone
+    assert template_calls[0][1] == "dealer_reminder_tmpl"
+
+    log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "dealer_direct_reminder",
+        )
+    )
+    assert log is not None
+    assert log.delivery_status == "sent"
+
+
+@pytest.mark.asyncio
+async def test_dealer_direct_reminder_records_failed_to_send_without_template_configured(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """Outside the session window with no template configured, the direct
+    reminder is skipped (recorded failed_to_send) — never blocking the
+    existing founder-facing alert.
+    """
+    company = await _make_company(db)
+    dealer = _overdue_dealer(
+        risk_level="High", dealer_phone=_unique_phone(), direct_reminders_enabled=True
+    )
+    snap = _snapshot(company.id, overdue_dealers=[dealer])
+    sent = await check_dealer_overdue_alerts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert len(recorded_sends) == 1  # founder alert only
+
+    log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "dealer_direct_reminder",
+        )
+    )
+    assert log is not None
+    assert log.delivery_status == "failed_to_send"
+
+
+@pytest.mark.asyncio
+async def test_dealer_alert_direct_reminder_shares_dedup_with_founder_alert(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """No separate dedup window for the direct-to-dealer send — it rides the
+    same "no recent contact" gate as the founder alert, since both fire off
+    the exact same fact about this one dealer.
+    """
+    company = await _make_company(db)
+    dealer = _overdue_dealer(
+        risk_level="High", dealer_phone=_unique_phone(), direct_reminders_enabled=True
+    )
+    db.add(
+        ActivityTimeline(
+            company_id=company.id,
+            entity_type=ActivityEntityType.dealer,
+            entity_id=dealer.dealer_id,
+            event_type=ActivityEventType.follow_up_sent,
+            amount=dealer.outstanding,
+            notes="prior follow-up",
+        )
+    )
+    await db.commit()
+
+    snap = _snapshot(company.id, overdue_dealers=[dealer])
+    sent = await check_dealer_overdue_alerts(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 0
+    assert recorded_sends == []
+    log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "dealer_direct_reminder",
+        )
+    )
+    assert log is None
 
 
 # ── Rule 5: cash-shortage forecast ───────────────────────────────────────────

@@ -518,6 +518,65 @@ async def test_edit_dealer_marketing_opt_in_rejects_invalid_value(db: AsyncSessi
 
 
 @pytest.mark.asyncio
+async def test_edit_dealer_direct_reminders_round_trip(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders", direct_reminders_enabled=False)
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "reminders")
+    reply = await _send_edit_dealer(db, company, "Ram Traders")
+    assert "disabled" in reply.lower()
+    await _send_edit_dealer(db, company, "enable")
+    reply = await _send_edit_dealer(db, company, "skip")
+    await db.commit()
+
+    assert "✅" in reply
+    assert "enabled" in reply.lower()
+    await db.refresh(dealer)
+    assert dealer.direct_reminders_enabled is True
+
+    event = await db.scalar(
+        select(BusinessEvent).where(BusinessEvent.event_type == BusinessEventType.party_edited)
+    )
+    assert event is not None
+    assert event.payload["field"] == "direct_reminders_enabled"
+
+
+@pytest.mark.asyncio
+async def test_edit_dealer_direct_reminders_rejects_invalid_value(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+
+    start_edit_dealer_workflow(company)
+    await _send_edit_dealer(db, company, "reminders")
+    await _send_edit_dealer(db, company, "Ram Traders")
+    reply = await _send_edit_dealer(db, company, "maybe")
+    assert "yes" in reply.lower() and "no" in reply.lower()
+    assert company.workflow_scratch["step"] == "awaiting_value"
+
+
+@pytest.mark.asyncio
+async def test_edit_supplier_rejects_direct_reminders_field(db: AsyncSession) -> None:
+    """Direct reminders only exist on Dealer (overdue reminders are
+    dealer-facing) — a supplier edit must never resolve the 'reminders'
+    keyword to a field, same dealer-only guard as marketing above.
+    """
+    company = await _fresh_company(db)
+    supplier = Supplier(company_id=company.id, name="Metro Distributors")
+    db.add(supplier)
+    await db.commit()
+
+    start_edit_supplier_workflow(company)
+    reply = await _send_edit_supplier(db, company, "reminders")
+    assert company.workflow_scratch["step"] == "awaiting_field"  # never advanced
+    assert "phone" in reply.lower()  # re-shown the valid-field list
+
+
+@pytest.mark.asyncio
 async def test_edit_supplier_rejects_marketing_field(db: AsyncSession) -> None:
     """Marketing consent only exists on Dealer — a supplier edit must never
     resolve the 'marketing' keyword to a field, proving the dealer-only
