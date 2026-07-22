@@ -163,6 +163,14 @@ class Settings(BaseSettings):
     # this at all — they're already behind their own auth.
     export_link_secret: str | None = Field(default=None, alias="EXPORT_LINK_SECRET")
     export_link_ttl_minutes: int = Field(default=30, alias="EXPORT_LINK_TTL_MINUTES")
+    # Signs the short-lived capability token the public self-serve onboarding
+    # routes require (see app/services/onboarding_token.py) — without it, any
+    # holder of a company UUID could inject invoices into a real distributor's
+    # books before activation. Optional purely so this is deployable without a
+    # new production env var: unset, it falls back to export_link_secret, which
+    # is already configured wherever export links work. Set it explicitly to
+    # rotate onboarding tokens independently of export links.
+    onboarding_token_secret: str | None = Field(default=None, alias="ONBOARDING_TOKEN_SECRET")
     # The real, dialable public URL of this backend (e.g.
     # https://opsgenie.onrender.com) — needed to build a real clickable link
     # in the WhatsApp export reply. None means the export action still works

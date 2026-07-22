@@ -15,7 +15,9 @@ import uuid
 
 import pytest
 from app.core.config import get_settings
+from app.models.company import Company, OnboardingState
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 RECEIVABLE_CSV = (
     b"invoice_number,direction,party_name,invoice_date,due_date,"
@@ -41,7 +43,12 @@ def _unique_number() -> str:
     return f"+919{uuid.uuid4().int % 1_000_000_000:09d}"
 
 
-async def _register_company(client: AsyncClient) -> str:
+async def _register_company(client: AsyncClient) -> tuple[str, str]:
+    """Register and return (company_id, onboarding_token).
+
+    Both public per-company routes require the token — knowing the UUID is
+    deliberately not enough (app/services/onboarding_token.py).
+    """
     resp = await client.post(
         "/onboard",
         json={
@@ -51,16 +58,17 @@ async def _register_company(client: AsyncClient) -> str:
         },
     )
     assert resp.status_code == 200, resp.text
-    return resp.json()["company_id"]
+    body = resp.json()
+    return body["company_id"], body["onboarding_token"]
 
 
 @pytest.mark.asyncio
 async def test_import_receivable_updates_summary(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -78,16 +86,16 @@ async def test_import_receivable_updates_summary(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_import_both_directions_combines_summary(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
 
     await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
     )
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "payable"},
+        params={"token": token, "direction": "payable"},
         files={"file": ("purchase_register.csv", PAYABLE_CSV, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -102,12 +110,12 @@ async def test_import_both_directions_combines_summary(client: AsyncClient) -> N
 
 @pytest.mark.asyncio
 async def test_import_row_error_surfaced_without_failing_whole_file(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     csv_with_bad_row = RECEIVABLE_CSV.replace(b"5000.00,0.00,5000.00", b"5000.00,0.00,not-a-number")
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("sales_register.csv", csv_with_bad_row, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -133,13 +141,13 @@ async def test_import_already_active_company_returns_404(client: AsyncClient) ->
     at the fresh not_started/not_subscribed point) can't be imported into —
     closes the leaked/guessed-UUID hole against a real, live distributor.
     """
-    company_id = await _register_company(client)
-    activate_resp = await client.post(f"/onboard/{company_id}/activate")
+    company_id, token = await _register_company(client)
+    activate_resp = await client.post(f"/onboard/{company_id}/activate", params={"token": token})
     assert activate_resp.status_code == 200
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("invoices.csv", RECEIVABLE_CSV, "text/csv")},
     )
     assert resp.status_code == 404
@@ -147,13 +155,13 @@ async def test_import_already_active_company_returns_404(client: AsyncClient) ->
 
 @pytest.mark.asyncio
 async def test_import_oversize_file_returns_413(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     # One byte over the 5 MB public-route cap (stricter than the 10 MB
     # founder admin route — see app/api/onboarding.py's _MAX_UPLOAD_BYTES).
     oversize = b"x" * (5 * 1024 * 1024 + 1)
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("huge.csv", oversize, "text/csv")},
     )
     assert resp.status_code == 413
@@ -161,12 +169,12 @@ async def test_import_oversize_file_returns_413(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_import_unrecognised_format_returns_400(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     bad_csv = b"name,age,city\nX,1,Y\n"
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("bad.csv", bad_csv, "text/csv")},
     )
     assert resp.status_code == 400
@@ -174,14 +182,14 @@ async def test_import_unrecognised_format_returns_400(client: AsyncClient) -> No
 
 @pytest.mark.asyncio
 async def test_import_disabled_returns_503(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     settings = get_settings()
     original = settings.onboarding_enabled
     settings.onboarding_enabled = False
     try:
         resp = await client.post(
             f"/onboard/{company_id}/import",
-            params={"direction": "receivable"},
+            params={"token": token, "direction": "receivable"},
             files={"file": ("invoices.csv", RECEIVABLE_CSV, "text/csv")},
         )
         assert resp.status_code == 503
@@ -197,18 +205,18 @@ async def test_import_payments_allocates_against_earlier_invoice(client: AsyncCl
     """file_kind=payments wasn't reachable through the onboarding wizard before
     PDF support landed (the endpoint's file_kind Literal only allowed
     invoices/products) — now it is, same as the admin route."""
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
 
     await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
     )
 
     payments_csv = b"party_name,payment_date,amount\nRam Traders,2026-01-10,5000.00\n"
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "payments", "direction": "receivable"},
+        params={"token": token, "file_kind": "payments", "direction": "receivable"},
         files={"file": ("receipts.csv", payments_csv, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -242,10 +250,10 @@ async def test_import_pdf_invoice_updates_summary(client: AsyncClient) -> None:
         pdf.cell(0, 6, text=line, new_x="LMARGIN", new_y="NEXT")
     contents = bytes(pdf.output())
 
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"direction": "receivable"},
+        params={"token": token, "direction": "receivable"},
         files={"file": ("sale_register.pdf", contents, "application/pdf")},
     )
     assert resp.status_code == 200, resp.text
@@ -259,11 +267,11 @@ async def test_import_pdf_invoice_updates_summary(client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_import_products_updates_summary(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "products"},
+        params={"token": token, "file_kind": "products"},
         files={"file": ("stock.csv", PRODUCT_CSV, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -281,11 +289,11 @@ async def test_import_products_updates_summary(client: AsyncClient) -> None:
 async def test_import_products_no_direction_required(client: AsyncClient) -> None:
     """Unlike file_kind=invoices, direction is optional (and ignored) for
     file_kind=products — products have no receivable/payable concept."""
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "products"},
+        params={"token": token, "file_kind": "products"},
         files={"file": ("stock.csv", PRODUCT_CSV, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -293,11 +301,12 @@ async def test_import_products_no_direction_required(client: AsyncClient) -> Non
 
 @pytest.mark.asyncio
 async def test_import_invoices_without_direction_returns_400(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
         # file_kind defaults to "invoices"; direction omitted.
+        params={"token": token},
         files={"file": ("invoices.csv", RECEIVABLE_CSV, "text/csv")},
     )
     assert resp.status_code == 400
@@ -308,12 +317,12 @@ async def test_import_products_alias_headers_and_missing_fields(client: AsyncCli
     """Header matching is alias-based and case/whitespace-insensitive; missing
     optional fields (price/unit/stock/GST) default sensibly rather than
     failing the row."""
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     csv_bytes = b"Product Name,Cost,Rate\nSoap,20,35\n"
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "products"},
+        params={"token": token, "file_kind": "products"},
         files={"file": ("stock.csv", csv_bytes, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -328,7 +337,7 @@ async def test_import_products_rejects_zero_and_negative_price_row_only(
 ) -> None:
     """A bad price/stock fails only that row — the rest of the file still
     imports (per this importer's per-row SAVEPOINT isolation)."""
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     csv_bytes = (
         b"Name,Purchase Price,Selling Price,Unit,Stock,GST%\n"
         b"Good Product,300,400,kg,100,5\n"
@@ -338,7 +347,7 @@ async def test_import_products_rejects_zero_and_negative_price_row_only(
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "products"},
+        params={"token": token, "file_kind": "products"},
         files={"file": ("stock.csv", csv_bytes, "text/csv")},
     )
     assert resp.status_code == 200, resp.text
@@ -350,12 +359,117 @@ async def test_import_products_rejects_zero_and_negative_price_row_only(
 
 @pytest.mark.asyncio
 async def test_import_products_missing_name_column_returns_400(client: AsyncClient) -> None:
-    company_id = await _register_company(client)
+    company_id, token = await _register_company(client)
     csv_bytes = b"Price,Stock\n400,100\n"
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
-        params={"file_kind": "products"},
+        params={"token": token, "file_kind": "products"},
         files={"file": ("stock.csv", csv_bytes, "text/csv")},
     )
     assert resp.status_code == 400
+
+
+# ── Security: the UUID-oracle chain ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_already_registered_does_not_disclose_company_id_or_token(
+    client: AsyncClient,
+) -> None:
+    """Posting a number that is already registered must reveal nothing.
+
+    Regression: this branch returned the real company_id. A WhatsApp number is
+    public (printed on invoices, encoded in the wa.me link), so anyone could
+    post a real distributor's number, receive their UUID, and use it against
+    /import — writing into their books and reading back their receivable and
+    payable totals, entirely unauthenticated.
+    """
+    number = _unique_number()
+    payload = {
+        "business_name": "Oracle Co",
+        "owner_name": "Owner",
+        "whatsapp_number": number,
+    }
+    first = await client.post("/onboard", json=payload)
+    assert first.status_code == 200
+    assert first.json()["status"] == "registered"
+
+    # An attacker who merely knows the number posts it again.
+    second = await client.post("/onboard", json=payload)
+    assert second.status_code == 200
+    body = second.json()
+    assert body["status"] == "already_registered"
+    assert body["company_id"] is None
+    assert body["onboarding_token"] is None
+
+
+@pytest.mark.asyncio
+async def test_import_without_a_token_is_rejected(client: AsyncClient) -> None:
+    company_id, _token = await _register_company(client)
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"direction": "receivable"},
+        files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_import_with_another_companys_token_is_rejected(client: AsyncClient) -> None:
+    """A token is bound to the company it was issued for."""
+    victim_id, _victim_token = await _register_company(client)
+    _attacker_id, attacker_token = await _register_company(client)
+
+    resp = await client.post(
+        f"/onboard/{victim_id}/import",
+        params={"token": attacker_token, "direction": "receivable"},
+        files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_import_with_a_tampered_token_is_rejected(client: AsyncClient) -> None:
+    company_id, token = await _register_company(client)
+    expiry, _, signature = token.partition(".")
+    tampered = f"{expiry}.{'1' if signature[-1] == '0' else '0'}{signature[1:]}"
+
+    resp = await client.post(
+        f"/onboard/{company_id}/import",
+        params={"token": tampered, "direction": "receivable"},
+        files={"file": ("sales_register.csv", RECEIVABLE_CSV, "text/csv")},
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_activate_without_a_token_is_rejected(client: AsyncClient) -> None:
+    company_id, _token = await _register_company(client)
+    resp = await client.post(f"/onboard/{company_id}/activate")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_deactivated_mid_onboarding_company_cannot_be_reactivated(
+    client: AsyncClient, db: AsyncSession
+) -> None:
+    """The activate gate used to be written inverted.
+
+    It rejected only `completed AND inactive`, so every *other* inactive state
+    passed — meaning a company the founder had suspended part-way through
+    onboarding could be switched back on through this public route, re-enabling
+    its WhatsApp agent and firing a billable Meta welcome template.
+    """
+    company_id, token = await _register_company(client)
+    company = await db.get(Company, uuid.UUID(company_id))
+    company.onboarding_state = OnboardingState.product_awaiting_name
+    company.subscription_active = False
+    await db.commit()
+
+    resp = await client.post(f"/onboard/{company_id}/activate", params={"token": token})
+    assert resp.status_code == 404
+
+    await db.refresh(company)
+    assert company.subscription_active is False

@@ -41,6 +41,10 @@ from app.services.onboarding import (
     onboard_company,
     summarize_business_data,
 )
+from app.services.onboarding_token import (
+    generate_onboarding_token,
+    verify_onboarding_token,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,13 +59,31 @@ router = APIRouter(tags=["onboarding"])
 _MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
+def _require_onboarding_token(company_id: uuid.UUID, token: str | None) -> None:
+    """Both public per-company routes need proof the caller is the one who
+    registered this company, not merely someone who knows its UUID.
+
+    404 rather than 401 on purpose: it matches what these routes already
+    return for an unknown/ineligible company, so a caller can't use the status
+    code to distinguish "this company exists but you have no token" from "no
+    such company" — which is exactly the oracle this token closes.
+    """
+    if not verify_onboarding_token(company_id, token):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Company {company_id} not found.",
+        )
+
+
 async def _get_importable_company(company_id: uuid.UUID, db: AsyncSession) -> Company:
     """A company is only importable through this public route while it's
     still exactly where the self-serve wizard leaves it before WhatsApp
-    starts: registered (not_started) and not yet subscribed. Same
-    belt-and-suspenders shape as the activate route below — without it, any
-    leaked/guessed UUID could be used to inject junk invoices into a real,
-    already-active distributor's live books after go-live.
+    starts: registered (not_started) and not yet subscribed. Paired with the
+    onboarding-token check at the call site — the state gate bounds the window
+    in which this route works at all, the token bounds *who* can use it, and
+    neither alone is sufficient: without the token, any leaked/guessed UUID
+    could inject junk invoices into a real distributor's books during that
+    window.
     """
     company = await db.get(Company, company_id)
     if (
@@ -123,14 +145,25 @@ async def submit_onboarding(
         return OnboardResponse(
             status="registered",
             company_id=company.id,
+            onboarding_token=generate_onboarding_token(company.id),
             whatsapp_number=company.whatsapp_number,
             message=message,
         )
+    # Deliberately no company_id and no token on this branch. A WhatsApp
+    # number is public information (printed on invoices, encoded in the wa.me
+    # link), so returning the id here turned this endpoint into an oracle:
+    # post a real distributor's number, get their UUID, then use it against
+    # /import — which writes into their books and echoes back their real
+    # receivable/payable totals. Someone resuming their *own* signup re-runs
+    # the wizard and gets a fresh token on a new registration; someone probing
+    # a number they don't control learns nothing.
     return OnboardResponse(
         status="already_registered",
-        company_id=company.id,
         whatsapp_number=company.whatsapp_number,
-        message="This number is already registered with us.",
+        message=(
+            "This number is already registered with us. "
+            "Check your WhatsApp to continue setting up, or contact us for help."
+        ),
     )
 
 
@@ -165,6 +198,10 @@ async def import_onboarding_data(
         "Required unless file_kind=products.",
     ),
     file: UploadFile = File(...),
+    token: str | None = Query(
+        None,
+        description="The onboarding_token returned when this company was registered.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> OnboardImportResponse:
     settings = get_settings()
@@ -173,6 +210,7 @@ async def import_onboarding_data(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Onboarding is not available right now.",
         )
+    _require_onboarding_token(company_id, token)
     company = await _get_importable_company(company_id, db)
     if file_kind != "products" and direction is None:
         raise HTTPException(
@@ -234,6 +272,10 @@ async def import_onboarding_data(
 )
 async def activate_onboarded_company(
     company_id: uuid.UUID,
+    token: str | None = Query(
+        None,
+        description="The onboarding_token returned when this company was registered.",
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> SubscriptionResponse:
     settings = get_settings()
@@ -242,17 +284,31 @@ async def activate_onboarded_company(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Onboarding is not available right now.",
         )
+    _require_onboarding_token(company_id, token)
     company = await db.get(Company, company_id)
-    # Only companies that actually came through self-serve onboarding are
-    # activatable here — narrows the blast radius of "any unguessable UUID"
-    # beyond just the kill-switch, so a founder-created company's id leaking
-    # through some other channel can't be self-activated through this route.
-    if company is None or (
-        company.onboarding_state == OnboardingState.completed and not company.subscription_active
-    ):
+    if company is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail=f"Company {company_id} not found."
         )
+    # An already-active company is a no-op, not a rejection: the wizard's
+    # Activate button can be double-clicked or retried, and the caller has
+    # already proved (via the token) that this is their own registration.
+    # activate_company itself is idempotent and returns "already_active".
+    if not company.subscription_active:
+        # Otherwise only a company still sitting where the self-serve wizard
+        # leaves it may be activated: freshly registered (not_started).
+        #
+        # The previous condition was written inverted — it rejected only
+        # `completed AND inactive`, so every *other* inactive state passed. A
+        # company the founder had deactivated mid-onboarding could therefore
+        # be switched back on through this public route, re-enabling the
+        # WhatsApp agent for a suspended tenant and firing a billable Meta
+        # welcome template. This now matches _get_importable_company's gate,
+        # which is what the comment always claimed it did.
+        if company.onboarding_state != OnboardingState.not_started:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"Company {company_id} not found."
+            )
     status_, welcome_sent = await activate_company(db, company)
     return SubscriptionResponse(
         company_id=company.id,
