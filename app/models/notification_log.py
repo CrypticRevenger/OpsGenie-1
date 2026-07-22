@@ -44,6 +44,16 @@ class NotificationLog(UUIDMixin, Base):
     # Meta's "wamid" for this send (Phase 8) — the correlation key a later
     # whatsapp_status_received webhook uses to update delivery_status above.
     whatsapp_message_id: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
+    # Groups the rows written by one multi-recipient send (today: a marketing
+    # broadcast, keyed by its PendingOperation id). That id survives a Meta
+    # webhook redelivery — the redelivery happens precisely because the
+    # PendingOperation delete was never committed — so it is what lets
+    # writes/broadcast.py resume a partially-completed send instead of
+    # messaging every dealer a second time. NULL for every single-recipient
+    # notification.
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), nullable=True, index=True
+    )
 
     # ── Relationships ────────────────────────────────────────────────────────
     company: Mapped[Company] = relationship("Company", back_populates="notification_logs")

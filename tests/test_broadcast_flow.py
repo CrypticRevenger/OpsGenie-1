@@ -29,6 +29,7 @@ from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, Invoice
 from app.models.notification_log import NotificationLog
 from app.models.pending_operation import PendingOperation
 from app.services.whatsapp_client import WhatsAppSendResult
+from app.services.writes.broadcast import send_broadcast
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -493,3 +494,101 @@ async def test_opt_in_all_dealers_bulk_flow(db: AsyncSession, monkeypatch) -> No
     await db.refresh(d2)
     assert d1.marketing_opt_in is True
     assert d2.marketing_opt_in is True
+
+
+@pytest.mark.asyncio
+async def test_redelivered_confirmation_resumes_instead_of_rebroadcasting(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A crash mid-broadcast must resume, never re-blast the dealer network.
+
+    Regression: send_broadcast commits after every recipient (so the audit
+    trail survives), but the PendingOperation delete and the webhook's reply
+    event commit only at the end of the request. If that final commit failed,
+    Meta redelivered the inbound "YES", the still-present PendingOperation
+    re-executed, and every dealer received the marketing message a second
+    time. batch_id (the PendingOperation id, stable across exactly that
+    redelivery) is the resume marker.
+
+    Asserted order-independently: resolve_broadcast_recipients has no ORDER BY,
+    so which dealer the simulated crash lands on is not fixed. The property
+    that must hold either way is "each dealer is messaged exactly once across
+    both attempts".
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    dealers = [
+        await _make_dealer(
+            db, company_id, f"Dealer {i}", phone=_unique_phone(), marketing_opt_in=True
+        )
+        for i in range(3)
+    ]
+    for dealer in dealers:
+        db.add(
+            BusinessEvent(
+                company_id=company_id,
+                event_type=BusinessEventType.whatsapp_message_received,
+                entity_type="company",
+                entity_id=company_id,
+                payload={"from": dealer.phone},
+                created_by="test",
+                created_at=datetime.now(UTC) - timedelta(hours=1),
+            )
+        )
+    await db.commit()
+
+    company = await db.get(Company, company_id)
+    batch_id = uuid.uuid4()  # stands in for the PendingOperation id
+    # Capture as plain strings: the rollback below expires every ORM instance.
+    dealer_phones = [d.phone for d in dealers]
+    crash_on = dealer_phones[1]
+    attempt_one: list[str] = []
+
+    async def _crashing_sender(to: str, body: str) -> WhatsAppSendResult:
+        if to == crash_on:
+            raise RuntimeError("connection dropped mid-broadcast")
+        attempt_one.append(to)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.writes.broadcast.send_text_message", _crashing_sender)
+    with pytest.raises(RuntimeError):
+        await send_broadcast(
+            db, company, segment="all", dealer_ids=[], message="Sale!", batch_id=batch_id
+        )
+    await db.rollback()
+    # A real redelivery arrives as a fresh request with a fresh session and a
+    # freshly-loaded Company; re-fetch so this test doesn't read the instance
+    # the rollback just expired.
+    company = await db.get(Company, company_id)
+
+    # Meta redelivers the same "YES"; the PendingOperation (and so batch_id)
+    # is unchanged because its delete never committed.
+    attempt_two: list[str] = []
+
+    async def _working_sender(to: str, body: str) -> WhatsAppSendResult:
+        attempt_two.append(to)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.writes.broadcast.send_text_message", _working_sender)
+    await send_broadcast(
+        db, company, segment="all", dealer_ids=[], message="Sale!", batch_id=batch_id
+    )
+
+    all_messaged = attempt_one + attempt_two
+    assert sorted(all_messaged) == sorted(dealer_phones), (
+        "every dealer should be reached exactly once across the two attempts"
+    )
+    assert len(all_messaged) == len(set(all_messaged)), (
+        f"a dealer was messaged twice by the resumed broadcast: {all_messaged}"
+    )
+
+    logs = (
+        (
+            await db.execute(
+                select(NotificationLog).where(NotificationLog.batch_id == batch_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(logs) == 3
