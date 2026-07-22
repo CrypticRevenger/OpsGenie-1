@@ -6,6 +6,12 @@ already computed (no re-derivation, no DB access) and a Company for
 business-identity fields, returns raw PDF bytes. Callers (currently
 app/services/invoice_delivery.py) own uploading/sending it.
 
+Layout is a branded letterhead-style invoice (company block + "INVOICE"
+title + amount-due badge, Bill To + dates, a dark-header item table, a
+totals block with a highlighted Total row, and a footer disclaimer) using
+OpsGenie's own brand palette (the same emerald/dark-green tokens as the
+marketing site and dashboard CSS) rather than a bare text dump.
+
 **Unicode rendering (multilingual):** when the bundled Noto fonts are present
 under app/assets/fonts/, the PDF uses NotoSans for Latin/₹ and switches to
 Noto Sans Devanagari / Oriya per field for regional-script dealer/product/
@@ -43,66 +49,226 @@ from app.services.reports.pdf_common import rs as _rs
 from app.services.reports.pdf_common import try_load_unicode_fonts as _try_load_unicode_fonts
 from app.services.writes.orders import CreateOrderResult
 
+# OpsGenie brand palette (same hex tokens as app/static/css/*.css's --brand
+# custom properties) — kept as one RGB source here so the invoice never
+# drifts from the site/dashboard's colors.
+_BRAND_DARK = (6, 78, 59)  # #064e3b
+_BRAND = (16, 185, 129)  # #10b981
+_BRAND_TINT = (220, 252, 231)  # light emerald wash, for row striping / the Total row
+_GRAY_TEXT = (107, 114, 128)  # #6b7280 — secondary text (address, dates)
+_GRAY_LINE = (229, 231, 235)  # #e5e7eb — hairline rules
+_INK = (17, 24, 39)  # #111827 — body text
+_WHITE = (255, 255, 255)
+
+_MARGIN = 15
+_PAGE_WIDTH = 210
+_USABLE_WIDTH = _PAGE_WIDTH - 2 * _MARGIN  # 180mm
+
+_COL_WIDTHS = (8, 68, 14, 24, 26, 14, 26)  # #, Item, Qty, Rate, Line Total, GST%, GST Amt
+_COL_HEADERS = ("#", "Item", "Qty", "Rate", "Line Total", "GST%", "GST Amt")
+_COL_ALIGN = ("L", "L", "R", "R", "R", "R", "R")
+
+
+def _fit_to_width(pdf: FPDF, text: str, max_width: float) -> str:
+    """Truncate `text` with a trailing "..." so it fits within `max_width` at
+    whatever font/size is currently set on `pdf` — fpdf2's cell() doesn't wrap
+    or shrink text to fit, so an unusually long product/dealer/business name
+    would otherwise silently overlap whatever comes after it (a real product
+    name like "Amoxicillin 500mg Veterinary Capsules (Strip of 10)" collided
+    with the Qty column before this existed) instead of just being cut off
+    cleanly. ASCII "..." rather than "…" so this degrades safely under the
+    core-Helvetica/Latin-1 fallback path too. Must be called after the target
+    font/size is already set on `pdf` — width measurement depends on it.
+    """
+    if pdf.get_string_width(text) <= max_width:
+        return text
+    truncated = text
+    while truncated and pdf.get_string_width(truncated + "...") > max_width:
+        truncated = truncated[:-1]
+    return f"{truncated}..." if truncated else "..."
+
 
 def generate_invoice_pdf(company: Company, result: CreateOrderResult) -> bytes:
     pdf = FPDF(format="A4")
+    pdf.set_margins(_MARGIN, _MARGIN, _MARGIN)
+    pdf.set_auto_page_break(auto=True, margin=_MARGIN)
     pdf.add_page()
 
     unicode_ok = _try_load_unicode_fonts(pdf)
+    latin = _BASE_FONT if unicode_ok else "Helvetica"
 
     def money(amount: Decimal) -> str:
         return format_inr(amount) if unicode_ok else _rs(amount)
 
-    def line(text: str, *, size: int, style: str = "", height: float = 6, align: str = "") -> None:
-        """A full-width line whose font follows the text's script (names) or
-        stays Latin (labels/amounts)."""
+    def styled_cell(
+        text: str,
+        *,
+        x: float,
+        w: float,
+        size: int,
+        style: str = "",
+        height: float = 6,
+        align: str = "L",
+        color: tuple[int, int, int] = _INK,
+        script_aware: bool = False,
+        fill: tuple[int, int, int] | None = None,
+    ) -> None:
+        """One cell of a manually-positioned two-column block: stays at `x`
+        (so repeated calls build a vertical column) and advances y by
+        `height`. `script_aware` selects a regional-script font for names
+        (business/dealer/product); everything else stays on the Latin/base
+        font, matching this module's existing per-cell rendering contract.
+        """
         render = text if unicode_ok else _latin1(text)
-        pdf.set_font(_font_for(text, unicode_ok=unicode_ok), style, size)
-        pdf.cell(0, height, render, new_x="LMARGIN", new_y="NEXT", align=align)
+        font = _font_for(text, unicode_ok=unicode_ok) if script_aware else latin
+        pdf.set_xy(x, pdf.get_y())
+        pdf.set_font(font, style, size)
+        render = _fit_to_width(pdf, render, w - 2)
+        pdf.set_text_color(*color)
+        if fill is not None:
+            pdf.set_fill_color(*fill)
+        pdf.cell(w, height, render, align=align, fill=fill is not None, new_x="LEFT", new_y="NEXT")
 
-    line(company.business_name, size=16, style="B", height=10)
+    # ── Header: business identity (left) + INVOICE title/amount due (right) ──
+    left_x, left_w = _MARGIN, 110
+    right_x, right_w = _MARGIN + 110, _USABLE_WIDTH - 110
+    top_y = pdf.get_y()
+
+    pdf.set_y(top_y)
+    styled_cell(
+        company.business_name, x=left_x, w=left_w, size=17, style="B", height=8,
+        color=_BRAND_DARK, script_aware=True,
+    )
     if company.gst_number:
-        line(f"GSTIN: {company.gst_number}", size=10)
-    pdf.ln(4)
+        styled_cell(f"GSTIN: {company.gst_number}", x=left_x, w=left_w, size=9, color=_GRAY_TEXT)
+    if company.city:
+        styled_cell(company.city, x=left_x, w=left_w, size=9, color=_GRAY_TEXT, script_aware=True)
+    styled_cell(company.whatsapp_number, x=left_x, w=left_w, size=9, color=_GRAY_TEXT)
+    left_bottom_y = pdf.get_y()
 
-    line(f"Invoice {result.invoice_number}", size=13, style="B", height=8)
-    line(f"Invoice date: {result.invoice_date.isoformat()}", size=10)
-    line(f"Due date: {result.due_date.isoformat()}", size=10)
-    pdf.ln(4)
+    pdf.set_y(top_y)
+    styled_cell(
+        "INVOICE", x=right_x, w=right_w, size=20, style="B", height=9,
+        align="R", color=_BRAND_DARK,
+    )
+    styled_cell(
+        f"# {result.invoice_number}", x=right_x, w=right_w, size=11, style="B",
+        height=6, align="R", color=_INK,
+    )
+    pdf.ln(3)
+    styled_cell(
+        "AMOUNT DUE", x=right_x, w=right_w, size=8, style="B", height=6,
+        align="C", color=_WHITE, fill=_BRAND,
+    )
+    styled_cell(
+        money(result.total_amount), x=right_x, w=right_w, size=14, style="B",
+        height=9, align="C", color=_WHITE, fill=_BRAND,
+    )
+    right_bottom_y = pdf.get_y()
 
-    line("Bill To", size=11, style="B")
-    line(result.dealer_name, size=10)
-    if result.dealer_phone:
-        line(result.dealer_phone, size=10)
+    pdf.set_y(max(left_bottom_y, right_bottom_y) + 3)
+    pdf.set_draw_color(*_BRAND)
+    pdf.set_line_width(0.6)
+    pdf.line(_MARGIN, pdf.get_y(), _PAGE_WIDTH - _MARGIN, pdf.get_y())
     pdf.ln(6)
 
-    col_widths = (58, 16, 26, 28, 16, 30)
-    headers = ("Item", "Qty", "Unit Price", "Line Total", "GST%", "GST Amt")
-    pdf.set_font(_BASE_FONT if unicode_ok else "Helvetica", "B", 10)
-    for header, width in zip(headers, col_widths, strict=True):
-        pdf.cell(width, 8, header, border="B")
-    pdf.ln()
+    # ── Bill To (left) + Invoice/Due dates (right) ──────────────────────────
+    top_y = pdf.get_y()
 
-    latin = _BASE_FONT if unicode_ok else "Helvetica"
-    for item in result.lines:
-        product = item.product_name if unicode_ok else _latin1(item.product_name)
-        pdf.set_font(_font_for(item.product_name, unicode_ok=unicode_ok), "", 10)
-        pdf.cell(col_widths[0], 8, product)
-        pdf.set_font(latin, "", 10)  # numeric columns are always ASCII/₹
-        pdf.cell(col_widths[1], 8, str(item.quantity))
-        pdf.cell(col_widths[2], 8, money(item.unit_price))
-        pdf.cell(col_widths[3], 8, money(item.line_total))
-        pdf.cell(col_widths[4], 8, f"{item.gst_rate}%")
-        pdf.cell(col_widths[5], 8, money(item.gst_amount))
-        pdf.ln()
+    pdf.set_y(top_y)
+    styled_cell("Bill To", x=left_x, w=left_w, size=10, style="B", color=_BRAND_DARK)
+    styled_cell(result.dealer_name, x=left_x, w=left_w, size=10, script_aware=True)
+    if result.dealer_phone:
+        styled_cell(result.dealer_phone, x=left_x, w=left_w, size=9, color=_GRAY_TEXT)
+    left_bottom_y = pdf.get_y()
+
+    pdf.set_y(top_y)
+    styled_cell(
+        f"Invoice Date: {result.invoice_date.isoformat()}", x=right_x, w=right_w,
+        size=9, align="R",
+    )
+    styled_cell(
+        f"Due Date: {result.due_date.isoformat()}", x=right_x, w=right_w, size=9, align="R",
+    )
+    right_bottom_y = pdf.get_y()
+
+    pdf.set_y(max(left_bottom_y, right_bottom_y) + 6)
+
+    # ── Item table ───────────────────────────────────────────────────────────
+    pdf.set_x(_MARGIN)
+    pdf.set_fill_color(*_BRAND_DARK)
+    pdf.set_text_color(*_WHITE)
+    pdf.set_font(latin, "B", 9)
+    for header, width, align in zip(_COL_HEADERS, _COL_WIDTHS, _COL_ALIGN, strict=True):
+        pdf.cell(width, 8, header, align=align, fill=True)
+    pdf.ln(8)
+    pdf.set_text_color(*_INK)
+
+    for idx, item in enumerate(result.lines, start=1):
+        pdf.set_x(_MARGIN)
+        striped = idx % 2 == 0
+        if striped:
+            pdf.set_fill_color(*_BRAND_TINT)
+        row_cells = (
+            str(idx),
+            item.product_name,
+            str(item.quantity),
+            money(item.unit_price),
+            money(item.line_total),
+            f"{item.gst_rate}%",
+            money(item.gst_amount),
+        )
+        for col_idx, (text, width, align) in enumerate(
+            zip(row_cells, _COL_WIDTHS, _COL_ALIGN, strict=True)
+        ):
+            script_aware = col_idx == 1  # the "Item" column only
+            render = text if unicode_ok else _latin1(text)
+            pdf.set_font(_font_for(text, unicode_ok=unicode_ok) if script_aware else latin, "", 9)
+            if col_idx == 1:
+                render = _fit_to_width(pdf, render, width - 2)
+            pdf.cell(width, 7, render, align=align, fill=striped)
+        pdf.ln(7)
     pdf.ln(4)
 
-    pdf.set_font(latin, "", 10)
-    pdf.cell(0, 6, f"Subtotal: {money(result.subtotal)}", new_x="LMARGIN", new_y="NEXT", align="R")
+    # ── Totals ───────────────────────────────────────────────────────────────
+    totals_w = 70
+    totals_x = _PAGE_WIDTH - _MARGIN - totals_w
+    label_w, value_w = 40, 30
+
+    def totals_row(
+        label: str, value: str, *, bold: bool = False, tint: bool = False, size: int = 10
+    ) -> None:
+        pdf.set_x(totals_x)
+        pdf.set_font(latin, "B" if bold else "", size)
+        pdf.set_text_color(*(_BRAND_DARK if bold else _INK))
+        if tint:
+            pdf.set_fill_color(*_BRAND_TINT)
+        pdf.cell(label_w, 8 if bold else 7, label, align="R", fill=tint, new_x="RIGHT", new_y="TOP")
+        pdf.cell(
+            value_w, 8 if bold else 7, value, align="R", fill=tint, new_x="LMARGIN", new_y="NEXT"
+        )
+        pdf.set_text_color(*_INK)
+
+    totals_row("Subtotal", money(result.subtotal))
     # No single "(X%)" label here — lines can carry different GST rates (see
     # the per-line GST% column above), so a lone percentage would mislead.
-    pdf.cell(0, 6, f"GST: {money(result.gst_amount)}", new_x="LMARGIN", new_y="NEXT", align="R")
-    pdf.set_font(latin, "B", 12)
-    pdf.cell(0, 8, f"Total: {money(result.total_amount)}", new_x="LMARGIN", new_y="NEXT", align="R")
+    totals_row("GST", money(result.gst_amount))
+    totals_row("Total", money(result.total_amount), bold=True, tint=True, size=12)
+    pdf.ln(8)
+
+    # ── Footer ───────────────────────────────────────────────────────────────
+    pdf.set_draw_color(*_GRAY_LINE)
+    pdf.set_line_width(0.2)
+    pdf.line(_MARGIN, pdf.get_y(), _PAGE_WIDTH - _MARGIN, pdf.get_y())
+    pdf.ln(3)
+    # Not "I" (italic) — only regular/bold weights are registered for the
+    # bundled Noto fonts (see pdf_common._FONT_FILES); an italic request
+    # against an unregistered style raises FPDFException.
+    pdf.set_font(latin, "", 8)
+    pdf.set_text_color(*_GRAY_TEXT)
+    pdf.cell(
+        0, 5, "This is a computer-generated invoice, generated by OpsGenie.",
+        align="C", new_x="LMARGIN", new_y="NEXT",
+    )
 
     return bytes(pdf.output())

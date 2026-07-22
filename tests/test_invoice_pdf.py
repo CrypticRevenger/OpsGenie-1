@@ -51,14 +51,24 @@ def _result(*, dealer_name: str, product_name: str) -> CreateOrderResult:
 
 
 def test_pdf_renders_ascii_names() -> None:
-    company = SimpleNamespace(business_name="AP BIOCARE", gst_number="21ABCDE1234F1Z5")
+    company = SimpleNamespace(
+        business_name="AP BIOCARE",
+        gst_number="21ABCDE1234F1Z5",
+        city="Berhampur",
+        whatsapp_number="+919876500000",
+    )
     out = generate_invoice_pdf(company, _result(dealer_name="Ram Traders", product_name="Rice"))
     assert out[:4] == b"%PDF"
 
 
 def test_pdf_does_not_raise_on_devanagari_and_odia_names() -> None:
     # Hindi business/product name + Odia dealer name — all outside Latin-1.
-    company = SimpleNamespace(business_name="श्री बायोकेयर", gst_number="21ABCDE1234F1Z5")
+    company = SimpleNamespace(
+        business_name="श्री बायोकेयर",
+        gst_number="21ABCDE1234F1Z5",
+        city="Bhubaneswar",
+        whatsapp_number="+919876500000",
+    )
     out = generate_invoice_pdf(
         company,
         _result(dealer_name="ଶ୍ରୀ ଟ୍ରେଡର୍ସ", product_name="ଚାଉଳ (Rice)"),
@@ -72,7 +82,12 @@ def test_pdf_embeds_unicode_fonts_for_regional_names(caplog) -> None:
     product names embed the Unicode font (not the core Helvetica fallback) and
     every glyph resolves — per-cell script selection must leave nothing unrendered.
     """
-    company = SimpleNamespace(business_name="श्री बायोकेयर", gst_number="21ABCDE1234F1Z5")
+    company = SimpleNamespace(
+        business_name="श्री बायोकेयर",
+        gst_number="21ABCDE1234F1Z5",
+        city="Bhubaneswar",
+        whatsapp_number="+919876500000",
+    )
     with caplog.at_level(logging.WARNING, logger="fpdf"):
         out = generate_invoice_pdf(
             company, _result(dealer_name="ଶ୍ରୀ ଟ୍ରେଡର୍ସ", product_name="ଚାଉଳ")
@@ -94,7 +109,12 @@ def test_pdf_falls_back_to_core_font_when_bundled_fonts_absent(monkeypatch, tmp_
     # function, not the constant) — patch it where try_load_unicode_fonts
     # actually reads it from.
     monkeypatch.setattr(pdf_common, "_FONT_DIR", tmp_path)  # empty dir → no fonts load
-    company = SimpleNamespace(business_name="श्री बायोकेयर", gst_number="21ABCDE1234F1Z5")
+    company = SimpleNamespace(
+        business_name="श्री बायोकेयर",
+        gst_number="21ABCDE1234F1Z5",
+        city="Bhubaneswar",
+        whatsapp_number="+919876500000",
+    )
     out = generate_invoice_pdf(company, _result(dealer_name="ଶ୍ରୀ", product_name="ଚାଉଳ"))
     assert out[:4] == b"%PDF"
     assert b"Helvetica" in out
