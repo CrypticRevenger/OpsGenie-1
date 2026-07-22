@@ -80,6 +80,7 @@ _HELP_TEXT = """*OpsGenie Help*
 • day book — ଏହି ମାସର ସବୁ invoice ଓ payment, ଏକ ତାଲିକାରେ
 • outstanding report (କିମ୍ବା aging report) — 0-30/31-60/61-90/90+ ଦିନ bucket, Excel + PDF
 • trend report (କିମ୍ବା business trends) — ସପ୍ତାହ-ଅନୁସାରେ cash, ଡିଲର ଓ ପ୍ରଡକ୍ଟ trends, Excel
+• delivery status — ଆପଣ ପଠାଇଥିବା invoice ଓ broadcast ର Meta delivery/read ଷ୍ଟାଟସ୍
 
 *Marketing*
 • broadcast (କିମ୍ବା /broadcast) — opted-in ଡିଲରମାନଙ୍କୁ message (all, overdue, କିମ୍ବା ନାମ ଦ୍ୱାରା)
@@ -232,6 +233,18 @@ MESSAGES: dict[str, str] = {
     "reports.trend.product_rising_line": "▲ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.product_falling_line": "▼ {name} — units {unit_delta}, revenue {revenue_delta}",
     "reports.trend.full_detail_link": "ପ୍ରତି ଡିଲର ଓ ପ୍ରଡକ୍ଟ (Excel, {ttl} min valid): {link}",
+    # ── Delivery/read status ("delivery status") ────────────────────────────
+    "reports.delivery_status.header": "📨 ଡେଲିଭରି ଷ୍ଟାଟସ୍",
+    "reports.delivery_status.none": "ଏପର୍ଯ୍ୟନ୍ତ କୌଣସି invoice କିମ୍ବା broadcast ଡିଲରମାନଙ୍କୁ ପଠାଯାଇ ନାହିଁ।",
+    "reports.delivery_status.line": "{label} ({when}): {counts}",
+    "reports.delivery_status.invoice_label": "{invoice} → {party}",
+    "reports.delivery_status.broadcast_label": "Broadcast — {count} ଡିଲର",
+    "reports.delivery_status.count_part": "{count} {status}",
+    "reports.delivery_status.status.sent": "ସେଣ୍ଟ",
+    "reports.delivery_status.status.delivered": "ଡେଲିଭର୍ଡ",
+    "reports.delivery_status.status.read": "ରିଡ୍",
+    "reports.delivery_status.status.failed": "ଫେଲ୍ଡ",
+    "reports.delivery_status.status.failed_to_send": "ପଠାଯାଇ ନାହିଁ",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
     # ── Onboarding ─────────────────────────────────────────────────────────
@@ -581,6 +594,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ ଦିନ ବକେଟ",
     "menu.row.trend_report.title": "Business Trends",
     "menu.row.trend_report.desc": "ସପ୍ତାହ ଓ ମାସ ଅନୁସାରେ, ଡିଲର, ପ୍ରଡକ୍ଟ",
+    "menu.row.delivery_status.title": "ଡେଲିଭରି ଷ୍ଟାଟସ୍",
+    "menu.row.delivery_status.desc": "ଇନଭଏସ୍ ଓ ବ୍ରଡକାଷ୍ଟର ଡେଲିଭରି/ରିଡ୍ ଷ୍ଟାଟସ୍",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "ଏବେ record କରିଥିବା payment void କରନ୍ତୁ",
     "menu.row.undo_order.title": "Undo Order",

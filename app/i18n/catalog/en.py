@@ -82,6 +82,7 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • day book — every invoice and payment this month, in one list
 • outstanding report (or aging report) — 0-30/31-60/61-90/90+ day buckets, Excel + PDF
 • trend report (or business trends) — week-over-week cash, dealer & product trends, Excel
+• delivery status — Meta delivery/read status for invoices & broadcasts you've sent
 
 *Marketing*
 • broadcast (or /broadcast) — send a message to opted-in dealers (all, overdue, or picked by name)
@@ -244,6 +245,18 @@ MESSAGES: dict[str, str] = {
     "reports.trend.full_detail_link": (
         "Every dealer & product (Excel, valid {ttl} min): {link}"
     ),
+    # ── Delivery/read status ("delivery status") ────────────────────────────
+    "reports.delivery_status.header": "📨 Delivery Status",
+    "reports.delivery_status.none": "No invoices or broadcasts sent to dealers yet.",
+    "reports.delivery_status.line": "{label} ({when}): {counts}",
+    "reports.delivery_status.invoice_label": "{invoice} → {party}",
+    "reports.delivery_status.broadcast_label": "Broadcast — {count} dealers",
+    "reports.delivery_status.count_part": "{count} {status}",
+    "reports.delivery_status.status.sent": "sent",
+    "reports.delivery_status.status.delivered": "delivered",
+    "reports.delivery_status.status.read": "read",
+    "reports.delivery_status.status.failed": "failed",
+    "reports.delivery_status.status.failed_to_send": "not sent",
     # ── Help text (single block; command keywords stay English triggers) ───
     "menu.help_text": _HELP_TEXT_EN,
     # ── Onboarding: guided business setup (shown after language is chosen) ──
@@ -634,6 +647,8 @@ MESSAGES: dict[str, str] = {
     "menu.row.outstanding_report.desc": "0-30/31-60/61-90/90+ day buckets",
     "menu.row.trend_report.title": "Business Trends",
     "menu.row.trend_report.desc": "Week & month over month, dealers, products",
+    "menu.row.delivery_status.title": "Delivery Status",
+    "menu.row.delivery_status.desc": "Delivery/read status for invoices & broadcasts",
     "menu.row.undo_payment.title": "Undo Payment",
     "menu.row.undo_payment.desc": "Void the payment you just recorded",
     "menu.row.undo_order.title": "Undo Order",

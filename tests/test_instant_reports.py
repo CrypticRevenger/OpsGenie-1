@@ -13,7 +13,7 @@ tests/test_webhooks_whatsapp.py instead of repeating per command here.
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -21,6 +21,7 @@ from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.faq import FAQ
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
+from app.models.notification_log import NotificationLog
 from app.models.payment import Payment, PaymentSource
 from app.models.product import Product
 from app.models.supplier import Supplier
@@ -559,3 +560,120 @@ async def test_trend_report_reply_shows_rising_dealer_and_cash_headline(db: Asyn
     assert "Rising Traders" in reply
     assert "Dealer Trend" in reply
     assert "Cash Trend" in reply
+
+
+# ── delivery_status_reply ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_empty_state(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    reply = await instant_reports.delivery_status_reply(db, company)
+    assert "no invoices or broadcasts" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_shows_invoice_send_with_dealer_name(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders", phone="9876543210")
+    db.add(dealer)
+    await db.flush()
+    db.add(
+        NotificationLog(
+            company_id=company.id,
+            notification_type="invoice_document",
+            recipient_whatsapp=dealer.phone,
+            message_text="Invoice INV-000123 PDF",
+            whatsapp_message_id="wamid.abc",
+            delivery_status="read",
+            sent_at=datetime.now(UTC),
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.delivery_status_reply(db, company)
+    assert "Invoice INV-000123" in reply
+    assert "Ram Traders" in reply
+    assert "read" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_groups_broadcast_by_message_text(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    now = datetime.now(UTC)
+    statuses = ["delivered", "delivered", "sent"]
+    for i, delivery_status in enumerate(statuses):
+        db.add(
+            NotificationLog(
+                company_id=company.id,
+                notification_type="marketing_broadcast",
+                recipient_whatsapp=f"98765432{i:02d}",
+                message_text="Diwali offer — 10% off this week!",
+                whatsapp_message_id=f"wamid.broadcast{i}",
+                delivery_status=delivery_status,
+                sent_at=now,
+            )
+        )
+    await db.commit()
+
+    reply = await instant_reports.delivery_status_reply(db, company)
+    assert "Broadcast" in reply
+    assert "3 dealers" in reply
+    assert "2 delivered" in reply
+    assert "1 sent" in reply
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_ignores_other_notification_types(db: AsyncSession) -> None:
+    """follow_up_sent/supplier_payment_reminder/etc. are automated nudges to
+    the distributor themselves, not a message they explicitly triggered to a
+    dealer/supplier — must never show up here.
+    """
+    company = await _fresh_company(db)
+    db.add(
+        NotificationLog(
+            company_id=company.id,
+            notification_type="follow_up_sent",
+            recipient_whatsapp=company.whatsapp_number,
+            message_text="Reminder: follow up with a dealer",
+            delivery_status="sent",
+            sent_at=datetime.now(UTC),
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.delivery_status_reply(db, company)
+    assert "no invoices or broadcasts" in reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_orders_most_recent_batch_first(db: AsyncSession) -> None:
+    company = await _fresh_company(db)
+    dealer = Dealer(company_id=company.id, name="Old Traders", phone="9111111111")
+    db.add(dealer)
+    await db.flush()
+    now = datetime.now(UTC)
+    db.add(
+        NotificationLog(
+            company_id=company.id,
+            notification_type="invoice_document",
+            recipient_whatsapp=dealer.phone,
+            message_text="Invoice INV-OLD PDF",
+            delivery_status="delivered",
+            sent_at=now - timedelta(days=2),
+        )
+    )
+    db.add(
+        NotificationLog(
+            company_id=company.id,
+            notification_type="invoice_document",
+            recipient_whatsapp=dealer.phone,
+            message_text="Invoice INV-NEW PDF",
+            delivery_status="sent",
+            sent_at=now,
+        )
+    )
+    await db.commit()
+
+    reply = await instant_reports.delivery_status_reply(db, company)
+    assert reply.index("INV-NEW") < reply.index("INV-OLD")

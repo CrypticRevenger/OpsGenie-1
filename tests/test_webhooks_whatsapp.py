@@ -680,6 +680,8 @@ async def test_report_menu_keywords_never_reach_the_llm_assistant(
         "all invoices",
         "trend report",
         "business trends",
+        "delivery status",
+        "message status",
     ]
     async with await _anon_client() as client:
         for keyword in keywords:
