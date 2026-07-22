@@ -110,7 +110,12 @@ async def handle_reminder_confirm_workflow_message(
             scratch["step"] = "awaiting_reschedule"
             company.workflow_scratch = scratch
             return t("reminder_confirm.reschedule_ask", loc)
-        return t("reminder_confirm.invalid_choice", loc)
+        return t(
+            "reminder_confirm.invalid_choice",
+            loc,
+            supplier=scratch["supplier_name"],
+            amount=format_inr(Decimal(scratch["amount"])),
+        )
 
     if step == "awaiting_amount_confirm":
         lowered = stripped.lower()

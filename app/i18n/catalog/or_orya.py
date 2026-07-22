@@ -1058,7 +1058,8 @@ MESSAGES: dict[str, str] = {
         "Reply 1 ଯଦି ହଁ, 2 ଯଦି ଏବେ ପର୍ଯ୍ୟନ୍ତ ନାହିଁ।"
     ),
     "reminder_confirm.invalid_choice": (
-        "ଦୟାକରି reply 1 କରନ୍ତୁ ଯଦି pay କରି ସାରିଲେ, କିମ୍ବା 2 ଯଦି ନାହିଁ।"
+        "ବୁଝି ପାରିଲି ନାହିଁ। ଆପଣ {supplier} କୁ {amount} pay କରି ସାରିଲେ କି?\n"
+        "Reply 1 ଯଦି ହଁ, 2 ଯଦି ଏବେ ପର୍ଯ୍ୟନ୍ତ ନାହିଁ।"
     ),
     "reminder_confirm.amount_ask": (
         "Pay କରିଥିବା amount confirm କରନ୍ତୁ: {amount}। ବଦଳାଇବାକୁ ଅଲଗା number reply କରନ୍ତୁ, "

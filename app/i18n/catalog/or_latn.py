@@ -1176,7 +1176,8 @@ MESSAGES: dict[str, str] = {
         "Reply 1 jadi han, 2 jadi ebe paryanta nahin."
     ),
     "reminder_confirm.invalid_choice": (
-        "Daya kari reply 1 karantu jadi pay kari sarile, kimba 2 jadi nahin."
+        "Bujhi parili nahin. Apana {supplier} ku {amount} pay kari sarile ki?\n"
+        "Reply 1 jadi han, 2 jadi ebe paryanta nahin."
     ),
     "reminder_confirm.amount_ask": (
         "Pay kari thiba amount confirm karantu: {amount}. Badalibaku alaga number reply "

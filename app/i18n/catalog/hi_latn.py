@@ -1159,7 +1159,8 @@ MESSAGES: dict[str, str] = {
         "Reply 1 agar haan, 2 agar abhi tak nahi kiya."
     ),
     "reminder_confirm.invalid_choice": (
-        "Kripya reply 1 karein agar pay kar diya hai, ya 2 agar abhi tak nahi."
+        "Samajh nahi aaya. Kya aapne {supplier} ko {amount} pay kar diya hai?\n"
+        "Reply 1 agar haan, 2 agar abhi tak nahi kiya."
     ),
     "reminder_confirm.amount_ask": (
         "Amount confirm karein jo pay kiya: {amount}. Badalne ke liye alag number reply "

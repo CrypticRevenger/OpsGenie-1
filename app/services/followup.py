@@ -346,6 +346,13 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
     this conversation's answer, never a numbered-menu command.
     """
     loc = resolve_locale(company)
+    if text.strip().lower() in ("cancel", "stop"):
+        # Same escape hatch payment_reminder_confirm.py and pending_operation.py
+        # already give guided flows — otherwise a founder mid follow-up has no
+        # way to break out to an unrelated command (e.g. "change language")
+        # short of answering 1/2/3 or a reschedule date first.
+        _clear_pending_follow_up(company)
+        return t("workflow.cancelled", loc)
     invoice = await db.get(Invoice, company.pending_follow_up_invoice_id)
     if invoice is None or invoice.status not in _OPEN_STATUSES:
         # Deleted, or already closed through a different channel (e.g. a
@@ -377,7 +384,12 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
         if stripped == "3":
             company.pending_follow_up_state = FollowUpState.awaiting_expected_date
             return t("followup.ask_expected_date", loc, dealer=dealer_name)
-        return t("followup.confirm_invalid", loc)
+        outstanding = invoice.total_amount - await _invoice_paid_amount(db, invoice.id)
+        return (
+            t("followup.confirm_invalid", loc)
+            + "\n\n"
+            + _follow_up_message(invoice, dealer_name, outstanding, loc)
+        )
 
     if company.pending_follow_up_state == FollowUpState.awaiting_partial_amount:
         try:
