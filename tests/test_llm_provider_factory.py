@@ -7,6 +7,8 @@ provider-agnostic and testable with small fake LLMProvider stubs.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from app.core.config import Settings
 from app.services.llm.base import (
@@ -19,7 +21,9 @@ from app.services.llm.base import (
 from app.services.llm.factory import _resolve_provider_order, generate_with_fallback
 
 
-def _settings(*, provider: str = "gemini", fallbacks: str = "") -> Settings:
+def _settings(
+    *, provider: str = "gemini", fallbacks: str = "", timeout: float = 30.0
+) -> Settings:
     return Settings(
         DATABASE_URL="postgresql+asyncpg://x:x@localhost:5432/x",
         LLM_PROVIDER=provider,
@@ -28,20 +32,29 @@ def _settings(*, provider: str = "gemini", fallbacks: str = "") -> Settings:
         GEMINI_API_KEY=None,
         GROQ_API_KEY=None,
         OPENROUTER_API_KEY=None,
+        LLM_TIMEOUT_SECONDS=timeout,
     )
 
 
 class _FakeProvider(LLMProvider):
     def __init__(
-        self, *, model: str = "fake-model", text: str = "", raises: Exception | None = None
+        self,
+        *,
+        model: str = "fake-model",
+        text: str = "",
+        raises: Exception | None = None,
+        delay: float = 0,
     ):
         self.model = model
         self._text = text
         self._raises = raises
+        self._delay = delay
         self.called = False
 
     async def generate(self, *, system_prompt: str, user_content: str) -> str:
         self.called = True
+        if self._delay:
+            await asyncio.sleep(self._delay)
         if self._raises is not None:
             raise self._raises
         return self._text
@@ -146,6 +159,68 @@ async def test_generate_with_fallback_raises_when_all_providers_exhausted(monkey
 
     def fake_build(name: str, _settings: Settings) -> LLMProvider:
         return exhausted[name]
+
+    monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
+
+    with pytest.raises(AllProvidersExhaustedError):
+        await generate_with_fallback(system_prompt="sys", user_content="user", settings=settings)
+
+
+@pytest.mark.asyncio
+async def test_generate_with_fallback_skips_a_hung_provider_and_moves_on(monkeypatch):
+    # Regression: no provider is constructed with an SDK-level timeout (SDK
+    # defaults run ~600s), and this call runs inside run_scheduled_tick while
+    # holding the scheduler's advisory lock — a hung call must not block every
+    # company's dispatch for minutes. A timeout is treated like
+    # ProviderUnavailableError: skip to the next provider.
+    settings = _settings(provider="gemini", fallbacks="groq", timeout=0.05)
+    hung = _FakeProvider(delay=1.0, text="too late")
+    working = _FakeProvider(model="groq-model", text="hello from groq")
+
+    def fake_build(name: str, _settings: Settings) -> LLMProvider:
+        return {"gemini": hung, "groq": working}[name]
+
+    monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
+
+    result = await generate_with_fallback(
+        system_prompt="sys", user_content="user", settings=settings
+    )
+    assert result.provider == "groq"
+    assert result.text == "hello from groq"
+
+
+@pytest.mark.asyncio
+async def test_generate_with_fallback_skips_blank_response_and_moves_on(monkeypatch):
+    # Regression: Gemini's response.text is None (no exception raised) on a
+    # safety-blocked or empty-candidate response. Treating that as "success"
+    # crashed briefing.py's find_unverified_amounts(None, ...) downstream with
+    # a healthy fallback provider never even tried.
+    settings = _settings(provider="gemini", fallbacks="groq")
+    blocked = _FakeProvider(text=None)
+    working = _FakeProvider(model="groq-model", text="hello from groq")
+
+    def fake_build(name: str, _settings: Settings) -> LLMProvider:
+        return {"gemini": blocked, "groq": working}[name]
+
+    monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
+
+    result = await generate_with_fallback(
+        system_prompt="sys", user_content="user", settings=settings
+    )
+    assert result.provider == "groq"
+    assert result.text == "hello from groq"
+
+
+@pytest.mark.asyncio
+async def test_generate_with_fallback_raises_when_every_provider_returns_blank(monkeypatch):
+    settings = _settings(provider="gemini", fallbacks="groq")
+    all_blank = {
+        "gemini": _FakeProvider(text=None),
+        "groq": _FakeProvider(text="   "),
+    }
+
+    def fake_build(name: str, _settings: Settings) -> LLMProvider:
+        return all_blank[name]
 
     monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
 

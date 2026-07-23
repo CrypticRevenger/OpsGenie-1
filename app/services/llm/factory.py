@@ -8,6 +8,7 @@ that another provider can't fix).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 
@@ -101,11 +102,32 @@ async def generate_with_fallback(
         provider = _build_provider(name, settings)
         started = time.monotonic()
         try:
-            text = await provider.generate(system_prompt=system_prompt, user_content=user_content)
+            text = await asyncio.wait_for(
+                provider.generate(system_prompt=system_prompt, user_content=user_content),
+                timeout=settings.llm_timeout_seconds,
+            )
         except NoApiKeyConfiguredError:
             continue
         except ProviderUnavailableError as exc:
             logger.warning("LLM provider %r unavailable, trying next: %s", name, exc)
+            continue
+        except TimeoutError:
+            # No provider is constructed with an SDK-level timeout (SDK
+            # defaults run ~600s), and this call runs inside
+            # run_scheduled_tick while holding the scheduler's advisory
+            # lock — a hung provider must not stall every company's dispatch.
+            logger.warning(
+                "LLM provider %r timed out after %.0fs, trying next.",
+                name,
+                settings.llm_timeout_seconds,
+            )
+            continue
+        if not text or not text.strip():
+            # A safety-blocked or empty-candidate response (e.g. Gemini's
+            # response.text is None, not an exception) is functionally the
+            # same as the provider being unavailable — treat it the same way
+            # rather than shipping it as a "successful" blank/crashing reply.
+            logger.warning("LLM provider %r returned a blank response, trying next.", name)
             continue
         latency = time.monotonic() - started
         return ProviderResult(
@@ -139,13 +161,26 @@ async def extract_invoice_image_with_fallback(
             continue
         started = time.monotonic()
         try:
-            text = await provider.generate_from_image(
-                system_prompt=system_prompt, image_bytes=image_bytes, mime_type=mime_type
+            text = await asyncio.wait_for(
+                provider.generate_from_image(
+                    system_prompt=system_prompt, image_bytes=image_bytes, mime_type=mime_type
+                ),
+                timeout=settings.llm_timeout_seconds,
             )
         except (NoApiKeyConfiguredError, VisionUnsupportedError):
             continue
         except ProviderUnavailableError as exc:
             logger.warning("Vision provider %r unavailable, trying next: %s", name, exc)
+            continue
+        except TimeoutError:
+            logger.warning(
+                "Vision provider %r timed out after %.0fs, trying next.",
+                name,
+                settings.llm_timeout_seconds,
+            )
+            continue
+        if not text or not text.strip():
+            logger.warning("Vision provider %r returned a blank response, trying next.", name)
             continue
         latency = time.monotonic() - started
         return ProviderResult(

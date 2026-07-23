@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: opsgenie
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # No real secrets here — dummy CI-only values so Settings' fail-closed
+      # checks resolve to "configured" the same way a real deployment's real
+      # values would. No LLM provider key is set, so the network-calling LLM
+      # tests skip (see tests/conftest.py::has_any_llm_key_configured) rather
+      # than hitting a real provider on every push.
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/opsgenie
+      ADMIN_API_KEY: ci-test-admin-key
+      DASHBOARD_PASSWORD: ci-test-dashboard-password
+      WHATSAPP_VERIFY_TOKEN: ci-test-verify-token
+      WHATSAPP_APP_SECRET: ci-test-app-secret
+      EXPORT_LINK_SECRET: ci-test-export-secret
+      ONBOARDING_ENABLED: "true"
+      SCHEDULER_ENABLED: "false"
+      # APP_ENV must stay "development" (Settings' own default) for CI, same
+      # as local dev — app/db/session.py ties NullPool to is_development, and
+      # the suite hangs/fails ("RuntimeError: Event loop is closed") under a
+      # real connection pool because pytest-asyncio gives each test its own
+      # event loop. Verified by reproducing the failure with APP_ENV=production
+      # before writing this workflow — see .env.example's comment for detail.
+      DEBUG: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Run test suite
+        run: uv run pytest -q

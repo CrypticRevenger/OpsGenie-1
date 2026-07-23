@@ -11,6 +11,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._shared import content_disposition
 from app.db.session import get_db
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
@@ -49,5 +50,5 @@ async def download_company_export(
     return Response(
         content=workbook_bytes,
         media_type=_XLSX_MEDIA_TYPE,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )

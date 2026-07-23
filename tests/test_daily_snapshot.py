@@ -210,6 +210,31 @@ async def test_sales_never_counted_from_a_different_day(db: AsyncSession) -> Non
 
 
 @pytest.mark.asyncio
+async def test_cancelled_invoice_excluded_from_sales_margin_and_counts(db: AsyncSession) -> None:
+    # Regression: a voided order (writes/void.py sets InvoiceStatus.Cancelled)
+    # must not still show up as that day's sales/margin/invoice/order counts —
+    # every other consumer (reports/, trend_analytics.py, party_outstanding.py)
+    # already excludes Cancelled/Draft via EXCLUDED_STATUSES.
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company)
+    rice = await _make_product(
+        db, company, "Rice", selling_price=Decimal("100.00"), purchase_price=Decimal("70.00")
+    )
+    today = date.today()
+    invoice = await _make_invoice_with_items(
+        db, company, dealer, [(rice, Decimal("10"), Decimal("100.00"))], invoice_date=today
+    )
+    invoice.status = InvoiceStatus.Cancelled
+    await db.commit()
+
+    result = await compute_daily_snapshot(db, company, today)
+    assert result.sales_amount == Decimal("0.00")
+    assert result.sales_margin == Decimal("0.00")
+    assert result.invoices_created == 0
+    assert result.orders_created == 0
+
+
+@pytest.mark.asyncio
 async def test_collections_and_supplier_payments_independent(db: AsyncSession) -> None:
     company = await _make_company(db)
     dealer = await _make_dealer(db, company)

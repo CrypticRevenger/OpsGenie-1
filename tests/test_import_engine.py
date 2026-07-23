@@ -626,6 +626,43 @@ async def test_unclaimed_due_style_header_is_not_mistaken_for_an_outstanding_amo
 
 
 @pytest.mark.asyncio
+async def test_quantity_column_is_not_mistaken_for_an_outstanding_amount(
+    db: AsyncSession,
+) -> None:
+    """Regression: "Balance Qty" tokenises to {"balance", "qty"} — "balance"
+    alone matches the outstanding-amount keyword set, so a real stock/quantity
+    column would otherwise fabricate a Payment from whatever unrelated number
+    sits in that column on a real invoice row (here, a stock count of 12
+    against a ₹50,000 invoice would wrongly produce a ₹49,988 Payment)."""
+    company_id = await _make_company(db)
+    contents = (
+        b"invoice_number,direction,party_name,invoice_date,due_date,"
+        b"subtotal,gst_amount,total_amount,description,Balance Qty\n"
+        b"INV-BALQTY-1,receivable,Stock Dealer,2026-01-05,2026-02-04,"
+        b"50000.00,0.00,50000.00,x,12\n"
+    )
+
+    result = await run_import(
+        db,
+        company_id=company_id,
+        direction="receivable",
+        file_kind="invoices",
+        filename="test.csv",
+        contents=contents,
+    )
+    assert result.rows_succeeded == 1, result.errors
+
+    invoice = await db.scalar(
+        select(Invoice).where(
+            Invoice.company_id == company_id, Invoice.invoice_number == "INV-BALQTY-1"
+        )
+    )
+    assert invoice.status == InvoiceStatus.Pending
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is None
+
+
+@pytest.mark.asyncio
 async def test_no_paid_or_outstanding_column_defaults_to_fully_outstanding(
     db: AsyncSession,
 ) -> None:

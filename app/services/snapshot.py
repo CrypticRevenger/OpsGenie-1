@@ -254,6 +254,14 @@ async def _expected_collections_7d(
 async def _expected_payments_7d(
     db: AsyncSession, company_id: uuid.UUID, today: date
 ) -> list[SupplierPayment]:
+    # No lower bound on due_date (unlike _expected_collections_7d, which
+    # deliberately starts at today — overdue receivables already have their
+    # own dedicated tracking via _overdue_dealers/check_dealer_overdue_alerts
+    # below). Payables have no equivalent: check_supplier_payment_reminders
+    # is the only supplier-facing rule, so a bill that crossed its due date
+    # used to silently vanish from both the reminder and the cash-shortage
+    # forecast's day-by-day walk — the exact days a distributor most needs to
+    # know about it.
     stmt = (
         select(Invoice, Supplier.name)
         .join(Supplier, Invoice.supplier_id == Supplier.id)
@@ -261,7 +269,6 @@ async def _expected_payments_7d(
             Invoice.company_id == company_id,
             Invoice.direction == InvoiceDirection.payable,
             Invoice.status.in_(_OPEN_STATUSES),
-            Invoice.due_date >= today,
             Invoice.due_date <= today + timedelta(days=7),
         )
         .order_by(Invoice.due_date)

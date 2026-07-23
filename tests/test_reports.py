@@ -284,6 +284,25 @@ async def test_ledger_meta_block_reports_name_period_and_row_count(db: AsyncSess
 
 
 @pytest.mark.asyncio
+async def test_ledger_freeze_and_filter_anchor_to_the_real_header_row(db: AsyncSession) -> None:
+    # Regression: xlsx_common.write_header hardcoded freeze_panes="A2" and
+    # auto_filter row 1, which was only ever correct for a sheet with nothing
+    # written above the header. Every report in this package calls
+    # write_meta_block first (5 label/value rows + 1 blank = 6 rows), so the
+    # real header lands on row 7 — freeze/filter must anchor there, not row 2/1.
+    company = await _make_company(db)
+    dealer = await _seed_ledger_dealer(db, company)
+
+    period = resolve_period(month_str="2026-07")
+    wb = _load(await ledger.build_party_ledger_workbook(db, company, dealer, "receivable", period))
+    ws = wb["Ledger"]
+    assert ws.freeze_panes == "A8"
+    assert ws.auto_filter.ref == "A7:F7"
+    header_row = next(ws.iter_rows(min_row=7, max_row=7, values_only=True))
+    assert header_row == ("Date", "Type", "Reference", "Debit", "Credit", "Balance")
+
+
+@pytest.mark.asyncio
 async def test_ledger_pdf_starts_with_pdf_magic_bytes(db: AsyncSession) -> None:
     company = await _make_company(db)
     dealer = await _seed_ledger_dealer(db, company)
@@ -612,6 +631,13 @@ async def test_registry_trend_report_has_three_sheets(db: AsyncSession) -> None:
     cash_rows = list(wb["Cash Trend"].iter_rows(values_only=True))
     header_row = next(r for r in cash_rows if r[0] == "Metric")
     assert header_row == ("Metric", "This Week", "Last Week", "Δ")
+
+    # Regression, same root cause as the ledger's freeze/filter test above:
+    # every sheet in this workbook also calls write_meta_block before
+    # write_header, so all three need prepare_sheet's fix, not just one.
+    cash_ws = wb["Cash Trend"]
+    assert cash_ws.freeze_panes == "A8"
+    assert cash_ws.auto_filter.ref == "A7:D7"
 
 
 @pytest.mark.asyncio

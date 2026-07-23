@@ -8,7 +8,15 @@ from fastapi import APIRouter, Form, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app.core.config import get_settings
-from app.core.dashboard_auth import clear_session_cookie, issue_session_cookie, verify_password
+from app.core.dashboard_auth import (
+    DashboardLoginRateLimited,
+    check_login_rate_limit,
+    clear_session_cookie,
+    issue_session_cookie,
+    record_failed_login,
+    record_successful_login,
+    verify_password,
+)
 from app.core.templates import templates
 
 router = APIRouter()
@@ -27,13 +35,24 @@ async def login_page(request: Request) -> HTMLResponse:
 async def login_submit(
     request: Request, password: str = Form(...)
 ) -> HTMLResponse | RedirectResponse:
+    try:
+        check_login_rate_limit(request)
+    except DashboardLoginRateLimited:
+        return templates.TemplateResponse(
+            request,
+            "dashboard/login.html",
+            {"error": "Too many attempts. Try again in a few minutes."},
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
     if not verify_password(password):
+        record_failed_login(request)
         return templates.TemplateResponse(
             request,
             "dashboard/login.html",
             {"error": "Incorrect password."},
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
+    record_successful_login(request)
     settings = get_settings()
     response = RedirectResponse(url="/dashboard", status_code=status.HTTP_303_SEE_OTHER)
     issue_session_cookie(response, is_development=settings.is_development)

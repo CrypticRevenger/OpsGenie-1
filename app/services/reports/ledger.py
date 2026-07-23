@@ -133,6 +133,9 @@ async def build_party_ledger_workbook(
 
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Ledger")
+    xlsx_common.prepare_sheet(
+        ws, list(_LEDGER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         ws,
         report_name=f"Ledger — {party.name}",
@@ -141,7 +144,9 @@ async def build_party_ledger_workbook(
         generated_at=generated_at,
         row_count=len(data.rows),
     )
-    xlsx_common.write_header(ws, list(_LEDGER_HEADERS))
+    xlsx_common.write_header(
+        ws, list(_LEDGER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.total_row(
         ws, ["", "Opening Balance", "", None, None, data.opening_balance], _LEDGER_FORMATS
     )

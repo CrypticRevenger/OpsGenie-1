@@ -49,6 +49,14 @@ PENDING_OPERATION_TTL_MINUTES = 30
 
 _YES_WORDS = {"yes", "y", "1"}
 _NO_WORDS = {"no", "n", "2", "cancel"}
+# Narrower escape set for the awaiting_advance_amount sub-state only: "1"/"2"
+# are also valid advance amounts there (a ₹1 or ₹2 advance is unlikely but
+# not impossible), so they must fall through to amount-parsing instead of
+# being swallowed as _YES_WORDS/_NO_WORDS shorthand — which would silently
+# execute or cancel the whole order instead of erroring on/accepting the
+# typed amount. Only the actual words still escape the amount parser.
+_ADVANCE_AMOUNT_ESCAPE_YES = {"yes", "y"}
+_ADVANCE_AMOUNT_ESCAPE_NO = {"no", "n", "cancel"}
 
 
 def _clear_active_pending_operation(company: Company) -> None:
@@ -455,8 +463,8 @@ async def handle_pending_operation_reply(
 
         if (
             op.payload.get("awaiting_advance_amount")
-            and stripped not in _YES_WORDS
-            and stripped not in _NO_WORDS
+            and stripped not in _ADVANCE_AMOUNT_ESCAPE_YES
+            and stripped not in _ADVANCE_AMOUNT_ESCAPE_NO
         ):
             try:
                 advance = parse_positive_amount(text.strip())

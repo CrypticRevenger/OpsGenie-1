@@ -50,7 +50,7 @@ from app.services.snapshot import (
     SupplierPayment,
     business_now,
 )
-from app.services.whatsapp_client import WhatsAppSendResult
+from app.services.whatsapp_client import WhatsAppSendError, WhatsAppSendResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -258,6 +258,27 @@ async def test_supplier_reminder_fires_for_due_tomorrow(db: AsyncSession, record
 
 
 @pytest.mark.asyncio
+async def test_supplier_reminder_wording_for_an_overdue_bill(
+    db: AsyncSession, recorded_sends
+) -> None:
+    # Regression: expected_payments_7d can now include an already-overdue
+    # payable (snapshot.py::_expected_payments_7d dropped its due_date >=
+    # today floor) — the reminder's "due {when}" slot only ever handled
+    # today/tomorrow, so an overdue bill would have wrongly said "due
+    # tomorrow" instead of describing it as overdue.
+    company = await _make_company(db)
+    snap = _snapshot(
+        company.id, expected_payments_7d=[_supplier_payment(due_date=TODAY - timedelta(days=3))]
+    )
+    sent = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert "3 day(s) ago" in recorded_sends[0][1]
+    assert "due tomorrow" not in recorded_sends[0][1].lower()
+
+
+@pytest.mark.asyncio
 async def test_supplier_reminder_skips_when_due_beyond_24h(
     db: AsyncSession, recorded_sends
 ) -> None:
@@ -285,6 +306,45 @@ async def test_supplier_reminder_dedups_within_24h(db: AsyncSession, recorded_se
     assert first == 1
     assert second == 0  # deduped by the reminder_sent ActivityTimeline entry
     assert len(recorded_sends) == 1
+
+
+@pytest.mark.asyncio
+async def test_supplier_reminder_retries_after_a_failed_send(
+    db: AsyncSession, monkeypatch
+) -> None:
+    # Regression: a failed send must NOT write the reminder_sent dedup
+    # marker — otherwise a bill due today that fails to send at 8am is
+    # silently suppressed from retry for the full 24h quiet window, and
+    # nothing else ever consumes NotificationLog.delivery_status ==
+    # "failed_to_send" to retry sooner.
+    company = await _make_company(db)
+    payment = _supplier_payment(due_date=TODAY + timedelta(days=1))
+    snap = _snapshot(company.id, expected_payments_7d=[payment])
+
+    async def _failing_send(to: str, body: str) -> WhatsAppSendResult:
+        raise WhatsAppSendError("Meta down")
+
+    monkeypatch.setattr("app.services.notifications.send_text_message", _failing_send)
+    first = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+    assert first == 0
+
+    log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "supplier_payment_reminder",
+        )
+    )
+    assert log is not None
+    assert log.delivery_status == "failed_to_send"
+
+    async def _working_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.notifications.send_text_message", _working_send)
+    second = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+    assert second == 1  # retried on the next tick, not suppressed
 
 
 @pytest.mark.asyncio
@@ -659,6 +719,41 @@ async def test_cash_shortage_forecast_dedups_within_quiet_window(
     assert first == 1
     assert second == 0
     assert len(recorded_sends) == 1
+
+
+@pytest.mark.asyncio
+async def test_cash_shortage_forecast_retries_after_a_failed_send(
+    db: AsyncSession, monkeypatch
+) -> None:
+    company = await _make_company(db)
+    trigger = _supplier_payment(due_date=TODAY + timedelta(days=2))
+    snap = _snapshot(
+        company.id,
+        cash_deficit_forecast=CashDeficitForecast(days_until=2, trigger_payment=trigger),
+    )
+
+    async def _failing_send(to: str, body: str) -> WhatsAppSendResult:
+        raise WhatsAppSendError("Meta down")
+
+    monkeypatch.setattr("app.services.notifications.send_text_message", _failing_send)
+    first = await check_cash_shortage_forecast(db, company, snap, NOW)
+    await db.commit()
+    assert first == 0
+    event = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.company_id == company.id,
+            BusinessEvent.event_type == BusinessEventType.cash_shortage_forecast_sent,
+        )
+    )
+    assert event is None  # not deduped — a failed send must not suppress retry
+
+    async def _working_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.services.notifications.send_text_message", _working_send)
+    second = await check_cash_shortage_forecast(db, company, snap, NOW)
+    await db.commit()
+    assert second == 1
 
 
 # ── Rule 6: stock-out forecast ────────────────────────────────────────────────

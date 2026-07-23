@@ -32,6 +32,7 @@ from app.models.invoice_item import InvoiceItem
 from app.models.payment import Payment
 from app.models.product import Product
 from app.services.party_outstanding import calculate_outstanding_for_company
+from app.services.reports.statuses import EXCLUDED_STATUSES
 from app.services.snapshot import business_now
 
 _CENTS = Decimal("0.01")
@@ -74,6 +75,7 @@ async def _sales_and_margin(
                 Invoice.company_id == company_id,
                 Invoice.direction == InvoiceDirection.receivable,
                 Invoice.invoice_date == business_date,
+                Invoice.status.notin_(EXCLUDED_STATUSES),
             )
         )
     ).all()
@@ -94,6 +96,7 @@ async def _sales_and_margin(
                 Invoice.company_id == company_id,
                 Invoice.direction == InvoiceDirection.receivable,
                 Invoice.invoice_date == business_date,
+                Invoice.status.notin_(EXCLUDED_STATUSES),
             )
         )
     ).all()
@@ -159,7 +162,11 @@ async def compute_daily_snapshot(
     invoices_created = await db.scalar(
         select(func.count())
         .select_from(Invoice)
-        .where(Invoice.company_id == company_id, Invoice.invoice_date == business_date)
+        .where(
+            Invoice.company_id == company_id,
+            Invoice.invoice_date == business_date,
+            Invoice.status.notin_(EXCLUDED_STATUSES),
+        )
     )
     payments_recorded = await db.scalar(
         select(func.count())
@@ -174,6 +181,7 @@ async def compute_daily_snapshot(
             Invoice.direction == InvoiceDirection.receivable,
             Invoice.source == InvoiceSource.whatsapp,
             Invoice.invoice_date == business_date,
+            Invoice.status.notin_(EXCLUDED_STATUSES),
         )
     )
 

@@ -198,6 +198,9 @@ async def _build_register_workbook(
 
     wb = Workbook(write_only=True)
     ws = wb.create_sheet(sheet_title)
+    xlsx_common.prepare_sheet(
+        ws, list(_REGISTER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         ws,
         report_name=sheet_title,
@@ -206,7 +209,9 @@ async def _build_register_workbook(
         generated_at=generated_at,
         row_count=len(rows),
     )
-    xlsx_common.write_header(ws, list(_REGISTER_HEADERS))
+    xlsx_common.write_header(
+        ws, list(_REGISTER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
 
     rate_totals: dict[Decimal, list[Decimal]] = {}
     total_taxable = Decimal("0")
@@ -293,6 +298,9 @@ async def build_payment_register_workbook(
     generated_at = datetime.now(UTC)
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Payment Register")
+    xlsx_common.prepare_sheet(
+        ws, list(_PAYMENT_REGISTER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         ws,
         report_name="Payment Register",
@@ -301,7 +309,9 @@ async def build_payment_register_workbook(
         generated_at=generated_at,
         row_count=len(rows),
     )
-    xlsx_common.write_header(ws, list(_PAYMENT_REGISTER_HEADERS))
+    xlsx_common.write_header(
+        ws, list(_PAYMENT_REGISTER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
 
     total_receipts = Decimal("0")
     total_payments = Decimal("0")
@@ -418,6 +428,9 @@ async def build_day_book_workbook(
     generated_at = datetime.now(UTC)
     wb = Workbook(write_only=True)
     ws = wb.create_sheet("Day Book")
+    xlsx_common.prepare_sheet(
+        ws, list(_DAY_BOOK_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         ws,
         report_name="Day Book",
@@ -426,7 +439,9 @@ async def build_day_book_workbook(
         generated_at=generated_at,
         row_count=len(entries),
     )
-    xlsx_common.write_header(ws, list(_DAY_BOOK_HEADERS))
+    xlsx_common.write_header(
+        ws, list(_DAY_BOOK_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
 
     # Invoice totals (accrual) and payment totals (cash) are summed
     # separately, never blended into one figure — see "no blended financial

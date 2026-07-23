@@ -27,7 +27,7 @@ import hmac
 import io
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from urllib.parse import urlencode
 
@@ -51,6 +51,7 @@ from app.services.reports.xlsx_common import row as _row
 from app.services.reports.xlsx_common import s as _s
 from app.services.reports.xlsx_common import total_row as _total_row
 from app.services.reports.xlsx_common import write_header as _write_header
+from app.services.snapshot import business_now
 
 EXPORT_FORMAT_VERSION = "1.1"
 
@@ -233,10 +234,10 @@ async def _write_open_invoices_sheet(
     *,
     sheet_name: str,
     direction: InvoiceDirection,
+    today: date,
 ) -> None:
     ws = wb.create_sheet(sheet_name)
     _write_header(ws, _OPEN_INVOICES_HEADERS)
-    today = datetime.now(UTC).date()
 
     invoices = (
         (
@@ -527,11 +528,17 @@ async def build_company_workbook(db: AsyncSession, company: Company) -> bytes:
     await _write_party_sheet(
         db, wb, company.id, model=Supplier, sheet_name="Suppliers", direction="payable"
     )
+    today = business_now(company.timezone).date()
     await _write_open_invoices_sheet(
-        db, wb, company.id, sheet_name="Receivables", direction=InvoiceDirection.receivable
+        db,
+        wb,
+        company.id,
+        sheet_name="Receivables",
+        direction=InvoiceDirection.receivable,
+        today=today,
     )
     await _write_open_invoices_sheet(
-        db, wb, company.id, sheet_name="Payables", direction=InvoiceDirection.payable
+        db, wb, company.id, sheet_name="Payables", direction=InvoiceDirection.payable, today=today
     )
     await _write_invoices_sheet(db, wb, company.id)
     await _write_payments_sheet(db, wb, company.id)

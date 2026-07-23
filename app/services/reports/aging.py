@@ -110,6 +110,7 @@ def _write_aging_sheet(
     generated_at: datetime,
     sheet_label: str,
 ) -> None:
+    xlsx_common.prepare_sheet(ws, list(_AGING_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW)
     xlsx_common.write_meta_block(
         ws,
         report_name=sheet_label,
@@ -118,7 +119,7 @@ def _write_aging_sheet(
         generated_at=generated_at,
         row_count=len(buckets),
     )
-    xlsx_common.write_header(ws, list(_AGING_HEADERS))
+    xlsx_common.write_header(ws, list(_AGING_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW)
 
     grand_totals = {b: Decimal("0") for b in _AGING_BUCKETS}
     grand_total = Decimal("0")

@@ -79,6 +79,7 @@ _STALE_DATA_HOURS = 24
 
 _STALE_DATA_REASON = "stale_data"
 _BRIEFING_FAILED_REASON = "briefing_failed"
+_EVENING_BRIEF_FAILED_REASON = "evening_brief_failed"
 
 # Dealer-direct overdue reminder (see check_dealer_overdue_alerts) — a
 # separate NotificationLog notification_type from "dealer_overdue_alert"
@@ -274,11 +275,15 @@ async def check_supplier_payment_reminders(
 
     for index, payment in enumerate(due_payments):
         loc = resolve_locale(company)
-        when = (
-            t("notify.when_today", loc)
-            if payment.due_date == today
-            else t("notify.when_tomorrow", loc)
-        )
+        if payment.due_date < today:
+            # expected_payments_7d now includes already-overdue payables (see
+            # snapshot.py::_expected_payments_7d) — without this branch every
+            # one of them would wrongly say "due tomorrow".
+            when = t("notify.when_overdue", loc, days=(today - payment.due_date).days)
+        elif payment.due_date == today:
+            when = t("notify.when_today", loc)
+        else:
+            when = t("notify.when_tomorrow", loc)
         sufficient = is_cash_sufficient(snapshot.cash_available_today, payment.amount)
         sufficiency = (
             t("notify.cash_sufficient", loc) if sufficient else t("notify.cash_insufficient", loc)
@@ -305,13 +310,20 @@ async def check_supplier_payment_reminders(
             )
             message = f"{message}\n\n{question}"
 
-        await _send_and_log(
+        delivered = await _send_and_log(
             db,
             company_id=company.id,
             recipient=company.whatsapp_number,
             notification_type="supplier_payment_reminder",
             message=message,
         )
+        if not delivered:
+            # Send failed — leave this bill undeduped so the next tick
+            # retries it, instead of silently suppressing a same-day
+            # reminder for the rest of the quiet window (see
+            # run_notification_checks' docstring on why this rule now
+            # checks the send result before marking dedup).
+            continue
         db.add(
             ActivityTimeline(
                 company_id=company.id,
@@ -412,7 +424,7 @@ async def check_dealer_overdue_alerts(
             amount=format_inr(dealer.outstanding),
             days=dealer.days_overdue,
         )
-        await _send_and_log(
+        delivered = await _send_and_log(
             db,
             company_id=company.id,
             recipient=company.whatsapp_number,
@@ -440,6 +452,13 @@ async def check_dealer_overdue_alerts(
                 db, company, dealer.dealer_phone, dealer_message
             )
 
+        if not delivered:
+            # Founder-facing alert failed to send — leave this dealer
+            # undeduped so the next tick retries, instead of silently
+            # suppressing a High-Risk overdue alert for 3 days. The
+            # direct-to-dealer reminder above (if any) already recorded its
+            # own independent NotificationLog row regardless.
+            continue
         db.add(
             ActivityTimeline(
                 company_id=company.id,
@@ -505,25 +524,34 @@ async def check_cash_shortage_forecast(
 
     trigger = forecast.trigger_payment
     today = now.date()
+    # expected_payments_7d can now include an already-overdue payable (see
+    # snapshot.py::_expected_payments_7d), which the trigger payment could be
+    # — clamp at 0 rather than showing a negative "due in -3 day(s)".
+    trigger_days = max((trigger.due_date - today).days, 0)
     message = t(
         "notify.cash_shortage_forecast",
         resolve_locale(company),
         days=forecast.days_until,
         supplier=trigger.supplier_name,
         amount=format_inr(trigger.amount),
-        trigger_days=(trigger.due_date - today).days,
+        trigger_days=trigger_days,
         expected_out=format_inr(snapshot.expected_payments_7d_total),
         expected_in=format_inr(
             snapshot.cash_available_today + snapshot.expected_collections_7d_total
         ),
     )
-    await _send_and_log(
+    delivered = await _send_and_log(
         db,
         company_id=company.id,
         recipient=company.whatsapp_number,
         notification_type="cash_shortage_forecast",
         message=message,
     )
+    if not delivered:
+        # Leave undeduped so the next tick retries — a cash-shortage warning
+        # that never actually reached the founder shouldn't go quiet for
+        # _CASH_FORECAST_QUIET_DAYS.
+        return 0
     db.add(
         BusinessEvent(
             company_id=company.id,
@@ -570,13 +598,16 @@ async def check_stock_out_forecasts(
             product=forecast.product_name,
             days=forecast.days_of_cover,
         )
-        await _send_and_log(
+        delivered = await _send_and_log(
             db,
             company_id=company.id,
             recipient=company.whatsapp_number,
             notification_type="stock_out_forecast",
             message=message,
         )
+        if not delivered:
+            # Leave undeduped so the next tick retries this product.
+            continue
         db.add(
             ActivityTimeline(
                 company_id=company.id,
@@ -640,13 +671,16 @@ async def check_predue_invoice_nudges(
             amount=format_inr(collection.amount),
             days=days_out,
         )
-        await _send_and_log(
+        delivered = await _send_and_log(
             db,
             company_id=company.id,
             recipient=company.whatsapp_number,
             notification_type="predue_invoice_nudge",
             message=message,
         )
+        if not delivered:
+            # Leave undeduped so the next tick retries this dealer.
+            continue
         db.add(
             ActivityTimeline(
                 company_id=company.id,
@@ -941,6 +975,34 @@ async def notify_briefing_generation_failed(
     )
 
 
+async def notify_evening_brief_failed(db: AsyncSession, company: Company) -> bool:
+    """Founder alert when the evening brief still hasn't been delivered a
+    while after its scheduled hour — the evening-brief analogue of
+    notify_briefing_failed. Unlike the morning briefing (a single retry_hour
+    attempt), app/core/scheduler.py now retries the evening brief send on
+    every tick from evening_brief_hour onward (see
+    evening_brief.evening_brief_delivered_today), so this alert exists purely
+    for founder visibility when the underlying problem (Meta down, bad token)
+    persists — it never gates the retry itself.
+
+    Dedups once per company per business day via the shared founder_alert_sent
+    reason, same shape as notify_briefing_failed/notify_briefing_generation_
+    failed.
+    """
+    day_start = business_now(company.timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+    if await _founder_alert_sent_since(db, company.id, _EVENING_BRIEF_FAILED_REASON, day_start):
+        return False
+    message = (
+        f"🚨 Evening Brief Delivery Failed — {company.business_name}\n\n"
+        f"Today's evening business summary could not be delivered to "
+        f"{company.business_name}.\n"
+        "Check the number/token, or send it manually."
+    )
+    return await send_founder_alert(
+        db, company=company, reason=_EVENING_BRIEF_FAILED_REASON, message=message
+    )
+
+
 # ── Orchestrator ────────────────────────────────────────────────────────────
 
 
@@ -968,6 +1030,16 @@ async def run_notification_checks(
     than once at the end of its send loop. app/core/scheduler.py's
     _dispatch_for_company docstring states this principle for the four
     top-level concerns; it applies just as much *within* this pass.
+
+    The five distributor-facing rules (1, 2, 5, 6, 7) also only write their
+    dedup marker (ActivityTimeline/BusinessEvent) when _send_and_log actually
+    reported success — a send that failed leaves the entity undeduped so the
+    next tick retries it, rather than being marked "reminded" for the rest of
+    the quiet window despite the founder never receiving it. Rules 3/4
+    (send_stale_data_digest, notify_briefing_failed,
+    notify_briefing_generation_failed) deliberately keep the opposite,
+    fail-open behavior for founder-facing meta-alerts — see their own
+    docstrings.
     """
     company = await db.get(Company, company_id)
     if company is None:

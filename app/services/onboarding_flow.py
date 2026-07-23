@@ -665,6 +665,14 @@ async def _after_gst(db: AsyncSession, company: Company, loc: Locale) -> str:
 # only the replies are localized.
 _PROGRESS_WORDS = {"progress", "status"}
 _RESTART_WORDS = {"restart", "start over", "start fresh", "reset"}
+# A non-destructive escape hatch: previously the only way out of a stuck
+# in-flight state was "restart" (destructive — wipes every dealer/supplier/
+# product/invoice entered so far). These words route to the exact same
+# checklist "progress"/"status" already shows (current section + the current
+# question re-shown + a restart hint) — there's no separate "menu" to jump to
+# during onboarding, so the useful, safe response to "help"/"cancel"/"stop"/
+# "menu" is the same orientation "progress" gives, not a new message.
+_HELP_WORDS = {"cancel", "stop", "menu", "help"}
 
 # Every state gets grouped under one of the 8 numbered sections so the
 # checklist can mark it done / current / pending. Deliberately exhaustive
@@ -882,7 +890,7 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
             company.onboarding_scratch = scratch
             company.onboarding_state = OnboardingState.restart_confirm
             return t("onboarding.restart.confirm", loc)
-        if _is(stripped, *_PROGRESS_WORDS):
+        if _is(stripped, *_PROGRESS_WORDS) or _is(stripped, *_HELP_WORDS):
             return _checklist_reply(company, state, loc)
 
     # ── 1. Business type ─────────────────────────────────────────────────────
@@ -1139,6 +1147,9 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         return t("onboarding.yes_no_invalid", loc)
 
     if state == OnboardingState.dealer_missing_mode:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_scratch = None
+            return await _after_dealers(db, company, loc)
         mode = _classify_entry_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.dealer_missing_bulk
@@ -1314,6 +1325,9 @@ async def handle_onboarding_message(db: AsyncSession, company: Company, text: st
         return t("onboarding.yes_no_invalid", loc)
 
     if state == OnboardingState.supplier_missing_mode:
+        if _is(stripped, "done", "skip"):
+            company.onboarding_scratch = None
+            return _after_suppliers(company, loc)
         mode = _classify_entry_mode(stripped)
         if mode == "bulk":
             company.onboarding_state = OnboardingState.supplier_missing_bulk

@@ -921,6 +921,29 @@ async def test_progress_shows_checklist_without_advancing_state(db: AsyncSession
 
 
 @pytest.mark.asyncio
+async def test_help_words_show_checklist_without_advancing_state(db: AsyncSession) -> None:
+    # Regression: "cancel"/"stop"/"menu"/"help" were previously unhandled
+    # anywhere in onboarding_flow.py and got swallowed as data for whatever
+    # field was current — the only real escape was "restart", which
+    # destructively wipes everything entered so far. These words now give the
+    # same safe orientation "progress" already does.
+    company = await _fresh_company(db)
+    await _send(db, company, "Pharma Distributor")
+    await _send(db, company, "same")
+    await _send(db, company, "12")  # -> product_awaiting_mode (step 2)
+
+    for word in ("help", "cancel", "stop", "menu"):
+        reply = await _send(db, company, word)
+        assert company.onboarding_state == OnboardingState.product_awaiting_mode
+        assert "products" in reply.lower()
+        assert "restart" in reply.lower()
+
+    # Not swallowed as data — the next real answer still processes normally.
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.dealer_awaiting_mode
+
+
+@pytest.mark.asyncio
 async def test_progress_not_recognized_before_business_setup_starts(db: AsyncSession) -> None:
     company = await _bare_company(db)
     await _send(db, company, "hi")  # not_started -> awaiting_language
@@ -1327,6 +1350,23 @@ async def test_dealer_missing_now_shows_list_and_asks_mode(db: AsyncSession) -> 
 
 
 @pytest.mark.asyncio
+async def test_dealer_missing_mode_honors_done_skip(db: AsyncSession) -> None:
+    # Regression: dealer_awaiting_mode (the from-scratch add-dealer flow)
+    # already lets "done"/"skip" bail out at the mode-choice prompt, but its
+    # sibling dealer_missing_mode (the import-backfill flow) had no such
+    # check — a founder who'd already said "now" but changed their mind had
+    # no way out except an invalid-mode reply loop.
+    company = await _company_with_incomplete_dealer(db)
+    await _send(db, company, "now")
+    assert company.onboarding_state == OnboardingState.dealer_missing_mode
+
+    await _send(db, company, "done")
+    assert company.onboarding_state == OnboardingState.supplier_awaiting_mode  # chain continues
+    dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company.id))
+    assert dealer.phone is None  # untouched, not fabricated
+
+
+@pytest.mark.asyncio
 async def test_dealer_missing_one_by_one_updates_existing_row(db: AsyncSession) -> None:
     company = await _company_with_incomplete_dealer(db)
     await _send(db, company, "now")
@@ -1386,6 +1426,18 @@ async def test_supplier_missing_ask_later_leaves_rows_unchanged(db: AsyncSession
     supplier = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
     assert supplier.phone is None
     assert supplier.payment_terms_days is None
+
+
+@pytest.mark.asyncio
+async def test_supplier_missing_mode_honors_done_skip(db: AsyncSession) -> None:
+    company = await _company_with_incomplete_supplier(db)
+    await _send(db, company, "now")
+    assert company.onboarding_state == OnboardingState.supplier_missing_mode
+
+    await _send(db, company, "skip")
+    assert company.onboarding_state == OnboardingState.awaiting_opening_balance  # chain continues
+    supplier = await db.scalar(select(Supplier).where(Supplier.company_id == company.id))
+    assert supplier.phone is None  # untouched, not fabricated
 
 
 @pytest.mark.asyncio

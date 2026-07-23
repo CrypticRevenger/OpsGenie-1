@@ -616,6 +616,9 @@ MESSAGES: dict[str, str] = {
     "workflow.photo_busy": (
         "मैं अभी photo नहीं पढ़ सकता — हम कुछ और कर रहे हैं। पहले 'cancel' कहें, फिर photo दोबारा भेजें।"
     ),
+    "workflow.unsupported_message_type": (
+        "माफ़ करें, मैं अभी सिर्फ़ text message और photo का reply दे सकता हूं। कृपया अपना message टाइप करें।"
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "किसने आपको pay किया, या आपने किसको pay किया? (party का नाम)",
     "payment.need_party": "कृपया party का नाम बताएं।",
@@ -1074,6 +1077,7 @@ MESSAGES: dict[str, str] = {
     ),
     "notify.when_today": "आज",
     "notify.when_tomorrow": "कल",
+    "notify.when_overdue": "{days} दिन पहले",
     "notify.cash_line": "अभी available cash: {amount} — {sufficiency}",
     "notify.cash_sufficient": "काफ़ी है।",
     "notify.cash_insufficient": "कम पड़ सकता है।",

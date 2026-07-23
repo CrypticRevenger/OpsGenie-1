@@ -39,11 +39,12 @@ from app.db.session import async_session_factory
 from app.models.company import Company
 from app.models.morning_briefing import MorningBriefing
 from app.services.briefing import generate_briefing, latest_briefing_today
-from app.services.evening_brief import send_evening_brief
+from app.services.evening_brief import evening_brief_delivered_today, send_evening_brief
 from app.services.followup import send_due_today_follow_up
 from app.services.notifications import (
     notify_briefing_failed,
     notify_briefing_generation_failed,
+    notify_evening_brief_failed,
     run_notification_checks,
     send_stale_data_digest,
 )
@@ -155,7 +156,13 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
             },
         }
 
-        if hour == briefing_hour:
+        # >= briefing_hour, not ==: a tick that lands late (a missed poll, a
+        # cold-start delay, the process being asleep through briefing_hour
+        # entirely) must still catch up rather than silently skip the whole
+        # day. Every branch below is itself idempotent (keyed off the real
+        # MorningBriefing row's state, not the clock), so re-checking on every
+        # later tick is safe — it just means "nothing to do" once delivered.
+        if hour >= briefing_hour:
             existing = await latest_briefing_today(db, company, today)
             if existing is None:
                 try:
@@ -189,36 +196,55 @@ async def _dispatch_for_company(company_id, now: datetime | None) -> dict:
                     if delivered
                     else "existing_briefing_send_failed"
                 )
-            else:
-                diagnostics["actions"]["briefing"] = (
-                    f"already_sent_today (status={existing.delivery_status})"
-                )
-        elif hour == retry_hour:
-            briefing = await latest_briefing_today(db, company, today)
-            if briefing is not None and briefing.delivery_status == "failed_to_send":
-                delivered = await _deliver_briefing(db, company, briefing)
+            elif existing.delivery_status == "failed_to_send" and hour >= retry_hour:
+                # Retried on every tick from retry_hour onward (not just a
+                # single retry_hour window) — a real WhatsApp-down outage now
+                # gets more chances to recover over the rest of the day
+                # instead of the day going dark once the one-shot retry also
+                # failed. notify_briefing_failed dedups its founder alert to
+                # once per business day regardless of how many times this
+                # branch re-fires.
+                delivered = await _deliver_briefing(db, company, existing)
                 if not delivered:
                     await notify_briefing_failed(db, company)
                     diagnostics["actions"]["briefing"] = "retry_failed_founder_alerted"
                 else:
                     diagnostics["actions"]["briefing"] = "retry_sent"
                 await db.commit()
-            elif briefing is not None:
-                diagnostics["actions"]["briefing"] = (
-                    f"no_retry_needed (status={briefing.delivery_status})"
-                )
             else:
-                diagnostics["actions"]["briefing"] = "no_retry_needed (no briefing generated today)"
+                diagnostics["actions"]["briefing"] = (
+                    f"no_action_needed (status={existing.delivery_status})"
+                )
 
-        if hour == settings.followup_hour:
+        # >= not == (same catch-up reasoning as briefing_hour above) —
+        # send_due_today_follow_up is itself idempotent (atomically claims
+        # its single-slot pointer, returns "already_pending"/"none_due" once
+        # there's nothing left to do), so re-checking every tick for the rest
+        # of the day is safe.
+        if hour >= settings.followup_hour:
             result = await send_due_today_follow_up(db, company.id)
             await db.commit()
             diagnostics["actions"]["followup"] = result.status
 
-        if hour == evening_brief_hour:
+        if hour >= evening_brief_hour:
             sent = await send_evening_brief(db, company)
             await db.commit()
-            diagnostics["actions"]["evening_brief"] = "sent" if sent else "already_finalized_today"
+            if sent:
+                diagnostics["actions"]["evening_brief"] = "sent"
+            elif await evening_brief_delivered_today(db, company, today):
+                diagnostics["actions"]["evening_brief"] = "already_delivered_today"
+            else:
+                # Distinguishable from "already delivered" above — this
+                # attempt just failed. Alert the founder once we're at least
+                # an hour past the scheduled hour (same one-tick grace period
+                # the morning briefing's retry_hour gives before alerting),
+                # deduped to once/day; the send itself keeps retrying on every
+                # later tick regardless of whether the alert already fired.
+                diagnostics["actions"]["evening_brief"] = "send_failed"
+                if hour >= evening_brief_hour + 1:
+                    await notify_evening_brief_failed(db, company)
+                    await db.commit()
+                    diagnostics["actions"]["evening_brief"] = "send_failed_founder_alerted"
 
         # NotificationEngine only during business hours — the morning briefing
         # hour onward — so a payment that becomes "due tomorrow" at local

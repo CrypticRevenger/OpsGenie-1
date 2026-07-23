@@ -23,7 +23,7 @@ from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, Invoice
 from app.models.invoice_item import InvoiceItem
 from app.models.notification_log import NotificationLog
 from app.models.product import Product
-from app.services.evening_brief import send_evening_brief
+from app.services.evening_brief import evening_brief_delivered_today, send_evening_brief
 from app.services.whatsapp_client import WhatsAppSendError, WhatsAppSendResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -150,6 +150,34 @@ async def test_send_failure_still_finalizes_and_logs_failed_to_send(
         select(NotificationLog).where(NotificationLog.company_id == company.id)
     )
     assert log.delivery_status == "failed_to_send"
+    assert await evening_brief_delivered_today(db, company, date.today()) is False
+
+
+@pytest.mark.asyncio
+async def test_failed_send_retries_on_next_call(db: AsyncSession, monkeypatch) -> None:
+    # Regression: the old dedup gate ("does a DailyBusinessSnapshot row exist
+    # for today") tripped the moment finalize_daily_snapshot ran — before the
+    # send was even attempted — so a failed send permanently blocked every
+    # later retry for the rest of the day. The real gate now checks actual
+    # delivery, so a subsequent call retries instead of silently no-op'ing.
+    async def _failing_send(to: str, body: str) -> WhatsAppSendResult:
+        raise WhatsAppSendError("network error")
+
+    monkeypatch.setattr("app.services.evening_brief.send_text_message", _failing_send)
+    company = await _make_company(db)
+    first = await send_evening_brief(db, company)
+    await db.commit()
+    assert first is False
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        "app.services.evening_brief.send_text_message", _fake_sender(sent)
+    )
+    second = await send_evening_brief(db, company)
+    await db.commit()
+    assert second is True
+    assert len(sent) == 1
+    assert await evening_brief_delivered_today(db, company, date.today()) is True
 
 
 @pytest.mark.asyncio

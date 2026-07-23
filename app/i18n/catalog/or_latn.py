@@ -662,6 +662,10 @@ MESSAGES: dict[str, str] = {
         "Mun ebe photo padhi paribi nahi — amhe kichi anya kariba re achhu. Prathame 'cancel' "
         "kahantu, taapare photo puni pathantu."
     ),
+    "workflow.unsupported_message_type": (
+        "Kshama karantu, mun ebe kebala text message ebong photo ra reply dei paribi. Doya kari "
+        "apankara message type karantu."
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Kie apananku pay kala, kimba apana kahaku pay kale? (party naam)",
     "payment.need_party": "Daya kari party naam kuhantu.",
@@ -1197,6 +1201,7 @@ MESSAGES: dict[str, str] = {
     ),
     "notify.when_today": "aji",
     "notify.when_tomorrow": "kali",
+    "notify.when_overdue": "{days} dina agaru",
     "notify.cash_line": "Ebe available cash: {amount} — {sufficiency}",
     "notify.cash_sufficient": "jathesta achi.",
     "notify.cash_insufficient": "kami padipare.",

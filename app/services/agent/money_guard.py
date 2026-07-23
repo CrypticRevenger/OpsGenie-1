@@ -22,9 +22,13 @@ _MONEY_RE = re.compile(
     r"(?:₹|rs\.?|inr)\s*(\d[\d,]*(?:\.\d+)?)"  # currency marker before
     r"|(\d[\d,]*(?:\.\d+)?)\s*(?:rupees?|rs\.?|inr)"  # currency marker after
     r"|(\d{1,3}(?:,\d{2,3})+(?:\.\d+)?)"  # comma-grouped (e.g. 5,00,000)
-    # bare 5+ digit — the trailing guard excludes only digits/commas (not '.'),
+    # bare 3+ digit — the trailing guard excludes only digits/commas (not '.'),
     # so a sentence-ending period after the number ("...987654.") still matches.
-    r"|(?<![\d.,])(\d{5,}(?:\.\d+)?)(?![\d,])",
+    # 1-2 digit bare numbers stay exempt (day counts, quantities, list
+    # positions — essentially never a real distributor amount on their own);
+    # 3+ (₹100 and up) is a plausible bare invoice/payment figure and was
+    # previously only caught above ₹9,999.
+    r"|(?<![\d.,])(\d{3,}(?:\.\d+)?)(?![\d,])",
     re.IGNORECASE,
 )
 
