@@ -85,11 +85,13 @@ async def _resolve_product(db: AsyncSession, company_id: uuid.UUID, item: dict) 
     if product is None:
         if not price_raw:
             raise ValueError(f"No price on file for '{name}' and none was provided")
+        gst_rate_raw = item.get("gst_rate")
         product = Product(
             company_id=company_id,
             name=name,
             selling_price=Decimal(price_raw),
             stock_quantity=Decimal("0"),
+            gst_rate=Decimal(gst_rate_raw) if gst_rate_raw is not None else None,
         )
         db.add(product)
         await db.flush()

@@ -171,6 +171,44 @@ async def test_workbook_reflects_real_data(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_invoices_sheet_total_row_excludes_cancelled_invoice(db: AsyncSession) -> None:
+    """A voided order still gets listed on its own row (Status shows
+    Cancelled) but must not count toward the TOTAL row — it was never real
+    money owed, unlike what its full total_amount would otherwise add since
+    a Cancelled invoice can never have a Payment recorded against it (see
+    writes/void.py::void_order)."""
+    company = await _make_company(db)
+    await _seed_data(db, company)  # one real Partially_Paid invoice, ₹600 outstanding
+
+    other_dealer = Dealer(company_id=company.id, name="Voided Traders")
+    db.add(other_dealer)
+    await db.flush()
+    cancelled = Invoice(
+        company_id=company.id,
+        invoice_number=f"WA-{uuid.uuid4().hex[:10]}",
+        direction=InvoiceDirection.receivable,
+        dealer_id=other_dealer.id,
+        invoice_date=date.today(),
+        due_date=date.today(),
+        subtotal=Decimal("5000.00"),
+        gst_amount=Decimal("0.00"),
+        total_amount=Decimal("5000.00"),
+        status=InvoiceStatus.Cancelled,
+        source=InvoiceSource.whatsapp,
+    )
+    db.add(cancelled)
+    await db.commit()
+
+    wb = _load(await build_company_workbook(db, company))
+    invoice_rows = list(wb["Invoices"].iter_rows(values_only=True))
+    assert len(invoice_rows) == 4  # header + 2 invoices + total
+    total_row = invoice_rows[-1]
+    assert total_row[0] == "TOTAL"
+    assert total_row[7] == 1000  # Total Amount — the cancelled ₹5000 must not be added
+    assert total_row[11] == 600  # Amount Outstanding — likewise
+
+
+@pytest.mark.asyncio
 async def test_website_import_data_reflects_in_excel_export(
     client: AsyncClient, db: AsyncSession
 ) -> None:

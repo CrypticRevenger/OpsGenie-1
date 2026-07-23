@@ -761,6 +761,10 @@ MESSAGES: dict[str, str] = {
         "hisaab se alag-alag hai. Pehle 'update gst' se iska rate set karein, phir yeh "
         "order phir se try karein."
     ),
+    "order.new_product_gst_ask": (
+        "Is company ka GST product ke hisaab se alag-alag hai, isliye '{product}' ke liye "
+        "apna GST% chahiye. Rate kya hai? (jaise 5, 12, 18)"
+    ),
     # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
     "order.ocr_dealer_ask": (
         "📷 Maine is invoice ko *{dealer}* ke liye padha hai. Confirm karne ke liye YES bhejein, "

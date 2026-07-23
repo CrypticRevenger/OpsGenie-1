@@ -47,6 +47,7 @@ from app.models.payment import Payment
 from app.models.product import Product
 from app.models.supplier import Supplier
 from app.services.party_outstanding import calculate_outstanding_for_company
+from app.services.reports.statuses import EXCLUDED_STATUSES
 from app.services.reports.xlsx_common import row as _row
 from app.services.reports.xlsx_common import s as _s
 from app.services.reports.xlsx_common import total_row as _total_row
@@ -376,11 +377,20 @@ async def _write_invoices_sheet(db: AsyncSession, wb: Workbook, company_id: uuid
             ],
             _INVOICES_FORMATS,
         )
-        total_subtotal += invoice.subtotal
-        total_gst += invoice.gst_amount
-        total_amount += invoice.total_amount
-        total_paid += paid_total or Decimal("0")
-        total_outstanding += outstanding
+        # Every invoice is still listed above (Status column shows Cancelled/
+        # Draft as-is) — but a voided/unissued invoice was never a real
+        # transaction, so it must not inflate the TOTAL row the way it would
+        # inflate `calculate_outstanding_for_company`'s real figure if
+        # counted here (a Cancelled invoice can never have a Payment against
+        # it — see writes/void.py::void_order — so its full amount would
+        # otherwise land in total_outstanding as still-owed money that was
+        # actually voided).
+        if invoice.status not in EXCLUDED_STATUSES:
+            total_subtotal += invoice.subtotal
+            total_gst += invoice.gst_amount
+            total_amount += invoice.total_amount
+            total_paid += paid_total or Decimal("0")
+            total_outstanding += outstanding
         has_any = True
     if has_any:
         _total_row(

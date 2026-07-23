@@ -1041,6 +1041,63 @@ async def test_order_blocks_product_with_no_gst_rate_when_company_varies_by_prod
 
 
 @pytest.mark.asyncio
+async def test_order_asks_gst_rate_for_a_brand_new_product_when_company_varies_by_product(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """A product typed fresh mid-order (no catalogue match) never passed
+    through the awaiting_product gate at all — it went straight to
+    confirm -> price -> quantity with no gst_rate ever collected, so
+    orders.py::create_order's own re-validation guard (never defaulted, see
+    the sibling test above) then discarded the *entire* order at the very
+    last step, unconditionally, for any gst_varies_by_product company
+    introducing a new product through 'new order'. Must now ask for the new
+    product's GST% right after the new-product confirm, and actually charge
+    it.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.gst_varies_by_product = True
+    await db.commit()
+    await _make_dealer(db, company_id, "Ram Traders")
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Turmeric Powder")  # not in the catalogue
+        assert "add" in sent[-1].lower() or "new product" in sent[-1].lower()
+
+        await _send(client, bare_sender, "YES")
+        assert "gst" in sent[-1].lower()
+        assert "turmeric powder" in sent[-1].lower()
+
+        await _send(client, bare_sender, "12")  # GST%
+        assert "price" in sent[-1].lower()
+
+        await _send(client, bare_sender, "80")  # price
+        await _send(client, bare_sender, "10")  # quantity
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.gst_amount == Decimal("96.00")  # 800.00 * 12%
+
+    product = await db.scalar(
+        select(Product).where(Product.company_id == company_id, Product.name == "Turmeric Powder")
+    )
+    assert product is not None
+    assert product.gst_rate == Decimal("12")
+
+
+@pytest.mark.asyncio
 async def test_order_allows_product_with_gst_rate_when_company_varies_by_product(
     db: AsyncSession, monkeypatch
 ) -> None:
