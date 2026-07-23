@@ -56,10 +56,19 @@ jobs:
         run: uv python install
 
       - name: Install dependencies
-        run: uv sync --frozen
+        # --extra dev: pytest/pytest-asyncio/ruff/httpx all live under
+        # [project.optional-dependencies].dev in pyproject.toml, not the
+        # base dependency group — a bare `uv sync --frozen` installs the app
+        # only and leaves both of the next two steps with nothing to run
+        # (verified locally: it actively *uninstalls* ruff/pytest from an
+        # environment that already had the dev extra synced in).
+        run: uv sync --frozen --extra dev
 
       - name: Ruff check
-        run: uv run ruff check .
+        # Scoped to match pyproject.toml's own [tool.ruff] src = ["app", "tests"]
+        # — pitch/ is throwaway investor-deck tooling, deliberately never added
+        # to pyproject.toml, and isn't meant to be linted as part of this project.
+        run: uv run ruff check app/ tests/
 
       - name: Run test suite
         run: uv run pytest -q
