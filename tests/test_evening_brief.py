@@ -11,7 +11,6 @@ instead of hitting Meta for real (same pattern as tests/test_scheduler.py).
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -24,6 +23,7 @@ from app.models.invoice_item import InvoiceItem
 from app.models.notification_log import NotificationLog
 from app.models.product import Product
 from app.services.evening_brief import evening_brief_delivered_today, send_evening_brief
+from app.services.snapshot import business_now
 from app.services.whatsapp_client import WhatsAppSendError, WhatsAppSendResult
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,7 +75,7 @@ async def test_sends_and_finalizes_snapshot(db: AsyncSession, monkeypatch) -> No
         select(DailyBusinessSnapshot).where(DailyBusinessSnapshot.company_id == company.id)
     )
     assert row is not None
-    assert row.business_date == date.today()
+    assert row.business_date == business_now(company.timezone).date()
 
     log = await db.scalar(
         select(NotificationLog).where(NotificationLog.company_id == company.id)
@@ -150,7 +150,8 @@ async def test_send_failure_still_finalizes_and_logs_failed_to_send(
         select(NotificationLog).where(NotificationLog.company_id == company.id)
     )
     assert log.delivery_status == "failed_to_send"
-    assert await evening_brief_delivered_today(db, company, date.today()) is False
+    today = business_now(company.timezone).date()
+    assert await evening_brief_delivered_today(db, company, today) is False
 
 
 @pytest.mark.asyncio
@@ -177,7 +178,8 @@ async def test_failed_send_retries_on_next_call(db: AsyncSession, monkeypatch) -
     await db.commit()
     assert second is True
     assert len(sent) == 1
-    assert await evening_brief_delivered_today(db, company, date.today()) is True
+    today = business_now(company.timezone).date()
+    assert await evening_brief_delivered_today(db, company, today) is True
 
 
 @pytest.mark.asyncio
@@ -191,7 +193,7 @@ async def test_margin_note_appears_when_items_missing_cost_data(
     product = Product(company_id=company.id, name="Oil", selling_price=Decimal("50.00"))
     db.add(product)
     await db.flush()
-    today = date.today()
+    today = business_now(company.timezone).date()
     invoice = Invoice(
         company_id=company.id,
         invoice_number=f"WA-{uuid.uuid4().hex[:10]}",

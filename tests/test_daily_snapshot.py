@@ -25,6 +25,7 @@ from app.services.daily_snapshot import (
     finalize_daily_snapshot,
     month_to_date_totals,
 )
+from app.services.snapshot import business_now
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -314,7 +315,10 @@ async def test_month_to_date_totals_includes_live_today_when_not_finalized(
     rice = await _make_product(
         db, company, "Rice", selling_price=Decimal("100.00"), purchase_price=Decimal("70.00")
     )
-    today = date.today()
+    # business_now, not date.today() — month_to_date_totals resolves "today"
+    # via the company's business timezone (defaults to IST), and this must
+    # land in the same calendar day for the live invoice to be folded in.
+    today = business_now(company.timezone).date()
     await _make_invoice_with_items(
         db, company, dealer, [(rice, Decimal("10"), Decimal("100.00"))], invoice_date=today
     )
@@ -331,7 +335,7 @@ async def test_month_to_date_totals_no_double_counting_once_finalized(db: AsyncS
     rice = await _make_product(
         db, company, "Rice", selling_price=Decimal("100.00"), purchase_price=Decimal("70.00")
     )
-    today = date.today()
+    today = business_now(company.timezone).date()
     await _make_invoice_with_items(
         db, company, dealer, [(rice, Decimal("10"), Decimal("100.00"))], invoice_date=today
     )

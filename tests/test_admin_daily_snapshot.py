@@ -9,7 +9,6 @@ Requires postgres running with migrations applied:
 from __future__ import annotations
 
 import uuid
-from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -18,6 +17,7 @@ from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.invoice_item import InvoiceItem
 from app.models.product import Product
+from app.services.snapshot import business_now
 from app.services.whatsapp_client import WhatsAppSendResult
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,7 +51,7 @@ async def _make_sale_today(db: AsyncSession, company_id: uuid.UUID) -> None:
     )
     db.add(product)
     await db.flush()
-    today = date.today()
+    today = business_now(None).date()
     invoice = Invoice(
         company_id=company_id,
         invoice_number=f"WA-{uuid.uuid4().hex[:10]}",
@@ -103,7 +103,7 @@ async def test_today_snapshot_company_not_found(client: AsyncClient) -> None:
 async def test_month_summary_includes_live_today(client: AsyncClient, db: AsyncSession) -> None:
     company_id = await _make_company(db)
     await _make_sale_today(db, company_id)
-    today = date.today()
+    today = business_now(None).date()
 
     resp = await client.get(
         f"/admin/companies/{company_id}/daily-snapshot/month-summary",
@@ -131,7 +131,7 @@ async def test_evening_brief_manual_send_finalizes_and_appears_in_month_summary(
     assert send_resp.status_code == 200, send_resp.text
     assert send_resp.json()["sent"] is True
 
-    today = date.today()
+    today = business_now(None).date()
     summary_resp = await client.get(
         f"/admin/companies/{company_id}/daily-snapshot/month-summary",
         params={"year": today.year, "month": today.month},
