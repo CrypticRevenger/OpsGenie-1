@@ -767,6 +767,11 @@ MESSAGES: dict[str, str] = {
         "⚠️ E order {dealer} ra outstanding ku {prospective} tharu jaiba, jaha unankara "
         "{limit} ra credit limit tharu adhika."
     ),
+    "order.product_gst_missing": (
+        "⚠️ '{product}' ra kono GST rate set heinahi, au e company ra GST product anusare "
+        "bhinna bhinna. Prathame 'update gst' re ehara rate set karantu, tapare e order "
+        "puni try karantu."
+    ),
     # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
     "order.ocr_dealer_ask": (
         "📷 Mun e invoice ku *{dealer}* pain padhichi. Confirm karibaku YES pathantu, kimba "

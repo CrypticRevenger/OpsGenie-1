@@ -710,6 +710,10 @@ MESSAGES: dict[str, str] = {
         "⚠️ यह order {dealer} का outstanding {prospective} तक ले जाएगा, जो उनकी {limit} की "
         "credit limit से ज़्यादा है।"
     ),
+    "order.product_gst_missing": (
+        "⚠️ '{product}' का कोई GST rate set नहीं है, और इस company का GST product के हिसाब से "
+        "अलग-अलग है। पहले 'update gst' से इसका rate set करें, फिर यह order फिर से try करें।"
+    ),
     # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
     "order.ocr_dealer_ask": (
         "📷 मैंने इस invoice को *{dealer}* के लिए पढ़ा है। Confirm करने के लिए YES भेजें, या सही "

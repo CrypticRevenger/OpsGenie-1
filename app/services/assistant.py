@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -130,6 +130,30 @@ async def _generate_reply(db: AsyncSession, company: Company, text: str) -> str:
         return t("errors.assistant_fallback", resolve_locale(company))
 
 
+async def _prune_old_turns(db: AsyncSession, company: Company, keep: int) -> None:
+    """Deletes every ConversationTurn for this company beyond the most recent
+    `keep` rows, so multi-turn memory can't grow unbounded. select() and the
+    delete() below both autoflush first, so the turn pair just added by the
+    caller is already visible and correctly counts toward `keep`.
+    """
+    keep_ids = (
+        await db.scalars(
+            select(ConversationTurn.id)
+            .where(ConversationTurn.company_id == company.id)
+            .order_by(ConversationTurn.created_at.desc())
+            .limit(keep)
+        )
+    ).all()
+    if len(keep_ids) < keep:
+        return
+    await db.execute(
+        delete(ConversationTurn).where(
+            ConversationTurn.company_id == company.id,
+            ConversationTurn.id.notin_(keep_ids),
+        )
+    )
+
+
 async def answer_question(db: AsyncSession, company: Company, text: str) -> str:
     """Answer a free-form message with the agent and record the exchange for
     multi-turn memory. Never raises; the caller (webhook) commits.
@@ -149,4 +173,5 @@ async def answer_question(db: AsyncSession, company: Company, text: str) -> str:
             created_at=now + timedelta(microseconds=1),
         )
     )
+    await _prune_old_turns(db, company, get_settings().conversation_turn_retention_limit)
     return reply

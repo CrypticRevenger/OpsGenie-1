@@ -222,6 +222,15 @@ class Settings(BaseSettings):
     agent_max_steps: int = Field(default=5, alias="AGENT_MAX_STEPS")
     agent_history_turns: int = Field(default=10, alias="AGENT_HISTORY_TURNS")
 
+    # Retention cap for ConversationTurn (multi-turn assistant memory): rows
+    # beyond the most recent N per company are pruned on every new turn, so
+    # the table can't grow unbounded. Deliberately larger than
+    # agent_history_turns (context replayed per call) so raising that later
+    # doesn't need a retention-policy change too.
+    conversation_turn_retention_limit: int = Field(
+        default=200, alias="CONVERSATION_TURN_RETENTION_LIMIT"
+    )
+
     # Default region for parsing a dealer/supplier phone number typed without
     # an explicit country code (see app/services/phone.py) — distinct from
     # Company.whatsapp_number's own validation, which always requires an

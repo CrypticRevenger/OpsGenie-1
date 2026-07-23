@@ -993,3 +993,87 @@ async def test_advance_amount_of_one_or_two_not_swallowed_as_yes_no(
     assert invoice.status == InvoiceStatus.Partially_Paid
     payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
     assert payment.amount == Decimal("1.00")
+
+
+@pytest.mark.asyncio
+async def test_order_blocks_product_with_no_gst_rate_when_company_varies_by_product(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """When Company.gst_varies_by_product is True, a product with no
+    per-product gst_rate set must never silently fall back to
+    company.gst_rate (which is 0 in that mode) — the line is refused and the
+    user stays on the same step so they can pick a different product or
+    cancel outright.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.gst_varies_by_product = True
+    await db.commit()
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))  # gst_rate=None
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        assert "no gst rate" in sent[-1].lower()
+        assert "update gst" in sent[-1].lower()
+
+        # Still on awaiting_product — cancel works and no order was queued.
+        await _send(client, bare_sender, "cancel")
+        assert "cancelled" in sent[-1].lower()
+
+    pending_count = len(
+        (
+            await db.execute(
+                select(PendingOperation).where(PendingOperation.company_id == company_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert pending_count == 0
+
+
+@pytest.mark.asyncio
+async def test_order_allows_product_with_gst_rate_when_company_varies_by_product(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """The same gate must not false-block a product that does have its own
+    gst_rate on file — the order should complete normally.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.gst_varies_by_product = True
+    await db.commit()
+    await _make_dealer(db, company_id, "Ram Traders")
+    product_id = await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+    product = await db.get(Product, product_id)
+    product.gst_rate = Decimal("5.00")
+    await db.commit()
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        assert "no gst rate" not in sent[-1].lower()
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.gst_amount == Decimal("27.50")  # 550.00 * 5%

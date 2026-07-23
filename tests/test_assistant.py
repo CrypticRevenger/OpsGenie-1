@@ -152,3 +152,32 @@ async def test_agent_error_returns_fallback_never_raises(db: AsyncSession, monke
     monkeypatch.setattr(assistant_mod, "run_agent", _boom)
     reply = await answer_question(db, company, "what's my cash")
     assert reply == _SAFE_FALLBACK
+
+
+@pytest.mark.asyncio
+async def test_conversation_turns_pruned_beyond_retention_limit(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """ConversationTurn rows must not grow unbounded — only the most recent
+    conversation_turn_retention_limit rows are kept per company, oldest first
+    to go. Retention limit set well below the real 200 default so the test
+    doesn't need to drive 100+ exchanges to exercise it."""
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "conversation_turn_retention_limit", 4)
+    company = await _company(db)
+
+    for i in range(3):
+        _stub_agent(monkeypatch, text=f"reply {i}", tool_outputs=[])
+        await answer_question(db, company, f"message {i}")
+        await db.commit()
+
+    turns = (
+        await db.scalars(
+            select(ConversationTurn)
+            .where(ConversationTurn.company_id == company.id)
+            .order_by(ConversationTurn.created_at)
+        )
+    ).all()
+    # 3 exchanges write 6 rows total, capped down to the most recent 4.
+    assert [t.content for t in turns] == ["message 1", "reply 1", "message 2", "reply 2"]
