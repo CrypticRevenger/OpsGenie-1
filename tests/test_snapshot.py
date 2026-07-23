@@ -262,6 +262,33 @@ async def test_net_cash_position_and_deficit_flag(db: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_overdue_payable_still_counted_in_expected_payments(db: AsyncSession) -> None:
+    # Regression: _expected_payments_7d required due_date >= today, so a
+    # payable that crossed its due date without being paid silently vanished
+    # from both the 7-day cash forecast and check_supplier_payment_reminders
+    # (the only supplier-facing reminder rule) — unlike overdue receivables,
+    # which have their own dedicated tracking (_overdue_dealers), payables had
+    # no fallback once they aged out of this list.
+    company_id = await _make_company(db, opening_balance=Decimal("100000.00"))
+    supplier_id = await _make_supplier(db, company_id, "Overdue Supplier")
+    await _make_invoice(
+        db,
+        company_id,
+        invoice_number="INV-OVERDUE-PAYABLE",
+        direction=InvoiceDirection.payable,
+        supplier_id=supplier_id,
+        total_amount=Decimal("15000.00"),
+        due_date=TODAY - timedelta(days=3),
+    )
+
+    snapshot = await build_snapshot(db, company_id)
+    overdue = [p for p in snapshot.expected_payments_7d if p.supplier_name == "Overdue Supplier"]
+    assert len(overdue) == 1
+    assert overdue[0].amount == Decimal("15000.00")
+    assert overdue[0].due_date == TODAY - timedelta(days=3)
+
+
+@pytest.mark.asyncio
 async def test_cash_deficit_forecast_none_when_cash_sufficient(db: AsyncSession) -> None:
     company_id = await _make_company(db, opening_balance=Decimal("100000.00"))
     supplier_id = await _make_supplier(db, company_id, "Small Supplier")

@@ -31,6 +31,14 @@ NUMBER_FORMATS = {"money": MONEY_FMT, "qty": QTY_FMT, "date": DATE_FMT}
 # typical content without truncating in the sheet view.
 WIDE_COLUMNS = {"Details", "Notes", "Address", "Invoice Number", "Business Name"}
 
+# write_meta_block always writes exactly this many rows (5 label/value pairs
+# + 1 blank separator) before returning control to its caller — a fixed,
+# input-independent count, so a caller that needs to know where the meta
+# block will end (to call prepare_sheet beforehand — see its docstring)
+# doesn't need to run it first just to find out.
+META_BLOCK_ROWS = 6
+META_BLOCK_HEADER_ROW = META_BLOCK_ROWS + 1
+
 
 def s(value: object) -> str | None:
     """Render an enum/UUID/None as a plain string cell value."""
@@ -46,16 +54,40 @@ def autosize(ws: Worksheet, headers: list[str]) -> None:
         ws.column_dimensions[letter].width = width
 
 
-def write_header(ws: Worksheet, headers: list[str]) -> None:
-    """Bold white-on-blue header row, frozen and filterable, plus sized
-    columns — every sheet in every workbook uses this same look. In
-    write_only mode, sheet-level properties like freeze_panes only take
-    effect if set before the first append(), so this must run before the
-    header row is written.
+def prepare_sheet(ws: Worksheet, headers: list[str], *, start_row: int = 1) -> None:
+    """Freeze panes, auto-filter, and column widths — verified empirically
+    (openpyxl's write-only writer serializes each row's worth of sheet state
+    as soon as it's appended) that write-only mode only honors any of these
+    three when set before the sheet's FIRST ws.append() of any kind; set
+    afterward, they silently no-op and the reload has none of them. This
+    must therefore run before write_meta_block too, not just before
+    write_header — previously write_header tried to set all three itself,
+    which worked for a sheet with nothing above the header (company_export.py's
+    sheets, which don't need this function at all) but silently did nothing
+    on every period-scoped report in this package, all of which call
+    write_meta_block — a header row is always freeze/filter/width row 1 there
+    on reload, and the real header, several rows lower, has neither.
+
+    `start_row` is the 1-indexed row the real column header will occupy — 1
+    for a sheet with nothing above it, or META_BLOCK_HEADER_ROW for one that
+    calls write_meta_block next.
     """
-    ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
+    ws.freeze_panes = f"A{start_row + 1}"
+    ws.auto_filter.ref = f"A{start_row}:{get_column_letter(len(headers))}{start_row}"
     autosize(ws, headers)
+
+
+def write_header(ws: Worksheet, headers: list[str], *, start_row: int = 1) -> None:
+    """Bold white-on-blue header row — every sheet in every workbook uses
+    this same look. Also calls prepare_sheet for the common case
+    (start_row=1, i.e. nothing above the header on this sheet), matching
+    this function's original all-in-one behavior; a sheet that calls
+    write_meta_block first must call prepare_sheet(..., start_row=
+    META_BLOCK_HEADER_ROW) itself, before write_meta_block — by the time
+    write_header runs on that sheet it's too late (see prepare_sheet).
+    """
+    if start_row == 1:
+        prepare_sheet(ws, headers, start_row=start_row)
     cells = []
     for header in headers:
         cell = WriteOnlyCell(ws, value=header)
@@ -103,16 +135,21 @@ def write_meta_block(
     period_label: str,
     generated_at: datetime,
     row_count: int,
-) -> None:
+) -> int:
     """A small label/value block at the top of a report's primary sheet —
     which report, which company, which period, how many rows, generated
     when — so opening the file (or forwarding it) never leaves the reader
     guessing what they're looking at. Same two-column style
     company_export.py's own Company sheet already uses.
+
+    Returns the 1-indexed row the real header should start at — pass it as
+    write_header(..., start_row=...) so freeze_panes/auto_filter anchor to
+    the actual header row, not wherever this block happens to end.
     """
     ws.column_dimensions["A"].width = 20
     ws.column_dimensions["B"].width = 44
     meta_font = Font(bold=True)
+    rows_written = 0
     for label, value in [
         ("Report", report_name),
         ("Company", company_name),
@@ -123,4 +160,7 @@ def write_meta_block(
         label_cell = WriteOnlyCell(ws, value=label)
         label_cell.font = meta_font
         ws.append([label_cell, value])
+        rows_written += 1
     ws.append([])
+    rows_written += 1
+    return rows_written + 1

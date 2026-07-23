@@ -648,6 +648,10 @@ MESSAGES: dict[str, str] = {
         "Main abhi photo nahi padh sakta — hum kuch aur kar rahe hain. Pehle 'cancel' kahein, "
         "phir photo dobara bhejein."
     ),
+    "workflow.unsupported_message_type": (
+        "Maaf kijiye, main abhi sirf text message aur photo ka reply de sakta hoon. Kripya apna "
+        "message type karein."
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Kisne aapko pay kiya, ya aapne kisko pay kiya? (party ka naam)",
     "payment.need_party": "Kripya party ka naam batayein.",
@@ -1182,6 +1186,7 @@ MESSAGES: dict[str, str] = {
     ),
     "notify.when_today": "aaj",
     "notify.when_tomorrow": "kal",
+    "notify.when_overdue": "{days} din pehle",
     "notify.cash_line": "Abhi available cash: {amount} — {sufficiency}",
     "notify.cash_sufficient": "kaafi hai.",
     "notify.cash_insufficient": "kam pad sakta hai.",

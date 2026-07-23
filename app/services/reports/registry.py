@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +25,7 @@ from app.services import company_export
 from app.services.party_outstanding import Direction
 from app.services.reports import aging, ledger, registers, trend
 from app.services.reports.period import ReportPeriod
+from app.services.snapshot import business_now
 
 # aging/outstanding is always a snapshot as of "now" (per party_outstanding.py,
 # there is no historical point-in-time outstanding calculation) — the period
@@ -84,11 +84,16 @@ async def _day_book_xlsx(db: AsyncSession, company: Company, ctx: ReportContext)
 
 
 async def _aging_xlsx(db: AsyncSession, company: Company, ctx: ReportContext) -> bytes:
-    return await aging.build_aging_report_workbook(db, company, datetime.now(UTC).date())
+    # Business-local "today", not UTC — an IST company's calendar day rolls
+    # over 5.5h before UTC's, so a UTC "today" misbucketed invoices near a
+    # day boundary (same reasoning as every other business_now() call site).
+    return await aging.build_aging_report_workbook(
+        db, company, business_now(company.timezone).date()
+    )
 
 
 async def _aging_pdf(db: AsyncSession, company: Company, ctx: ReportContext) -> bytes:
-    return await aging.build_aging_report_pdf(db, company, datetime.now(UTC).date())
+    return await aging.build_aging_report_pdf(db, company, business_now(company.timezone).date())
 
 
 async def _trend_xlsx(db: AsyncSession, company: Company, ctx: ReportContext) -> bytes:

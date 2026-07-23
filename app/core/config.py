@@ -187,6 +187,14 @@ class Settings(BaseSettings):
     # silently proceeding with a missing key on the one it does try.
     llm_provider: str = Field(default="gemini", alias="LLM_PROVIDER")
     llm_fallbacks: str = Field(default="", alias="LLM_FALLBACKS")
+    # Per-provider-call ceiling (app/services/llm/factory.py wraps every
+    # generate()/generate_from_image() call in asyncio.wait_for with this).
+    # No provider is constructed with an SDK-level timeout, and the SDK
+    # defaults run to ~600s — a hung call inside run_scheduled_tick blocks
+    # every company's dispatch for the duration (it holds the scheduler's
+    # advisory lock the whole time). A timeout is treated the same as
+    # ProviderUnavailableError: skip to the next provider in the chain.
+    llm_timeout_seconds: float = Field(default=30.0, alias="LLM_TIMEOUT_SECONDS")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     anthropic_model: str = Field(default="claude-haiku-4-5", alias="ANTHROPIC_MODEL")
     gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")

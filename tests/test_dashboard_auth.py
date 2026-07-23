@@ -12,7 +12,7 @@ from decimal import Decimal
 
 import pytest
 from app.core.config import get_settings
-from app.core.dashboard_auth import SESSION_COOKIE_NAME
+from app.core.dashboard_auth import SESSION_COOKIE_NAME, reset_login_rate_limit
 from app.main import app
 from app.models.company import Company
 from app.models.dealer import Dealer
@@ -20,6 +20,17 @@ from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, Invoice
 from app.models.product import Product
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+@pytest.fixture(autouse=True)
+def _clear_login_rate_limit():
+    # _login_attempts is module-level state (no shared store exists in this
+    # app), so failed attempts from one test would otherwise leak into the
+    # next — every request in these tests shares the same "unknown" bucket
+    # since httpx's ASGITransport doesn't populate a real client host.
+    reset_login_rate_limit()
+    yield
+    reset_login_rate_limit()
 
 
 @pytest.mark.asyncio
@@ -79,6 +90,64 @@ async def test_protected_route_rejects_wrong_cookie_value() -> None:
         resp = await wrong_client.get("/dashboard/companies")
     assert resp.status_code == 303
     assert resp.headers["location"] == "/dashboard/login"
+
+
+@pytest.mark.asyncio
+async def test_protected_route_rejects_expired_session_token() -> None:
+    # Regression: the old session token was a bare sha256(password) with no
+    # embedded expiry at all — a leaked/extracted cookie was valid forever,
+    # regardless of the cookie's own (client-controlled) max_age. The real
+    # token now embeds and server-verifies an expires_at.
+    import time
+
+    from app.core.dashboard_auth import _sign
+
+    settings = get_settings()
+    expired_at = int(time.time()) - 60
+    expired_token = f"{expired_at}.{_sign(expired_at, settings.dashboard_password)}"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        cookies={SESSION_COOKIE_NAME: expired_token},
+    ) as expired_client:
+        resp = await expired_client.get("/dashboard/companies")
+    assert resp.status_code == 303
+    assert resp.headers["location"] == "/dashboard/login"
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limited_after_repeated_failures() -> None:
+    # Regression: login previously had no rate limit anywhere in the app.
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        for _ in range(5):
+            resp = await anon_client.post(
+                "/dashboard/login", data={"password": "definitely-wrong"}
+            )
+            assert resp.status_code == 401
+        limited = await anon_client.post(
+            "/dashboard/login", data={"password": "definitely-wrong"}
+        )
+    assert limited.status_code == 429
+    assert "Too many attempts" in limited.text
+
+
+@pytest.mark.asyncio
+async def test_login_rate_limit_does_not_block_eventual_correct_password() -> None:
+    settings = get_settings()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        for _ in range(3):
+            resp = await anon_client.post(
+                "/dashboard/login", data={"password": "definitely-wrong"}
+            )
+            assert resp.status_code == 401
+        success = await anon_client.post(
+            "/dashboard/login", data={"password": settings.dashboard_password}
+        )
+    assert success.status_code == 303
 
 
 @pytest.mark.asyncio

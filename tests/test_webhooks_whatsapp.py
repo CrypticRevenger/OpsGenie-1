@@ -354,6 +354,41 @@ async def test_status_update_unknown_recipient_returns_200_and_writes_nothing(
     assert event is None
 
 
+# ── Unsupported message types (audio, documents, video, …) ───────────────────
+
+
+@pytest.mark.asyncio
+async def test_unsupported_message_type_gets_a_reply_not_silence(
+    db: AsyncSession, monkeypatch
+) -> None:
+    # Regression: a voice note, a forwarded document, a video, a sticker, or
+    # any other type outside text/interactive/image previously got total
+    # silence — no reply of any kind, indistinguishable from the message
+    # never having arrived at all.
+    phone = _unique_phone()
+    await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    body = json.dumps(_messages_payload(sender=bare_sender, message_type="audio")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "text messages and photos" in sent[0].lower()
+
+
 # ── Numbered query menu (Phase 8) ─────────────────────────────────────────────
 
 

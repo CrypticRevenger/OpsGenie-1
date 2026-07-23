@@ -1423,6 +1423,26 @@ async def receive_whatsapp_webhook(
                                 command=None,
                                 correlation_id=inbound_event.id,
                             )
+                        else:
+                            # Any other message type (audio/voice notes,
+                            # documents, video, stickers, location, contacts,
+                            # …) previously got total silence — no reply of
+                            # any kind, indistinguishable from the message
+                            # never having arrived. A deterministic "can't
+                            # read this yet" reply closes that gap the same
+                            # way image handling already does above; actually
+                            # supporting any of these types (e.g. voice-note
+                            # transcription) is separate, unbuilt scope.
+                            loc = resolve_locale(company)
+                            await _send_reply_and_log(
+                                db,
+                                company,
+                                sender,
+                                notification_type="unsupported_message_type",
+                                reply=t("workflow.unsupported_message_type", loc),
+                                command=None,
+                                correlation_id=inbound_event.id,
+                            )
                     finally:
                         if message_id is not None:
                             await lock_db.scalar(

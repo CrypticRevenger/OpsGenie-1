@@ -949,3 +949,47 @@ async def test_advance_non_numeric_reasked(db: AsyncSession, monkeypatch) -> Non
         await _send(client, bare_sender, "100")
         assert "confirm" in sent[-1].lower()
         assert "100" in sent[-1]
+
+
+@pytest.mark.asyncio
+async def test_advance_amount_of_one_or_two_not_swallowed_as_yes_no(
+    db: AsyncSession, monkeypatch
+) -> None:
+    # Regression: "1"/"2" are also _YES_WORDS/_NO_WORDS shorthand elsewhere in
+    # this same confirm gate, so a founder typing "1" meaning "₹1 advance" was
+    # silently read as YES — executing the order with a ₹0 advance instead of
+    # the amount they actually typed — and "2" silently cancelled the whole
+    # order instead of erroring on/accepting it as ₹2.
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "10")  # total = 550.00
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "advance")
+
+        await _send(client, bare_sender, "1")
+        # Read as an advance amount (re-shown preview asking to confirm),
+        # not as YES (which would have created the order immediately).
+        assert "confirm" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is None  # not created yet — still awaiting confirmation
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "YES")
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.status == InvoiceStatus.Partially_Paid
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment.amount == Decimal("1.00")

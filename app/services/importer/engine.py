@@ -140,6 +140,23 @@ _PAID_KEYWORDS = {
     "settled",
 }
 _OUTSTANDING_KEYWORDS = {"outstanding", "balance", "unpaid", "pending", "due"}
+# Tokens that mean the header is actually about a date, quantity, or count —
+# never an amount — even though it also carries a money keyword. "balance"
+# alone is dangerously overloaded: a real export's "Balance Qty" or "Stock
+# Balance" column is a quantity, not money owed, and would otherwise fabricate
+# a Payment from whatever unrelated number sits in that column (e.g. a stock
+# count of 12 misread as an outstanding-amount column on a real invoice row).
+_NON_MONEY_QUALIFIERS = {
+    "date",
+    "qty",
+    "quantity",
+    "stock",
+    "units",
+    "unit",
+    "no",
+    "number",
+    "count",
+}
 _HEADER_TOKEN_SPLIT = re.compile(r"[_./]+")
 
 
@@ -150,17 +167,21 @@ def _infer_money_column(header: str) -> str | None:
     always).
 
     Deliberately conservative: the header is split into whole tokens (never
-    substring-matched), the two keyword sets are disjoint, and "due" only
-    counts when "date" isn't also a token in the same header — so "Due Date"
-    is never mistaken for a "Due Amount" column. A miss just leaves the
-    column unrecognised (today's behavior, unchanged); it never overrides an
-    exact alias match from OPTIONAL_MONEY_ALIASES or the format importer's
+    substring-matched), the keyword sets are disjoint, and a header carrying
+    any _NON_MONEY_QUALIFIERS token is excluded outright regardless of which
+    money keyword it also matches — "Due Date" (date), "Balance Qty"
+    (quantity), and "Units Received" (quantity) are all real header shapes
+    that would otherwise be mistaken for an amount column. A miss just leaves
+    the column unrecognised (today's behavior, unchanged); it never overrides
+    an exact alias match from OPTIONAL_MONEY_ALIASES or the format importer's
     own COLUMN_ALIASES.
     """
     tokens = set(_HEADER_TOKEN_SPLIT.split(header)) - {""}
+    if tokens & _NON_MONEY_QUALIFIERS:
+        return None
     if tokens & _PAID_KEYWORDS:
         return "paid_amount"
-    if tokens & _OUTSTANDING_KEYWORDS and "date" not in tokens:
+    if tokens & _OUTSTANDING_KEYWORDS:
         return "outstanding_amount"
     return None
 

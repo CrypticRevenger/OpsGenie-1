@@ -142,11 +142,23 @@ async def test_briefing_generates_and_sends_at_briefing_hour(db: AsyncSession, s
 
 
 @pytest.mark.asyncio
-async def test_no_briefing_outside_briefing_hour(db: AsyncSession, spies) -> None:
+async def test_no_briefing_before_briefing_hour(db: AsyncSession, spies) -> None:
     company = await _make_company(db)
-    await _dispatch_for_company(company.id, _at(14))
+    await _dispatch_for_company(company.id, _at(3))  # before BRIEFING_HOUR=8
     assert spies["generate"] == []
     assert spies["send"] == []
+
+
+@pytest.mark.asyncio
+async def test_late_tick_catches_up_a_missed_briefing_hour(db: AsyncSession, spies) -> None:
+    # Regression: a tick landing well after briefing_hour (a missed poll, a
+    # cold-start delay, the process asleep through the hour entirely) must
+    # still generate+send today's briefing instead of silently skipping the
+    # whole day — the "scheduler has no catch-up" audit finding.
+    company = await _make_company(db)
+    await _dispatch_for_company(company.id, _at(14))
+    assert spies["generate"] == [company.id]
+    assert len(spies["send"]) == 1
     assert spies["notify"] == [company.id]  # notifications still run
 
 
@@ -222,12 +234,14 @@ async def test_generation_failure_alerts_founder_not_scheduler_crash(
 
 
 @pytest.mark.asyncio
-async def test_generation_failure_does_not_block_retry_hour_next_tick(
+async def test_generation_failure_retries_on_next_tick(
     db: AsyncSession, spies, monkeypatch
 ) -> None:
-    """No MorningBriefing row exists after a generation failure, so the
-    following retry-hour tick must find "nothing to retry" rather than
-    erroring — it only resends an existing failed_to_send row.
+    """Regression: previously, once generate_briefing() raised, nothing ever
+    retried generation for the rest of the day — retry_hour only resends an
+    *existing* failed_to_send row, and no row was ever created, so the next
+    tick reported "no_retry_needed" and the day went dark. A later tick must
+    retry generation itself, not just give up.
     """
 
     async def _failing_gen(db, company_id):
@@ -239,8 +253,44 @@ async def test_generation_failure_does_not_block_retry_hour_next_tick(
     await _dispatch_for_company(company.id, _at(8))
     result = await _dispatch_for_company(company.id, _at(9))
 
-    assert spies["briefing_failed"] == []  # retry path never triggered
-    assert "no_retry_needed" in result["actions"]["briefing"]
+    # Generation was attempted (and alerted) again, not skipped.
+    assert spies["generation_failed"] == [company.id, company.id]
+    assert "generation_failed_founder_alerted" in result["actions"]["briefing"]
+
+
+@pytest.mark.asyncio
+async def test_generation_recovers_on_a_later_tick(db: AsyncSession, spies, monkeypatch) -> None:
+    """The other half of the catch-up story: once the underlying LLM-chain
+    outage clears, the very next tick delivers today's briefing — a
+    distributor never has to notice or manually ask for it.
+    """
+    calls = {"n": 0}
+
+    async def _flaky_gen(db, company_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("all providers exhausted")
+        briefing = MorningBriefing(
+            company_id=company_id,
+            generated_text="recovered body",
+            snapshot_json={"cash_position": {}},
+            confidence_score=Decimal("90.00"),
+            data_freshness_hours=1,
+        )
+        db.add(briefing)
+        await db.flush()
+        return briefing
+
+    monkeypatch.setattr(scheduler, "generate_briefing", _flaky_gen)
+
+    company = await _make_company(db)
+    await _dispatch_for_company(company.id, _at(8))
+    assert spies["send"] == []
+
+    result = await _dispatch_for_company(company.id, _at(9))
+    assert len(spies["send"]) == 1
+    assert spies["send"][0][1] == "recovered body"
+    assert "generated_and_sent" in result["actions"]["briefing"]
 
 
 # ── Retry + founder alert ────────────────────────────────────────────────────
@@ -335,11 +385,14 @@ async def test_per_company_evening_brief_hour_overrides_global(db: AsyncSession,
     company.evening_brief_hour = 18
     await db.commit()
 
+    await _dispatch_for_company(company.id, _at(17))  # before this company's hour
+    assert spies["evening_brief"] == []
+
     await _dispatch_for_company(company.id, _at(18))
     assert spies["evening_brief"] == [company.id]
-
-    await _dispatch_for_company(company.id, _at(20))  # global default — not this company's hour
-    assert spies["evening_brief"] == [company.id]  # still just the one call
+    # A repeat call at/after this company's hour is now expected at this
+    # layer (catch-up) — send_evening_brief's own delivered-today check is
+    # what actually dedupes in production; see test_evening_brief.py.
 
 
 # ── Company selection + isolation ────────────────────────────────────────────
@@ -424,12 +477,18 @@ async def test_per_company_briefing_hour_fires_at_that_hour(db: AsyncSession, sp
 
 
 @pytest.mark.asyncio
-async def test_per_company_briefing_hour_not_fired_at_global_hour(db: AsyncSession, spies) -> None:
+async def test_per_company_briefing_hour_not_regenerated_at_retry_hour(
+    db: AsyncSession, spies
+) -> None:
     company = await _make_company(db)
-    company.briefing_hour = 7
+    company.briefing_hour = 7  # retry_hour becomes 8, same as the global BRIEFING_HOUR
     await db.commit()
 
-    # Hour 8 is the global default, but this company chose 7 — no briefing here
-    # (8 is now its retry hour, which only resends a failed briefing).
+    await _dispatch_for_company(company.id, _at(7))  # generates + sends
+    assert spies["generate"] == [company.id]
+
+    # Hour 8 is this company's retry_hour, not a second briefing_hour. The
+    # hour-7 send already succeeded, so nothing should regenerate or resend.
     await _dispatch_for_company(company.id, _at(8))
-    assert spies["generate"] == []
+    assert spies["generate"] == [company.id]  # still just the one
+    assert len(spies["send"]) == 1

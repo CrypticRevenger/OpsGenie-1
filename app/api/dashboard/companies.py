@@ -17,6 +17,7 @@ from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api._shared import content_disposition
 from app.api.admin.briefing import get_latest_briefing as api_get_latest_briefing
 from app.api.admin.cashflow import get_cashflow as api_get_cashflow
 from app.api.admin.companies import (
@@ -261,7 +262,7 @@ async def company_export(company_id: uuid.UUID, db: AsyncSession = Depends(get_d
     return Response(
         content=workbook_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )
 
 

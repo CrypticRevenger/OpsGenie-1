@@ -84,6 +84,10 @@ async def build_trend_report_workbook(db: AsyncSession, company: Company) -> byt
         f"({report.cash_window.prior_start.isoformat()} to "
         f"{report.cash_window.prior_end.isoformat()})"
     )
+    _cash_headers = ["Metric", "This Week", "Last Week", "Δ"]
+    xlsx_common.prepare_sheet(
+        cash_ws, _cash_headers, start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         cash_ws,
         report_name="Cash Trend",
@@ -92,7 +96,9 @@ async def build_trend_report_workbook(db: AsyncSession, company: Company) -> byt
         generated_at=generated_at,
         row_count=4,
     )
-    xlsx_common.write_header(cash_ws, ["Metric", "This Week", "Last Week", "Δ"])
+    xlsx_common.write_header(
+        cash_ws, _cash_headers, start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     cash = report.cash
     xlsx_common.row(
         cash_ws,
@@ -142,6 +148,9 @@ async def build_trend_report_workbook(db: AsyncSession, company: Company) -> byt
         f"({report.activity_window.prior_start.isoformat()} to "
         f"{report.activity_window.prior_end.isoformat()})"
     )
+    xlsx_common.prepare_sheet(
+        dealer_ws, list(_DEALER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         dealer_ws,
         report_name="Dealer Trend",
@@ -150,11 +159,16 @@ async def build_trend_report_workbook(db: AsyncSession, company: Company) -> byt
         generated_at=generated_at,
         row_count=len(report.dealers),
     )
-    xlsx_common.write_header(dealer_ws, list(_DEALER_HEADERS))
+    xlsx_common.write_header(
+        dealer_ws, list(_DEALER_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     for trend in sorted(report.dealers, key=lambda t: t.outstanding_delta, reverse=True):
         xlsx_common.row(dealer_ws, _dealer_row(trend), _DEALER_FORMATS)
 
     product_ws = wb.create_sheet("Product Sales Trend")
+    xlsx_common.prepare_sheet(
+        product_ws, list(_PRODUCT_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     xlsx_common.write_meta_block(
         product_ws,
         report_name="Product Sales Trend",
@@ -163,7 +177,9 @@ async def build_trend_report_workbook(db: AsyncSession, company: Company) -> byt
         generated_at=generated_at,
         row_count=len(report.products),
     )
-    xlsx_common.write_header(product_ws, list(_PRODUCT_HEADERS))
+    xlsx_common.write_header(
+        product_ws, list(_PRODUCT_HEADERS), start_row=xlsx_common.META_BLOCK_HEADER_ROW
+    )
     for trend in sorted(report.products, key=lambda t: t.units_delta, reverse=True):
         xlsx_common.row(product_ws, _product_row(trend), _PRODUCT_FORMATS)
 

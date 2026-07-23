@@ -675,6 +675,9 @@ MESSAGES: dict[str, str] = {
         "I can't read a photo right now — we're in the middle of something. Reply 'cancel' to "
         "stop that first, then send the photo again."
     ),
+    "workflow.unsupported_message_type": (
+        "Sorry, I can only reply to text messages and photos right now. Please type your message."
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Who paid you, or who did you pay? (party name)",
     "payment.need_party": "Please tell me the party's name.",
@@ -1168,6 +1171,7 @@ MESSAGES: dict[str, str] = {
     ),
     "notify.when_today": "today",
     "notify.when_tomorrow": "tomorrow",
+    "notify.when_overdue": "{days} day(s) ago",
     "notify.cash_line": "Current cash available: {amount} — {sufficiency}",
     "notify.cash_sufficient": "sufficient.",
     "notify.cash_insufficient": "may be insufficient.",

@@ -17,6 +17,7 @@ caller — the scheduler, or the manual admin trigger — commits once).
 from __future__ import annotations
 
 import logging
+from datetime import datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +31,7 @@ from app.services.daily_snapshot import finalize_daily_snapshot
 from app.services.money_format import format_inr, format_signed_inr
 from app.services.priority_actions import get_priority_actions
 from app.services.recommendations import ActionItem
-from app.services.snapshot import business_now
+from app.services.snapshot import business_now, business_timezone
 from app.services.whatsapp_client import (
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
@@ -43,11 +44,26 @@ logger = logging.getLogger(__name__)
 _NOTIFICATION_TYPE = "evening_brief"
 
 
-async def _already_finalized_today(db: AsyncSession, company: Company, business_date) -> bool:
+async def evening_brief_delivered_today(db: AsyncSession, company: Company, business_date) -> bool:
+    """True if the evening brief was actually *delivered* for business_date —
+    the real dedup gate. Deliberately NOT "does a DailyBusinessSnapshot row
+    exist": finalize_daily_snapshot writes that row unconditionally, before
+    the send is even attempted, so gating on it silently blocked every retry
+    for the rest of the day whenever the send itself failed (no retry hour,
+    no founder alert, unlike the morning briefing — see
+    app/core/scheduler.py). Reads the real NotificationLog outcome instead.
+    Public — app/core/scheduler.py calls this to tell "already delivered"
+    apart from "this attempt failed" when send_evening_brief returns False.
+    """
+    day_start = datetime.combine(
+        business_date, time.min, tzinfo=business_timezone(company.timezone)
+    )
     row = await db.scalar(
-        select(DailyBusinessSnapshot.id).where(
-            DailyBusinessSnapshot.company_id == company.id,
-            DailyBusinessSnapshot.business_date == business_date,
+        select(NotificationLog.id).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == _NOTIFICATION_TYPE,
+            NotificationLog.delivery_status == "sent",
+            NotificationLog.sent_at >= day_start,
         )
     )
     return row is not None
@@ -103,15 +119,17 @@ def _compose_text(
 
 
 async def send_evening_brief(db: AsyncSession, company: Company) -> bool:
-    """Finalizes today's snapshot and sends the summary. Returns False
-    (no-op) when today was already finalized — the same dedup shape as
-    app/core/scheduler.py::_latest_briefing_today, so a retried scheduler
-    tick or a repeated manual trigger never sends a duplicate real message.
+    """Finalizes today's snapshot (safe to call repeatedly — finalize_daily_
+    snapshot upserts, recomputing fresh figures each time) and sends the
+    summary. Returns False both when today's brief was already delivered
+    (no-op) AND when this attempt's own send just failed — callers that need
+    to tell those two apart (see evening_brief_delivered_today) should check
+    it themselves rather than infer an outcome from this bool alone.
     """
     today = business_now(company.timezone).date()
-    if await _already_finalized_today(db, company, today):
+    if await evening_brief_delivered_today(db, company, today):
         logger.info(
-            "Evening brief for company %s: %s already finalized, skipping.", company.id, today
+            "Evening brief for company %s: %s already delivered, skipping.", company.id, today
         )
         return False
 
