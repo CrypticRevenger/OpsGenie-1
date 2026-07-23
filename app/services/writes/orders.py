@@ -141,6 +141,11 @@ async def create_order(
             raise ValueError(f"Quantity for '{item['product_name']}' must be greater than zero")
 
         product = await _resolve_product(db, company.id, item)
+        if company.gst_varies_by_product and product.gst_rate is None:
+            raise ValueError(
+                f"No GST rate on file for '{product.name}', and this company's GST "
+                "varies by product"
+            )
         unit_price = product.selling_price
         line_total = (unit_price * quantity).quantize(_CENTS)
         line_gst_rate = effective_gst_rate(product.gst_rate, company.gst_rate)

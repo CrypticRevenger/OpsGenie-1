@@ -422,6 +422,12 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if not stripped:
             return t("order.need_product", loc)
         product = await _match_product(db, company.id, stripped)
+        if product is not None and company.gst_varies_by_product and product.gst_rate is None:
+            # Blocked, not defaulted — falling back to company.gst_rate here
+            # would silently invoice at 0% (company.gst_rate is 0 in this
+            # mode). Stay on this same step so a different product name or
+            # "cancel" both still work.
+            return t("order.product_gst_missing", loc, product=product.name)
         if product is not None and product.selling_price is not None:
             scratch["current_product"] = {
                 "name": product.name,
