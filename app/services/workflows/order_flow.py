@@ -33,11 +33,29 @@ from app.models.pending_operation import PendingOperationType
 from app.models.product import Product
 from app.services.duplicate_check import find_similar_order
 from app.services.importer.normalizer import parse_amount
+from app.services.invoice_ocr import ExtractedInvoice
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import _is
 from app.services.party_outstanding import calculate_party_outstanding
 from app.services.snapshot import business_now
 from app.services.writes.pending_operation import create_pending_operation
+
+# Invoice-photo OCR pre-fill (app/services/invoice_ocr.py) — a per-field
+# suggestion is only offered as a "reply YES" shortcut above this confidence;
+# below it (or a missing value), the step just asks its plain question, same
+# as if no photo had ever been sent. One tunable constant rather than baked
+# into each of the helpers below.
+_SUGGESTION_CONFIDENCE_THRESHOLD = 0.75
+
+
+def _suggested_value(guess: dict | None) -> str | None:
+    if not guess:
+        return None
+    value = guess.get("value")
+    confidence = guess.get("confidence") or 0
+    if value and confidence >= _SUGGESTION_CONFIDENCE_THRESHOLD:
+        return str(value)
+    return None
 
 
 async def _match_dealer(db: AsyncSession, company_id, name: str) -> Dealer | None:
@@ -64,6 +82,98 @@ def start_order_workflow(company: Company) -> str:
     company.active_workflow = "create_order"
     company.workflow_scratch = {"step": "awaiting_dealer"}
     return t("order.start", resolve_locale(company))
+
+
+def start_order_workflow_from_ocr(company: Company, extraction: ExtractedInvoice) -> str:
+    """OCR-triggered counterpart to start_order_workflow (app/services/
+    invoice_ocr.py's extract_invoice_from_image). Same active_workflow value
+    ("create_order") as the plain flow — no new _WORKFLOW_HANDLERS or
+    PendingOperationType entry needed — only workflow_scratch differs: it's
+    seeded with the raw per-field extraction (ocr_queue) so
+    handle_order_workflow_message's step-scoped suggestion logic below can
+    offer it, one field at a time, exactly like a plain guided flow with
+    smart defaults pre-typed in.
+    """
+    company.active_workflow = "create_order"
+    loc = resolve_locale(company)
+    scratch: dict = {
+        "step": "awaiting_dealer",
+        "ocr_queue": [item.model_dump() for item in extraction.items],
+    }
+    dealer_suggestion = _suggested_value(extraction.dealer_name.model_dump())
+    if dealer_suggestion:
+        scratch["ocr_suggestions"] = {"awaiting_dealer": dealer_suggestion}
+        company.workflow_scratch = scratch
+        return t("order.ocr_dealer_ask", loc, dealer=dealer_suggestion)
+    company.workflow_scratch = scratch
+    return t("order.ocr_no_dealer", loc)
+
+
+def _advance_to_awaiting_product(scratch: dict, loc: Locale, plain_key: str, **plain_kwargs) -> str:
+    """Sets step="awaiting_product" and, if there's a queued OCR item,
+    surfaces its product-name guess as a suggestion (when confident enough) —
+    called from every place that currently transitions into this step, so an
+    OCR-originated flow keeps offering the next queued item automatically.
+    Peeks the queue (doesn't pop) — the item is only consumed once its
+    quantity is actually recorded, see the awaiting_quantity branch below.
+    """
+    scratch["step"] = "awaiting_product"
+    queue = scratch.get("ocr_queue") or []
+    if not queue:
+        scratch.pop("ocr_current_item", None)
+        return t(plain_key, loc, **plain_kwargs)
+    item = queue[0]
+    scratch["ocr_current_item"] = item
+    suggestion = _suggested_value(item.get("product_name"))
+    if suggestion is None:
+        return t(plain_key, loc, **plain_kwargs)
+    ocr_suggestions = dict(scratch.get("ocr_suggestions") or {})
+    ocr_suggestions["awaiting_product"] = suggestion
+    scratch["ocr_suggestions"] = ocr_suggestions
+    return t("order.ocr_product_ask", loc, product=suggestion)
+
+
+def _advance_to_awaiting_price(scratch: dict, loc: Locale, plain_key: str, **plain_kwargs) -> str:
+    """Same idea as _advance_to_awaiting_product, for the price field of
+    whatever item is currently in scratch["ocr_current_item"] — independently
+    gated from the product-name suggestion, since a photo can have a crisp
+    product name next to an illegible price.
+    """
+    scratch["step"] = "awaiting_price"
+    item = scratch.get("ocr_current_item")
+    suggestion = _suggested_value(item.get("price")) if item else None
+    if suggestion is None:
+        return t(plain_key, loc, **plain_kwargs)
+    ocr_suggestions = dict(scratch.get("ocr_suggestions") or {})
+    ocr_suggestions["awaiting_price"] = suggestion
+    scratch["ocr_suggestions"] = ocr_suggestions
+    return t(
+        "order.ocr_price_ask",
+        loc,
+        product=plain_kwargs.get("product", ""),
+        price=format_inr(Decimal(suggestion)),
+    )
+
+
+def _advance_to_awaiting_quantity(
+    scratch: dict, loc: Locale, plain_key: str, **plain_kwargs
+) -> str:
+    """Same idea, for the quantity field of scratch["ocr_current_item"]."""
+    scratch["step"] = "awaiting_quantity"
+    item = scratch.get("ocr_current_item")
+    suggestion = _suggested_value(item.get("quantity")) if item else None
+    if suggestion is None:
+        return t(plain_key, loc, **plain_kwargs)
+    ocr_suggestions = dict(scratch.get("ocr_suggestions") or {})
+    ocr_suggestions["awaiting_quantity"] = suggestion
+    scratch["ocr_suggestions"] = ocr_suggestions
+    return t(
+        "order.ocr_quantity_ask",
+        loc,
+        product=plain_kwargs.get("product", ""),
+        unit=plain_kwargs.get("unit", "units"),
+        quantity=suggestion,
+    )
 
 
 def compute_order_math(
@@ -253,6 +363,22 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
     scratch = dict(company.workflow_scratch or {})
     step = scratch.get("step")
 
+    # Invoice-photo OCR pre-fill: a step-scoped, single-use suggestion. If the
+    # current step has a pending suggestion (offered by start_order_workflow_
+    # from_ocr or one of the _advance_to_awaiting_* helpers below) and the
+    # user's reply is a bare "yes"/"y", swap it in for `stripped` so every
+    # branch below runs completely unchanged — as if the suggested value had
+    # been typed. Popped whether or not it's actually consumed, so it's never
+    # reapplied at a later, differently-named step (this is also what keeps
+    # it from colliding with "yes"/"no" meaning something else entirely at
+    # awaiting_new_dealer_confirm/awaiting_new_product_confirm below — those
+    # steps never have an entry in ocr_suggestions).
+    ocr_suggestions = dict(scratch.get("ocr_suggestions") or {})
+    suggested = ocr_suggestions.pop(step, None)
+    scratch["ocr_suggestions"] = ocr_suggestions
+    if suggested is not None and _is(stripped, "yes", "y"):
+        stripped = suggested
+
     if step == "awaiting_dealer":
         if not stripped:
             return t("order.need_dealer", loc)
@@ -260,9 +386,11 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if dealer is not None:
             scratch["dealer_name"] = dealer.name
             scratch["items"] = []
-            scratch["step"] = "awaiting_product"
+            message = _advance_to_awaiting_product(
+                scratch, loc, "order.dealer_found", dealer=dealer.name
+            )
             company.workflow_scratch = scratch
-            return t("order.dealer_found", loc, dealer=dealer.name)
+            return message
         scratch["dealer_name"] = stripped
         scratch["step"] = "awaiting_new_dealer_confirm"
         company.workflow_scratch = scratch
@@ -276,9 +404,11 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if not _is(stripped, "yes", "y"):
             return t("workflow.yes_no", loc)
         scratch["items"] = []
-        scratch["step"] = "awaiting_product"
+        message = _advance_to_awaiting_product(
+            scratch, loc, "order.new_dealer_added", dealer=scratch["dealer_name"]
+        )
         company.workflow_scratch = scratch
-        return t("order.new_dealer_added", loc, dealer=scratch["dealer_name"])
+        return message
 
     if step == "awaiting_product":
         if _is(stripped, "done"):
@@ -298,10 +428,12 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
                 "price": str(product.selling_price),
                 "gst_rate": str(product.gst_rate) if product.gst_rate is not None else None,
             }
-            scratch["step"] = "awaiting_quantity"
-            company.workflow_scratch = scratch
             unit = product.unit or "units"
-            return t("order.quantity_ask", loc, unit=unit, product=product.name)
+            message = _advance_to_awaiting_quantity(
+                scratch, loc, "order.quantity_ask", unit=unit, product=product.name
+            )
+            company.workflow_scratch = scratch
+            return message
         if product is not None:
             # On file but no price recorded yet (common for products the
             # guided onboarding conversation created with a name only).
@@ -310,9 +442,11 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
                 "price": None,
                 "gst_rate": str(product.gst_rate) if product.gst_rate is not None else None,
             }
-            scratch["step"] = "awaiting_price"
+            message = _advance_to_awaiting_price(
+                scratch, loc, "order.price_ask", product=product.name
+            )
             company.workflow_scratch = scratch
-            return t("order.price_ask", loc, product=product.name)
+            return message
         scratch["current_product"] = {"name": stripped, "price": None}
         scratch["step"] = "awaiting_new_product_confirm"
         company.workflow_scratch = scratch
@@ -321,15 +455,23 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
     if step == "awaiting_new_product_confirm":
         if _is(stripped, "no", "n"):
             scratch["current_product"] = None
-            scratch["step"] = "awaiting_product"
+            queue = scratch.get("ocr_queue")
+            if queue:
+                # Don't re-offer the same (evidently wrong) OCR product-name
+                # guess again once the user has declined creating it — its
+                # price/quantity guesses, if any, are still offered once a
+                # corrected product name is entered for this same item.
+                queue[0] = dict(queue[0])
+                queue[0]["product_name"] = {"value": None, "confidence": 0.0}
+            message = _advance_to_awaiting_product(scratch, loc, "order.new_product_declined")
             company.workflow_scratch = scratch
-            return t("order.new_product_declined", loc)
+            return message
         if not _is(stripped, "yes", "y"):
             return t("workflow.yes_no", loc)
-        scratch["step"] = "awaiting_price"
-        company.workflow_scratch = scratch
         name = scratch["current_product"]["name"]
-        return t("order.price_ask", loc, product=name)
+        message = _advance_to_awaiting_price(scratch, loc, "order.price_ask", product=name)
+        company.workflow_scratch = scratch
+        return message
 
     if step == "awaiting_price":
         try:
@@ -341,9 +483,11 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         current = dict(scratch["current_product"])
         current["price"] = str(price)
         scratch["current_product"] = current
-        scratch["step"] = "awaiting_quantity"
+        message = _advance_to_awaiting_quantity(
+            scratch, loc, "order.quantity_ask", unit="units", product=current["name"]
+        )
         company.workflow_scratch = scratch
-        return t("order.quantity_ask", loc, unit="units", product=current["name"])
+        return message
 
     if step == "awaiting_quantity":
         try:
@@ -364,9 +508,16 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         )
         scratch["items"] = items
         scratch["current_product"] = None
-        scratch["step"] = "awaiting_product"
+        if scratch.get("ocr_current_item") is not None:
+            # This item is now committed — consume it off the queue so the
+            # next awaiting_product transition offers the next one.
+            scratch["ocr_queue"] = (scratch.get("ocr_queue") or [])[1:]
+            scratch["ocr_current_item"] = None
+        message = _advance_to_awaiting_product(
+            scratch, loc, "order.item_added", quantity=quantity, product=current["name"]
+        )
         company.workflow_scratch = scratch
-        return t("order.item_added", loc, quantity=quantity, product=current["name"])
+        return message
 
     # Unreachable in practice (every step above is exhaustive for this flow),
     # but never leave a company stuck on a workflow step this code can't run.

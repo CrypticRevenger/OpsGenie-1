@@ -53,6 +53,13 @@ class ToolCallingUnsupportedError(RuntimeError):
     """
 
 
+class VisionUnsupportedError(RuntimeError):
+    """Raised by a provider whose model/SDK path doesn't accept image input —
+    app.services.llm.factory.extract_invoice_image_with_fallback treats this
+    like a missing key and skips to the next provider in the chain.
+    """
+
+
 @dataclass
 class ProviderResult:
     """What a successful chain run returns — not just text, but which
@@ -71,11 +78,25 @@ class LLMProvider(ABC):
     """
 
     model: str
+    # Whether generate_from_image() is actually implemented — see
+    # app/services/invoice_ocr.py. False by default; only providers whose SDK
+    # supports multimodal input (Claude, Gemini) override this to True.
+    supports_vision: bool = False
 
     @abstractmethod
     async def generate(self, *, system_prompt: str, user_content: str) -> str:
         """Return the model's narrated text response."""
         raise NotImplementedError
+
+    async def generate_from_image(
+        self, *, system_prompt: str, image_bytes: bytes, mime_type: str
+    ) -> str:
+        """Return the model's text response to an image + instruction prompt
+        (used only for invoice-photo OCR extraction today — see
+        app/services/invoice_ocr.py). Default: unsupported, so the fallback
+        orchestrator skips this provider, same treatment as a missing API key.
+        """
+        raise VisionUnsupportedError(f"{type(self).__name__} does not support image input.")
 
     async def run_tool_loop(
         self,

@@ -30,6 +30,8 @@ _RETRYABLE_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 class GeminiProvider(LLMProvider):
+    supports_vision = True
+
     def __init__(self, *, api_key: str | None, model: str) -> None:
         self._api_key = api_key
         self.model = model
@@ -46,6 +48,30 @@ class GeminiProvider(LLMProvider):
                 model=self.model,
                 contents=user_content,
                 config=types.GenerateContentConfig(system_instruction=system_prompt),
+            )
+        except Exception as exc:  # noqa: BLE001 - see module docstring
+            status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+            if status_code in _RETRYABLE_STATUS_CODES:
+                raise ProviderUnavailableError(f"Gemini unavailable: {exc}") from exc
+            raise
+        return response.text
+
+    async def generate_from_image(
+        self, *, system_prompt: str, image_bytes: bytes, mime_type: str
+    ) -> str:
+        if not self._api_key:
+            raise NoApiKeyConfiguredError(
+                "GEMINI_API_KEY is not configured — set it in .env to use "
+                "LLM_PROVIDER=gemini (or list it in LLM_FALLBACKS)."
+            )
+        client = genai.Client(api_key=self._api_key)
+        try:
+            response = await client.aio.models.generate_content(
+                model=self.model,
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    system_prompt,
+                ],
             )
         except Exception as exc:  # noqa: BLE001 - see module docstring
             status_code = getattr(exc, "status_code", None) or getattr(exc, "code", None)

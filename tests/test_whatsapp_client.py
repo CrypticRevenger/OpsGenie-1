@@ -12,9 +12,11 @@ from __future__ import annotations
 import httpx
 import pytest
 from app.services.whatsapp_client import (
+    WhatsAppMediaTooLargeError,
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
     WhatsAppSendResult,
+    download_media,
     send_interactive_list_message,
     send_template_message,
     send_text_message,
@@ -263,3 +265,164 @@ async def test_send_interactive_list_message_raises_when_not_configured(monkeypa
         await send_interactive_list_message(
             "+919999999999", body="Pick one", button_text="Choose", sections=[]
         )
+
+
+# ── download_media (invoice-photo OCR inbound path) ──────────────────────────
+
+
+def _configured_settings():
+    class _Settings:
+        whatsapp_token = "fake-token"
+        whatsapp_phone_number_id = "123456"
+
+    return _Settings()
+
+
+@pytest.mark.asyncio
+async def test_download_media_success(monkeypatch):
+    calls = []
+
+    class _LookupResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "url": "https://lookaside.fbsbx.com/whatsapp_business/media/fake",
+                "mime_type": "image/jpeg",
+                "file_size": 12,
+            }
+
+    class _FileResponse:
+        status_code = 200
+        content = b"fake-image-bytes"
+
+    async def _fake_get(self, url, headers):
+        calls.append(url)
+        if url.endswith("MEDIA_ID_1"):
+            return _LookupResponse()
+        return _FileResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", _configured_settings)
+
+    content, mime_type = await download_media("MEDIA_ID_1")
+    assert content == b"fake-image-bytes"
+    assert mime_type == "image/jpeg"
+    assert calls[0].endswith("MEDIA_ID_1")
+    assert calls[1].startswith("https://lookaside.fbsbx.com/")
+
+
+@pytest.mark.asyncio
+async def test_download_media_raises_when_not_configured(monkeypatch):
+    class _Settings:
+        whatsapp_token = None
+        whatsapp_phone_number_id = None
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    with pytest.raises(WhatsAppNotConfiguredError):
+        await download_media("MEDIA_ID_1")
+
+
+@pytest.mark.asyncio
+async def test_download_media_raises_on_oversized_reported_file_size(monkeypatch):
+    class _LookupResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "url": "https://lookaside.fbsbx.com/whatsapp_business/media/fake",
+                "mime_type": "image/jpeg",
+                "file_size": 999_999_999,
+            }
+
+    async def _fake_get(self, url, headers):
+        return _LookupResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", _configured_settings)
+
+    with pytest.raises(WhatsAppMediaTooLargeError):
+        await download_media("MEDIA_ID_1")
+
+
+@pytest.mark.asyncio
+async def test_download_media_raises_on_oversized_actual_bytes(monkeypatch):
+    """The reported file_size can't be trusted alone — the actual downloaded
+    length is checked too.
+    """
+
+    class _LookupResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "url": "https://lookaside.fbsbx.com/whatsapp_business/media/fake",
+                "mime_type": "image/jpeg",
+                # No file_size reported at all — some responses omit it.
+            }
+
+    class _FileResponse:
+        status_code = 200
+        content = b"x" * (11 * 1024 * 1024)
+
+    async def _fake_get(self, url, headers):
+        if url.endswith("MEDIA_ID_1"):
+            return _LookupResponse()
+        return _FileResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", _configured_settings)
+
+    with pytest.raises(WhatsAppMediaTooLargeError):
+        await download_media("MEDIA_ID_1")
+
+
+@pytest.mark.asyncio
+async def test_download_media_wraps_malformed_lookup_response(monkeypatch):
+    class _LookupResponse:
+        status_code = 200
+        text = "{}"
+
+        def json(self):
+            return {}  # missing "url"
+
+    async def _fake_get(self, url, headers):
+        return _LookupResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", _configured_settings)
+
+    with pytest.raises(WhatsAppSendError):
+        await download_media("MEDIA_ID_1")
+
+
+@pytest.mark.asyncio
+async def test_download_media_wraps_network_error(monkeypatch):
+    async def _fake_get(self, url, headers):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", _configured_settings)
+
+    with pytest.raises(WhatsAppSendError):
+        await download_media("MEDIA_ID_1")
+
+
+@pytest.mark.asyncio
+async def test_download_media_raises_on_non_2xx_lookup(monkeypatch):
+    class _LookupResponse:
+        status_code = 404
+        text = '{"error": "not found"}'
+
+    async def _fake_get(self, url, headers):
+        return _LookupResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", _configured_settings)
+
+    with pytest.raises(WhatsAppSendError):
+        await download_media("MEDIA_ID_1")

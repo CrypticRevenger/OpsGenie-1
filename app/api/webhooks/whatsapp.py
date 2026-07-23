@@ -28,6 +28,12 @@ traceable end-to-end: the inbound BusinessEvent's id becomes a
 and on the NotificationLog row, and Meta's own returned message id (the
 "wamid") links that NotificationLog row forward to whichever later
 whatsapp_status_received delivery-status webhook updates it.
+
+A `type: image` message is handled separately from the text/interactive
+ladder above (see _handle_invoice_photo) — invoice-photo OCR pre-fill
+(SPEC V0.3/Future), scoped to the existing dealer/receivable create_order
+flow. Other non-text types (audio/document/location) are still logged but
+get no reply — that remains out of scope.
 """
 
 from __future__ import annotations
@@ -60,6 +66,7 @@ from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
 from app.services.followup import handle_follow_up_reply
+from app.services.invoice_ocr import extract_invoice_from_image
 from app.services.onboarding_flow import handle_onboarding_message, start_language_change
 from app.services.party_lookup import find_party
 from app.services.query_menu import menu_router
@@ -67,9 +74,11 @@ from app.services.reports.period import resolve_period
 from app.services.reports.registry import REPORTS
 from app.services.snapshot import build_snapshot, business_now
 from app.services.whatsapp_client import (
+    WhatsAppMediaTooLargeError,
     WhatsAppNotConfiguredError,
     WhatsAppSendError,
     WhatsAppSendResult,
+    download_media,
     send_interactive_list_message,
     send_text_message,
 )
@@ -90,6 +99,7 @@ from app.services.workflows.gst_flow import (
 from app.services.workflows.order_flow import (
     handle_order_workflow_message,
     start_order_workflow,
+    start_order_workflow_from_ocr,
 )
 from app.services.workflows.party_flow import (
     handle_add_dealer_workflow_message,
@@ -1078,6 +1088,46 @@ async def _send_reply_and_log(
     )
 
 
+async def _handle_invoice_photo(db: AsyncSession, company: Company, message: dict) -> str:
+    """Entry point for an inbound `type: image` message — invoice-photo OCR
+    pre-fill (SPEC V0.3/Future's "OCR for invoice photos"), scoped to the
+    existing dealer/receivable create_order flow (see
+    app/services/workflows/order_flow.py::start_order_workflow_from_ocr and
+    app/services/invoice_ocr.py). Never raises — same "must never raise in
+    the webhook path" contract every other reply builder here follows.
+
+    A company already mid-onboarding, mid another guided workflow, mid a
+    pending-operation confirm, or mid a follow-up conversation gets a
+    deterministic "finish that first" reply instead of being silently
+    dropped — this is what actually closes the "images get total silence"
+    finding, in every state, not just idle.
+    """
+    loc = resolve_locale(company)
+    busy = (
+        company.onboarding_state != OnboardingState.completed
+        or company.active_workflow is not None
+        or company.active_pending_operation_id is not None
+        or company.pending_follow_up_invoice_id is not None
+    )
+    if busy:
+        return t("workflow.photo_busy", loc)
+
+    media_id = (message.get("image") or {}).get("id")
+    if not media_id:
+        return t("order.ocr_unreadable", loc)
+
+    try:
+        image_bytes, mime_type = await download_media(media_id)
+    except (WhatsAppNotConfiguredError, WhatsAppSendError, WhatsAppMediaTooLargeError) as exc:
+        logger.warning("Invoice photo download failed for company %s: %s", company.id, exc)
+        return t("order.ocr_download_failed", loc)
+
+    extraction = await extract_invoice_from_image(image_bytes, mime_type)
+    if extraction is None:
+        return t("order.ocr_unreadable", loc)
+    return start_order_workflow_from_ocr(company, extraction)
+
+
 @router.get(
     "",
     summary="Meta webhook verification handshake",
@@ -1358,6 +1408,21 @@ async def receive_whatsapp_webhook(
                                     command=command,
                                     correlation_id=inbound_event.id,
                                 )
+                        elif message.get("type") == "image":
+                            # Invoice-photo OCR pre-fill (SPEC V0.3/Future) —
+                            # see _handle_invoice_photo. Own branch, not
+                            # folded into the text/interactive ladder above,
+                            # since an image carries no text body for any of
+                            # those handlers to read.
+                            await _send_reply_and_log(
+                                db,
+                                company,
+                                sender,
+                                notification_type="invoice_photo",
+                                reply=await _handle_invoice_photo(db, company, message),
+                                command=None,
+                                correlation_id=inbound_event.id,
+                            )
                     finally:
                         if message_id is not None:
                             await lock_db.scalar(

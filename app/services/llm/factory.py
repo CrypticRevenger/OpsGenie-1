@@ -18,6 +18,7 @@ from app.services.llm.base import (
     NoApiKeyConfiguredError,
     ProviderResult,
     ProviderUnavailableError,
+    VisionUnsupportedError,
 )
 from app.services.llm.claude_provider import ClaudeProvider
 from app.services.llm.cohere_provider import CohereProvider
@@ -113,4 +114,44 @@ async def generate_with_fallback(
 
     raise AllProvidersExhaustedError(
         f"All configured LLM providers failed or are unconfigured. Tried: {', '.join(order)}."
+    )
+
+
+async def extract_invoice_image_with_fallback(
+    *,
+    system_prompt: str,
+    image_bytes: bytes,
+    mime_type: str,
+    settings: Settings | None = None,
+) -> ProviderResult:
+    """Same provider order/skip/abort semantics as generate_with_fallback, for
+    the invoice-photo OCR path (app/services/invoice_ocr.py). A provider with
+    supports_vision=False is skipped exactly like one with no API key — most
+    of the configured chain (Groq/OpenRouter/GitHub Models/Cohere) has no
+    multimodal path today, so this only ever actually calls Claude/Gemini.
+    """
+    settings = settings or get_settings()
+    order = _resolve_provider_order(settings)
+
+    for name in order:
+        provider = _build_provider(name, settings)
+        if not provider.supports_vision:
+            continue
+        started = time.monotonic()
+        try:
+            text = await provider.generate_from_image(
+                system_prompt=system_prompt, image_bytes=image_bytes, mime_type=mime_type
+            )
+        except (NoApiKeyConfiguredError, VisionUnsupportedError):
+            continue
+        except ProviderUnavailableError as exc:
+            logger.warning("Vision provider %r unavailable, trying next: %s", name, exc)
+            continue
+        latency = time.monotonic() - started
+        return ProviderResult(
+            provider=name, model=provider.model, text=text, latency_seconds=latency
+        )
+
+    raise AllProvidersExhaustedError(
+        f"No configured vision-capable LLM provider succeeded. Tried: {', '.join(order)}."
     )

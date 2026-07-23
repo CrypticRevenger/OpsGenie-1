@@ -644,6 +644,10 @@ MESSAGES: dict[str, str] = {
     ),
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
+    "workflow.photo_busy": (
+        "Main abhi photo nahi padh sakta — hum kuch aur kar rahe hain. Pehle 'cancel' kahein, "
+        "phir photo dobara bhejein."
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Kisne aapko pay kiya, ya aapne kisko pay kiya? (party ka naam)",
     "payment.need_party": "Kripya party ka naam batayein.",
@@ -747,6 +751,34 @@ MESSAGES: dict[str, str] = {
     "order.credit_limit_warning": (
         "⚠️ Yeh order {dealer} ka outstanding {prospective} tak le jaayega, jo unki "
         "{limit} ki credit limit se zyada hai."
+    ),
+    # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
+    "order.ocr_dealer_ask": (
+        "📷 Maine is invoice ko *{dealer}* ke liye padha hai. Confirm karne ke liye YES bhejein, "
+        "ya sahi dealer ka naam type karein."
+    ),
+    "order.ocr_no_dealer": (
+        "📷 Main us photo se dealer ka naam samajh nahi paaya. Yeh order kiske liye hai?"
+    ),
+    "order.ocr_product_ask": (
+        "Maine agla item *{product}* padha hai. Ise use karne ke liye YES bhejein, ya sahi "
+        "product ka naam type karein."
+    ),
+    "order.ocr_price_ask": (
+        "Maine {product} ki price {price} padhi hai. Ise use karne ke liye YES bhejein, ya sahi "
+        "price type karein."
+    ),
+    "order.ocr_quantity_ask": (
+        "Maine {product} ki quantity {quantity} {unit} padhi hai. Ise use karne ke liye YES "
+        "bhejein, ya sahi quantity type karein."
+    ),
+    "order.ocr_download_failed": (
+        "Main woh photo abhi download nahi kar paaya. Kripya thodi der baad phir bhejein, ya "
+        "'new order' type karke manually order shuru karein."
+    ),
+    "order.ocr_unreadable": (
+        "Main use invoice ke roop mein nahi padh paaya. Aap 'new order' type karke manually "
+        "order shuru kar sakte hain."
     ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "Kaun sa invoice? Uska invoice number bhejein, ya 'cancel'.",
