@@ -616,6 +616,10 @@ MESSAGES: dict[str, str] = {
     "workflow.error_restart": ("କିଛି ଭୁଲ୍ ହୋଇଗଲା। ଦୟାକରି ପୁଣି '{trigger}' କହି ଆରମ୍ଭ କରନ୍ତୁ।"),
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
+    "workflow.photo_busy": (
+        "ମୁଁ ବର୍ତ୍ତମାନ photo ପଢ଼ି ପାରିବି ନାହିଁ — ଆମେ କିଛି ଅନ୍ୟ କାର୍ଯ୍ୟ କରୁଛୁ। ପ୍ରଥମେ 'cancel' କୁହନ୍ତୁ, "
+        "ତାପରେ photo ପୁଣି ପଠାନ୍ତୁ।"
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "କିଏ ଆପଣଙ୍କୁ pay କଲା, କିମ୍ବା ଆପଣ କାହାକୁ pay କଲେ? (party ନାମ)",
     "payment.need_party": "ଦୟାକରି party ନାମ କୁହନ୍ତୁ।",
@@ -709,6 +713,32 @@ MESSAGES: dict[str, str] = {
     "order.credit_limit_warning": (
         "⚠️ ଏ order {dealer} ର outstanding କୁ {prospective} ପର୍ଯ୍ୟନ୍ତ ନେବ, ଯାହା ସେମାନଙ୍କ "
         "{limit} ର credit limit ଠାରୁ ଅଧିକ।"
+    ),
+    # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
+    "order.ocr_dealer_ask": (
+        "📷 ମୁଁ ଏହି invoice କୁ *{dealer}* ପାଇଁ ପଢ଼ିଛି। Confirm କରିବାକୁ YES ପଠାନ୍ତୁ, କିମ୍ବା ସଠିକ୍ "
+        "dealer ନାମ type କରନ୍ତୁ।"
+    ),
+    "order.ocr_no_dealer": "📷 ମୁଁ ସେହି photo ରୁ dealer ନାମ ବୁଝି ପାରିଲି ନାହିଁ। ଏହି order କାହା ପାଇଁ?",
+    "order.ocr_product_ask": (
+        "ମୁଁ ପରବର୍ତ୍ତୀ item *{product}* ବୋଲି ପଢ଼ିଛି। ଏହାକୁ use କରିବାକୁ YES ପଠାନ୍ତୁ, କିମ୍ବା ସଠିକ୍ "
+        "product ନାମ type କରନ୍ତୁ।"
+    ),
+    "order.ocr_price_ask": (
+        "ମୁଁ {product} ର price {price} ବୋଲି ପଢ଼ିଛି। ଏହାକୁ use କରିବାକୁ YES ପଠାନ୍ତୁ, କିମ୍ବା ସଠିକ୍ "
+        "price type କରନ୍ତୁ।"
+    ),
+    "order.ocr_quantity_ask": (
+        "ମୁଁ {product} ର quantity {quantity} {unit} ବୋଲି ପଢ଼ିଛି। ଏହାକୁ use କରିବାକୁ YES ପଠାନ୍ତୁ, "
+        "କିମ୍ବା ସଠିକ୍ quantity type କରନ୍ତୁ।"
+    ),
+    "order.ocr_download_failed": (
+        "ମୁଁ ସେହି photo କୁ ବର୍ତ୍ତମାନ download କରି ପାରିଲି ନାହିଁ। ଦୟାକରି କିଛି ସମୟ ପରେ ପୁଣି ପଠାନ୍ତୁ, "
+        "କିମ୍ବା 'new order' type କରି manually order ଆରମ୍ଭ କରନ୍ତୁ।"
+    ),
+    "order.ocr_unreadable": (
+        "ମୁଁ ଏହାକୁ invoice ବୋଲି ପଢ଼ି ପାରିଲି ନାହିଁ। ଆପଣ 'new order' type କରି manually order ଆରମ୍ଭ "
+        "କରିପାରିବେ।"
     ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "କେଉଁ invoice? ଏହାର invoice number ପଠାନ୍ତୁ, କିମ୍ବା 'cancel'।",

@@ -26,6 +26,10 @@ Message shapes:
   Meta's Media API, returning a media id a template's document header can
   reference — a template's header component doesn't need the actual document
   content declared at template-creation time, just its type.
+- download_media: the inbound counterpart — resolves an inbound message's
+  media id (e.g. a photographed invoice) to its actual bytes, for the
+  invoice-photo OCR path (app/services/invoice_ocr.py). Meta's Media API is
+  two calls: GET /{media_id} for a short-lived signed URL, then GET that URL.
 """
 
 from __future__ import annotations
@@ -41,6 +45,11 @@ logger = logging.getLogger(__name__)
 
 _GRAPH_API_VERSION = "v21.0"
 _SEND_TIMEOUT_SECONDS = 10.0
+_MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 30.0
+# Mirrors app/api/admin/imports.py's existing 10MB upload cap — an inbound
+# photo has no reason to be larger, and this bounds how much a single
+# webhook request reads into memory.
+_MAX_MEDIA_DOWNLOAD_BYTES = 10 * 1024 * 1024
 
 
 class WhatsAppNotConfiguredError(Exception):
@@ -49,6 +58,10 @@ class WhatsAppNotConfiguredError(Exception):
 
 class WhatsAppSendError(Exception):
     """Meta's Send Message API returned a non-2xx response."""
+
+
+class WhatsAppMediaTooLargeError(Exception):
+    """An inbound media download exceeded _MAX_MEDIA_DOWNLOAD_BYTES."""
 
 
 @dataclass(frozen=True)
@@ -234,3 +247,72 @@ async def upload_media(file_bytes: bytes, filename: str, mime_type: str) -> str:
     except (ValueError, KeyError) as exc:
         logger.warning("WhatsApp media upload: unexpected response shape: %s", response.text)
         raise WhatsAppSendError(f"Unexpected response shape from Meta: {exc}") from exc
+
+
+async def download_media(media_id: str) -> tuple[bytes, str]:
+    """Download an inbound media message's actual bytes + mime type. Two Graph
+    API calls: GET /{media_id} resolves a short-lived signed URL (the same
+    bearer token also authorizes the URL fetch itself, per Meta's docs), then
+    GET that URL for the content. Same fail-closed/error-wrapping contract as
+    every other function here.
+    """
+    settings = get_settings()
+    if not settings.whatsapp_token or not settings.whatsapp_phone_number_id:
+        raise WhatsAppNotConfiguredError(
+            "WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID must both be set in .env "
+            "to download inbound WhatsApp media."
+        )
+
+    headers = {"Authorization": f"Bearer {settings.whatsapp_token}"}
+    lookup_url = f"https://graph.facebook.com/{_GRAPH_API_VERSION}/{media_id}"
+
+    try:
+        async with httpx.AsyncClient(timeout=_MEDIA_DOWNLOAD_TIMEOUT_SECONDS) as client:
+            lookup_response = await client.get(lookup_url, headers=headers)
+    except httpx.HTTPError as exc:
+        logger.warning("WhatsApp media lookup failed (network error): %s", exc)
+        raise WhatsAppSendError(f"Network error looking up media from Meta: {exc}") from exc
+
+    if lookup_response.status_code >= 300:
+        logger.warning(
+            "WhatsApp media lookup failed (status=%s): %s",
+            lookup_response.status_code,
+            lookup_response.text,
+        )
+        raise WhatsAppSendError(
+            f"Meta returned {lookup_response.status_code}: {lookup_response.text}"
+        )
+
+    try:
+        media_info = lookup_response.json()
+        media_url = media_info["url"]
+    except (ValueError, KeyError) as exc:
+        logger.warning("WhatsApp media lookup: unexpected response shape: %s", lookup_response.text)
+        raise WhatsAppSendError(f"Unexpected response shape from Meta: {exc}") from exc
+
+    mime_type = media_info.get("mime_type", "application/octet-stream")
+    reported_size = media_info.get("file_size")
+    if isinstance(reported_size, int) and reported_size > _MAX_MEDIA_DOWNLOAD_BYTES:
+        raise WhatsAppMediaTooLargeError(
+            f"Media {media_id} reports {reported_size} bytes, over the "
+            f"{_MAX_MEDIA_DOWNLOAD_BYTES} byte limit."
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=_MEDIA_DOWNLOAD_TIMEOUT_SECONDS) as client:
+            file_response = await client.get(media_url, headers=headers)
+    except httpx.HTTPError as exc:
+        logger.warning("WhatsApp media download failed (network error): %s", exc)
+        raise WhatsAppSendError(f"Network error downloading media from Meta: {exc}") from exc
+
+    if file_response.status_code >= 300:
+        logger.warning("WhatsApp media download failed (status=%s).", file_response.status_code)
+        raise WhatsAppSendError(f"Meta returned {file_response.status_code} downloading media.")
+
+    content = file_response.content
+    if len(content) > _MAX_MEDIA_DOWNLOAD_BYTES:
+        raise WhatsAppMediaTooLargeError(
+            f"Media {media_id} downloaded {len(content)} bytes, over the "
+            f"{_MAX_MEDIA_DOWNLOAD_BYTES} byte limit."
+        )
+    return content, mime_type

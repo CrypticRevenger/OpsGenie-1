@@ -671,6 +671,10 @@ MESSAGES: dict[str, str] = {
     ),
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
+    "workflow.photo_busy": (
+        "I can't read a photo right now — we're in the middle of something. Reply 'cancel' to "
+        "stop that first, then send the photo again."
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Who paid you, or who did you pay? (party name)",
     "payment.need_party": "Please tell me the party's name.",
@@ -763,6 +767,33 @@ MESSAGES: dict[str, str] = {
     "order.credit_limit_warning": (
         "⚠️ This order would take {dealer}'s outstanding to {prospective}, over their credit "
         "limit of {limit}."
+    ),
+    # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
+    "order.ocr_dealer_ask": (
+        "📷 I read this invoice as being for *{dealer}*. Reply YES to confirm, or type the "
+        "correct dealer name."
+    ),
+    "order.ocr_no_dealer": (
+        "📷 I couldn't make out the dealer's name from that photo. Who is this order for?"
+    ),
+    "order.ocr_product_ask": (
+        "I read the next item as *{product}*. Reply YES to use it, or type the correct product "
+        "name."
+    ),
+    "order.ocr_price_ask": (
+        "I read the price for {product} as {price}. Reply YES to use it, or type the correct price."
+    ),
+    "order.ocr_quantity_ask": (
+        "I read the quantity of {product} as {quantity} {unit}. Reply YES to use it, or type "
+        "the correct quantity."
+    ),
+    "order.ocr_download_failed": (
+        "I couldn't download that photo just now. Please try sending it again in a moment, or "
+        "start a new order manually by typing 'new order'."
+    ),
+    "order.ocr_unreadable": (
+        "I couldn't read that as an invoice. You can start a new order manually by typing "
+        "'new order'."
     ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "Which invoice? Send its invoice number, or 'cancel'.",

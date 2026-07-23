@@ -658,6 +658,10 @@ MESSAGES: dict[str, str] = {
     ),
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
+    "workflow.photo_busy": (
+        "Mun ebe photo padhi paribi nahi — amhe kichi anya kariba re achhu. Prathame 'cancel' "
+        "kahantu, taapare photo puni pathantu."
+    ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Kie apananku pay kala, kimba apana kahaku pay kale? (party naam)",
     "payment.need_party": "Daya kari party naam kuhantu.",
@@ -758,6 +762,32 @@ MESSAGES: dict[str, str] = {
     "order.credit_limit_warning": (
         "⚠️ E order {dealer} ra outstanding ku {prospective} tharu jaiba, jaha unankara "
         "{limit} ra credit limit tharu adhika."
+    ),
+    # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
+    "order.ocr_dealer_ask": (
+        "📷 Mun e invoice ku *{dealer}* pain padhichi. Confirm karibaku YES pathantu, kimba "
+        "sahi dealer naam type karantu."
+    ),
+    "order.ocr_no_dealer": "📷 Mun se photo ru dealer naam bujhi paribi nahi. E order kahaku pain?",
+    "order.ocr_product_ask": (
+        "Mun paradha item *{product}* bole padhichi. Eha use karibaku YES pathantu, kimba sahi "
+        "product naam type karantu."
+    ),
+    "order.ocr_price_ask": (
+        "Mun {product} ra price {price} bole padhichi. Eha use karibaku YES pathantu, kimba "
+        "sahi price type karantu."
+    ),
+    "order.ocr_quantity_ask": (
+        "Mun {product} ra quantity {quantity} {unit} bole padhichi. Eha use karibaku YES "
+        "pathantu, kimba sahi quantity type karantu."
+    ),
+    "order.ocr_download_failed": (
+        "Mun se photo ku ebe download kari paribi nahi. Daya kari kete samay pare puni "
+        "pathantu, kimba 'new order' type kari manually order arambha karantu."
+    ),
+    "order.ocr_unreadable": (
+        "Mun eha ku invoice bole padhi paribi nahi. Apana 'new order' type kari manually order "
+        "arambha kari paribe."
     ),
     # ── Edit invoice / edit payment (safe cases only) ───────────────────────
     "edit.invoice_number_ask": "Kauna invoice? Ehara invoice number pathantu, kimba 'cancel'.",
