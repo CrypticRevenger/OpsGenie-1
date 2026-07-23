@@ -139,6 +139,9 @@ async def void_order(
     if invoice is None or invoice.company_id != company.id:
         raise ValueError("that order is no longer on file")
 
+    if invoice.status == InvoiceStatus.Cancelled:
+        raise ValueError("this order has already been voided")
+
     has_payment = await db.scalar(select(Payment.id).where(Payment.invoice_id == invoice.id))
     if has_payment is not None:
         raise ValueError(

@@ -48,7 +48,7 @@ from app.core.config import get_settings
 from app.i18n import resolve_locale, t
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
-from app.models.company import Company
+from app.models.company import Company, OnboardingState
 from app.models.notification_log import NotificationLog
 from app.services.money_format import format_inr
 from app.services.snapshot import (
@@ -258,8 +258,18 @@ async def check_supplier_payment_reminders(
     # chain — so starting this confirm on top would make the founder's
     # unchanged "1" answer a question about a *payable* instead. A directional
     # money mix-up from a reply they never reconsidered.
+    #
+    # onboarding_state is included too: the website import step can seed
+    # payable invoices (and this rule/scheduler poll every
+    # subscription_active company regardless of onboarding progress — see
+    # onboarding.py's activate route) before the WhatsApp onboarding chat
+    # itself has finished. onboarding_state outranks active_workflow in the
+    # webhook's dispatch chain, so starting this confirm mid-onboarding would
+    # wedge it until onboarding completes, then hijack the founder's first
+    # post-onboarding reply instead of the menu they'd expect.
     can_start_confirm = (
-        company.active_workflow is None
+        company.onboarding_state == OnboardingState.completed
+        and company.active_workflow is None
         and company.active_pending_operation_id is None
         and company.pending_follow_up_invoice_id is None
     )

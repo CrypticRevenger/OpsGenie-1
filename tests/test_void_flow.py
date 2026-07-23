@@ -310,6 +310,68 @@ async def test_void_order_full_round_trip_cancels_and_restores_stock(db: AsyncSe
 
 
 @pytest.mark.asyncio
+async def test_void_order_cannot_be_repeated_on_an_already_cancelled_invoice(
+    db: AsyncSession,
+) -> None:
+    """A second 'undo order' after the order is already voided must not find
+    it again and double-restore stock — Invoice.status alone (Cancelled, no
+    payment) used to still pass void_order's only guard (has_payment), so
+    the still-most-recent-by-created_at Cancelled invoice kept getting
+    re-voided, crediting stock back a second time."""
+    company = await _fresh_company(db)
+    dealer = await _make_dealer(db, company.id)
+    product = await _make_product(db, company.id, stock=Decimal("30"))
+    invoice = await _make_invoice(db, company.id, dealer.id, total_amount=Decimal("500.00"))
+    db.add(
+        InvoiceItem(
+            invoice_id=invoice.id,
+            product_id=product.id,
+            description=product.name,
+            quantity=Decimal("10"),
+            unit_price=Decimal("50.00"),
+            line_total=Decimal("500.00"),
+        )
+    )
+    await db.commit()
+
+    from app.services.writes.pending_operation import get_pending_operation
+
+    await start_void_order_workflow(db, company)
+    await handle_void_order_workflow_message(db, company, "skip")
+    await db.commit()
+    op = await get_pending_operation(db, company.active_pending_operation_id)
+    await handle_pending_operation_reply(db, company, op, "YES")
+    await db.commit()
+    await db.refresh(product)
+    assert product.stock_quantity == Decimal("40")
+
+    # Second "undo order" — the invoice is still the company's most-recent
+    # WhatsApp order by created_at, but it's already Cancelled.
+    reply = await start_void_order_workflow(db, company)
+    assert "no" in reply.lower()
+    assert company.active_workflow is None
+
+    await db.refresh(product)
+    assert product.stock_quantity == Decimal("40")  # not double-restored
+
+
+@pytest.mark.asyncio
+async def test_void_order_write_service_refuses_an_already_cancelled_invoice(
+    db: AsyncSession,
+) -> None:
+    """Defense-in-depth at the write-service layer itself (never trust the
+    preview), independent of void_flow.py's own status filter above."""
+    company = await _fresh_company(db)
+    dealer = await _make_dealer(db, company.id)
+    invoice = await _make_invoice(db, company.id, dealer.id, status=InvoiceStatus.Cancelled)
+
+    from app.services.writes.void import void_order
+
+    with pytest.raises(ValueError, match="already been voided"):
+        await void_order(db, company, invoice_id=invoice.id, reason=None)
+
+
+@pytest.mark.asyncio
 async def test_void_order_ignores_csv_imported_invoices(db: AsyncSession) -> None:
     company = await _fresh_company(db)
     dealer = await _make_dealer(db, company.id)

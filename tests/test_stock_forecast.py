@@ -65,6 +65,8 @@ async def _make_sale(
     product_id: uuid.UUID,
     quantity: Decimal,
     invoice_date: date,
+    *,
+    status: InvoiceStatus = InvoiceStatus.Paid,
 ) -> None:
     invoice = Invoice(
         company_id=company_id,
@@ -76,7 +78,7 @@ async def _make_sale(
         subtotal=Decimal("100.00"),
         gst_amount=Decimal("0.00"),
         total_amount=Decimal("100.00"),
-        status=InvoiceStatus.Paid,
+        status=status,
         source=InvoiceSource.csv_import,
     )
     db.add(invoice)
@@ -135,6 +137,30 @@ async def test_min_units_guard_suppresses_thin_data(db: AsyncSession) -> None:
     for i in range(4):
         await _make_sale(
             db, company_id, dealer_id, product_id, Decimal("1"), TODAY - timedelta(days=i)
+        )
+
+    forecasts = await build_stock_out_forecasts(db, company_id, TODAY)
+    assert forecasts == []
+
+
+@pytest.mark.asyncio
+async def test_cancelled_invoices_excluded_from_velocity(db: AsyncSession) -> None:
+    """A voided order's items still exist on InvoiceItem (void_order soft-
+    cancels, never deletes) — they must not inflate sales velocity, or a
+    cancelled order would trigger a false stock-out alert even though the
+    stock it consumed was already restored."""
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id)
+    product_id = await _make_product(db, company_id, "Voided Item", Decimal("120"))
+    for i in range(4):
+        await _make_sale(
+            db,
+            company_id,
+            dealer_id,
+            product_id,
+            Decimal("30"),
+            TODAY - timedelta(days=i),
+            status=InvoiceStatus.Cancelled,
         )
 
     forecasts = await build_stock_out_forecasts(db, company_id, TODAY)

@@ -128,6 +128,22 @@ async def extract_invoice_from_image(image_bytes: bytes, mime_type: str) -> Extr
     except AllProvidersExhaustedError as exc:
         logger.warning("Invoice photo OCR: no vision provider available: %s", exc)
         return None
+    except Exception as exc:  # noqa: BLE001 - never raise into the webhook
+        # Same boundary contract app/services/assistant.py::answer_question
+        # documents. Needed here too: ClaudeProvider.generate_from_image (and
+        # GeminiProvider's) deliberately re-raise a non-5xx anthropic/google
+        # APIStatusError as-is rather than treating it as ProviderUnavailableError
+        # (see that provider's own comment — a 4xx is "a real problem, don't
+        # fall back", by design for the text-generation path). Without this,
+        # e.g. a photo that trips Claude's own vision-API size/format limits
+        # would propagate straight out of _handle_invoice_photo (no try/except
+        # there — it trusts this function's "never raises" contract) into
+        # FastAPI's generic 500 handler, and Meta retries a webhook 500
+        # indefinitely against an inbound message whose dedup row is already
+        # committed — the same wedged-retry-loop shape already fixed once for
+        # order creation (see PROJECT_STATUS.md's audit-pass entry).
+        logger.warning("Invoice photo OCR: unexpected provider failure: %s", exc)
+        return None
 
     text = result.text.strip()
     # Defensive: some models wrap JSON in markdown fences despite instructions.

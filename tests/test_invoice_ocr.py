@@ -56,6 +56,20 @@ async def test_extract_returns_none_when_no_provider_available(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_extract_returns_none_on_unexpected_provider_exception(monkeypatch):
+    """Claude/Gemini's generate_from_image deliberately re-raises a non-5xx
+    APIStatusError as-is instead of wrapping it in ProviderUnavailableError
+    (see claude_provider.py's own comment) — a real 4xx from the vision API
+    itself (e.g. an image tripping its own size/format limits) must still
+    degrade to None here, not propagate into the webhook (no try/except at
+    that call site — it trusts this function's documented contract) and 500
+    into Meta's retry loop against an already-dedup-committed message."""
+    _patch(monkeypatch, RuntimeError("simulated raw 4xx from the vision API"))
+    result = await extract_invoice_from_image(b"fake-bytes", "image/jpeg")
+    assert result is None
+
+
+@pytest.mark.asyncio
 async def test_extract_returns_none_on_invalid_json(monkeypatch):
     _patch(monkeypatch, "not valid json {{{")
     result = await extract_invoice_from_image(b"fake-bytes", "image/jpeg")

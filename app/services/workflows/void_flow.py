@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.i18n import resolve_locale, t
 from app.models.company import Company
-from app.models.invoice import Invoice, InvoiceSource
+from app.models.invoice import Invoice, InvoiceSource, InvoiceStatus
 from app.models.payment import Payment, PaymentSource
 from app.models.pending_operation import PendingOperationType
 from app.services.money_format import format_inr
@@ -86,6 +86,7 @@ async def start_void_order_workflow(db: AsyncSession, company: Company) -> str:
         .where(
             Invoice.company_id == company.id,
             Invoice.source == InvoiceSource.whatsapp,
+            Invoice.status != InvoiceStatus.Cancelled,
         )
         .order_by(Invoice.created_at.desc())
         .limit(1)

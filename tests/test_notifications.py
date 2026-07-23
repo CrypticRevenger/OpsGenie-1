@@ -22,7 +22,7 @@ from app.core.config import get_settings
 from app.db.session import async_session_factory
 from app.models.activity_timeline import ActivityEntityType, ActivityEventType, ActivityTimeline
 from app.models.business_event import BusinessEvent, BusinessEventType
-from app.models.company import Company
+from app.models.company import Company, OnboardingState
 from app.models.dealer import Dealer
 from app.models.import_log import ImportLog
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
@@ -395,6 +395,39 @@ async def test_supplier_reminder_stays_informational_during_a_live_follow_up(
     assert company.active_workflow is None
     assert company.active_pending_operation_id is None
     assert company.pending_follow_up_invoice_id == invoice.id
+
+
+@pytest.mark.asyncio
+async def test_supplier_reminder_stays_informational_during_incomplete_onboarding(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """A company mid-onboarding must not have this rule start an interactive
+    confirm workflow on it.
+
+    Regression: can_start_confirm checked active_workflow/
+    active_pending_operation_id/pending_follow_up_invoice_id but not
+    onboarding_state. The website import step can seed payable invoices
+    before the WhatsApp onboarding chat finishes, and onboarding_state
+    outranks active_workflow in the webhook's dispatch chain — so starting
+    this confirm mid-onboarding would wedge it until onboarding completes,
+    then hijack the founder's first post-onboarding reply.
+
+    The reminder itself still goes out; it just stays one-way this cycle.
+    """
+    company = await _make_company(db)
+    company.onboarding_state = OnboardingState.awaiting_business_type
+    await db.commit()
+
+    snap = _snapshot(
+        company.id, expected_payments_7d=[_supplier_payment(due_date=TODAY + timedelta(days=1))]
+    )
+    sent = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    await db.refresh(company)
+    assert company.active_workflow is None
+    assert company.active_pending_operation_id is None
 
 
 # ── Rule 2: dealer overdue alert ─────────────────────────────────────────────

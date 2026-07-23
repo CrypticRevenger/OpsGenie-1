@@ -32,6 +32,7 @@ from app.models.dealer import Dealer
 from app.models.pending_operation import PendingOperationType
 from app.models.product import Product
 from app.services.duplicate_check import find_similar_order
+from app.services.gst import parse_gst_rate
 from app.services.importer.normalizer import parse_amount
 from app.services.invoice_ocr import ExtractedInvoice
 from app.services.money_format import format_inr
@@ -475,6 +476,30 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         if not _is(stripped, "yes", "y"):
             return t("workflow.yes_no", loc)
         name = scratch["current_product"]["name"]
+        if company.gst_varies_by_product:
+            # A brand-new product has no gst_rate yet — orders.py::create_order
+            # blocks (never guesses) when gst_varies_by_product and the
+            # resolved product's rate is None, same "block, not defaulted"
+            # rule the awaiting_product step already enforces for an
+            # *existing* catalogue product above. Ask here too, or this
+            # company could never actually finish an order that introduces a
+            # new product — it would always fail at the very last step.
+            scratch["step"] = "awaiting_new_product_gst_rate"
+            company.workflow_scratch = scratch
+            return t("order.new_product_gst_ask", loc, product=name)
+        message = _advance_to_awaiting_price(scratch, loc, "order.price_ask", product=name)
+        company.workflow_scratch = scratch
+        return message
+
+    if step == "awaiting_new_product_gst_rate":
+        try:
+            gst_rate = parse_gst_rate(stripped)
+        except ValueError:
+            return t("gst.rate_invalid", loc)
+        current = dict(scratch["current_product"])
+        current["gst_rate"] = str(gst_rate)
+        scratch["current_product"] = current
+        name = current["name"]
         message = _advance_to_awaiting_price(scratch, loc, "order.price_ask", product=name)
         company.workflow_scratch = scratch
         return message

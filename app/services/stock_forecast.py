@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.invoice import Invoice, InvoiceDirection
 from app.models.invoice_item import InvoiceItem
 from app.models.product import Product
+from app.services.reports.statuses import EXCLUDED_STATUSES
 
 _VELOCITY_WINDOW_DAYS = 30
 # Minimum evidence required before a product gets a forecast at all — with a
@@ -66,6 +67,7 @@ async def _sales_velocity(
             Invoice.invoice_date >= window_start,
             Invoice.invoice_date <= today,
             InvoiceItem.product_id.is_not(None),
+            Invoice.status.notin_(EXCLUDED_STATUSES),
         )
         .group_by(InvoiceItem.product_id)
     )
