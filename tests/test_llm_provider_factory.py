@@ -18,7 +18,11 @@ from app.services.llm.base import (
     ProviderResult,
     ProviderUnavailableError,
 )
-from app.services.llm.factory import _resolve_provider_order, generate_with_fallback
+from app.services.llm.factory import (
+    _resolve_provider_order,
+    generate_with_fallback,
+    transcribe_audio_with_fallback,
+)
 
 
 def _settings(
@@ -44,14 +48,26 @@ class _FakeProvider(LLMProvider):
         text: str = "",
         raises: Exception | None = None,
         delay: float = 0,
+        supports_audio: bool = False,
     ):
         self.model = model
         self._text = text
         self._raises = raises
         self._delay = delay
+        self.supports_audio = supports_audio
         self.called = False
 
     async def generate(self, *, system_prompt: str, user_content: str) -> str:
+        self.called = True
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        if self._raises is not None:
+            raise self._raises
+        return self._text
+
+    async def transcribe_audio(
+        self, *, system_prompt: str, audio_bytes: bytes, mime_type: str
+    ) -> str:
         self.called = True
         if self._delay:
             await asyncio.sleep(self._delay)
@@ -226,3 +242,67 @@ async def test_generate_with_fallback_raises_when_every_provider_returns_blank(m
 
     with pytest.raises(AllProvidersExhaustedError):
         await generate_with_fallback(system_prompt="sys", user_content="user", settings=settings)
+
+
+# ── transcribe_audio_with_fallback ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_skips_a_non_audio_capable_provider(monkeypatch):
+    # Same restraint as extract_invoice_image_with_fallback's supports_vision
+    # gate — a provider with supports_audio=False is skipped exactly like a
+    # missing API key, never actually called.
+    settings = _settings(provider="openrouter", fallbacks="gemini")
+    text_only = _FakeProvider(supports_audio=False, text="should never be reached")
+    audio_capable = _FakeProvider(
+        model="gemini-model", text="record payment", supports_audio=True
+    )
+
+    def fake_build(name: str, _settings: Settings) -> LLMProvider:
+        return {"openrouter": text_only, "gemini": audio_capable}[name]
+
+    monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
+
+    result = await transcribe_audio_with_fallback(
+        system_prompt="sys", audio_bytes=b"fake", mime_type="audio/ogg", settings=settings
+    )
+    assert result.provider == "gemini"
+    assert result.text == "record payment"
+    assert text_only.called is False
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_moves_past_retryable_failure(monkeypatch):
+    settings = _settings(provider="gemini", fallbacks="groq")
+    rate_limited = _FakeProvider(
+        supports_audio=True, raises=ProviderUnavailableError("rate limited")
+    )
+    working = _FakeProvider(model="groq-model", text="hello", supports_audio=True)
+
+    def fake_build(name: str, _settings: Settings) -> LLMProvider:
+        return {"gemini": rate_limited, "groq": working}[name]
+
+    monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
+
+    result = await transcribe_audio_with_fallback(
+        system_prompt="sys", audio_bytes=b"fake", mime_type="audio/ogg", settings=settings
+    )
+    assert result.provider == "groq"
+    assert result.text == "hello"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_raises_when_no_audio_capable_provider_configured(monkeypatch):
+    settings = _settings(provider="openrouter", fallbacks="groq")
+    text_only_a = _FakeProvider(supports_audio=False)
+    text_only_b = _FakeProvider(supports_audio=False)
+
+    def fake_build(name: str, _settings: Settings) -> LLMProvider:
+        return {"openrouter": text_only_a, "groq": text_only_b}[name]
+
+    monkeypatch.setattr("app.services.llm.factory._build_provider", fake_build)
+
+    with pytest.raises(AllProvidersExhaustedError):
+        await transcribe_audio_with_fallback(
+            system_prompt="sys", audio_bytes=b"fake", mime_type="audio/ogg", settings=settings
+        )

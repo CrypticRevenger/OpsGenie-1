@@ -621,8 +621,17 @@ MESSAGES: dict[str, str] = {
         "ତାପରେ photo ପୁଣି ପଠାନ୍ତୁ।"
     ),
     "workflow.unsupported_message_type": (
-        "କ୍ଷମା କରନ୍ତୁ, ମୁଁ ବର୍ତ୍ତମାନ କେବଳ text message ଏବଂ photo ର reply ଦେଇପାରିବି। ଦୟାକରି ଆପଣଙ୍କ "
+        "କ୍ଷମା କରନ୍ତୁ, ମୁଁ ବର୍ତ୍ତମାନ କେବଳ text message, photo, ଏବଂ voice note ର reply ଦେଇପାରିବି। "
+        "ଦୟାକରି ଆପଣଙ୍କ message ଟାଇପ୍ କରନ୍ତୁ।"
+    ),
+    "workflow.voice_transcribed": '🎙️ ମୁଁ ଶୁଣିଲି: "{transcript}"',
+    "workflow.voice_unreadable": (
+        "କ୍ଷମା କରନ୍ତୁ, ମୁଁ ସେହି voice note ବୁଝିପାରିଲି ନାହିଁ। ଦୟାକରି ପୁଣି ଚେଷ୍ଟା କରନ୍ତୁ, କିମ୍ବା ଆପଣଙ୍କ "
         "message ଟାଇପ୍ କରନ୍ତୁ।"
+    ),
+    "workflow.voice_download_failed": (
+        "ମୁଁ ବର୍ତ୍ତମାନ ସେହି voice note download କରି ପାରିଲି ନାହିଁ। ଦୟାକରି ଟିକିଏ ପରେ ପୁଣି ପଠାନ୍ତୁ, କିମ୍ବା "
+        "ଆପଣଙ୍କ message ଟାଇପ୍ କରନ୍ତୁ।"
     ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "କିଏ ଆପଣଙ୍କୁ pay କଲା, କିମ୍ବା ଆପଣ କାହାକୁ pay କଲେ? (party ନାମ)",
