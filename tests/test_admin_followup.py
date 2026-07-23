@@ -7,12 +7,13 @@ uv run pytest tests/test_admin_followup.py -v
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
+from app.services.snapshot import business_now
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,13 +43,14 @@ async def test_send_due_today_sends_when_invoice_due(client: AsyncClient, db: As
     await db.commit()
     await db.refresh(dealer)
 
+    today = business_now(None).date()
     invoice = Invoice(
         company_id=uuid.UUID(company_id),
         invoice_number=f"INV-{uuid.uuid4().hex[:8]}",
         direction=InvoiceDirection.receivable,
         dealer_id=dealer.id,
-        invoice_date=date.today() - timedelta(days=30),
-        due_date=date.today(),
+        invoice_date=today - timedelta(days=30),
+        due_date=today,
         subtotal=Decimal("49350.00"),
         gst_amount=Decimal("0.00"),
         total_amount=Decimal("49350.00"),
