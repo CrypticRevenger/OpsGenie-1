@@ -649,8 +649,17 @@ MESSAGES: dict[str, str] = {
         "phir photo dobara bhejein."
     ),
     "workflow.unsupported_message_type": (
-        "Maaf kijiye, main abhi sirf text message aur photo ka reply de sakta hoon. Kripya apna "
-        "message type karein."
+        "Maaf kijiye, main abhi sirf text message, photo, aur voice note ka reply de sakta hoon. "
+        "Kripya apna message type karein."
+    ),
+    "workflow.voice_transcribed": '🎙️ Maine suna: "{transcript}"',
+    "workflow.voice_unreadable": (
+        "Maaf kijiye, main woh voice note samajh nahi paaya. Kripya dobara koshish karein, ya "
+        "apna message type karein."
+    ),
+    "workflow.voice_download_failed": (
+        "Main abhi woh voice note download nahi kar paaya. Kripya thodi der mein dobara bhejein, "
+        "ya apna message type karein."
     ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Kisne aapko pay kiya, ya aapne kisko pay kiya? (party ka naam)",

@@ -60,6 +60,13 @@ class VisionUnsupportedError(RuntimeError):
     """
 
 
+class AudioTranscriptionUnsupportedError(RuntimeError):
+    """Raised by a provider whose model/SDK path doesn't accept audio input —
+    app.services.llm.factory.transcribe_audio_with_fallback treats this like
+    a missing key and skips to the next provider in the chain.
+    """
+
+
 @dataclass
 class ProviderResult:
     """What a successful chain run returns — not just text, but which
@@ -82,6 +89,10 @@ class LLMProvider(ABC):
     # app/services/invoice_ocr.py. False by default; only providers whose SDK
     # supports multimodal input (Claude, Gemini) override this to True.
     supports_vision: bool = False
+    # Whether transcribe_audio() is actually implemented — see
+    # app/services/voice_transcription.py. False by default; only Gemini's
+    # SDK path accepts raw audio input among the providers configured here.
+    supports_audio: bool = False
 
     @abstractmethod
     async def generate(self, *, system_prompt: str, user_content: str) -> str:
@@ -97,6 +108,19 @@ class LLMProvider(ABC):
         orchestrator skips this provider, same treatment as a missing API key.
         """
         raise VisionUnsupportedError(f"{type(self).__name__} does not support image input.")
+
+    async def transcribe_audio(
+        self, *, system_prompt: str, audio_bytes: bytes, mime_type: str
+    ) -> str:
+        """Return the model's text response to an audio + instruction prompt
+        (used only for voice-note transcription today — see
+        app/services/voice_transcription.py). Default: unsupported, so the
+        fallback orchestrator skips this provider, same treatment as a
+        missing API key.
+        """
+        raise AudioTranscriptionUnsupportedError(
+            f"{type(self).__name__} does not support audio input."
+        )
 
     async def run_tool_loop(
         self,

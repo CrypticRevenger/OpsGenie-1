@@ -676,7 +676,17 @@ MESSAGES: dict[str, str] = {
         "stop that first, then send the photo again."
     ),
     "workflow.unsupported_message_type": (
-        "Sorry, I can only reply to text messages and photos right now. Please type your message."
+        "Sorry, I can only reply to text messages, photos, and voice notes right now. Please "
+        "type your message."
+    ),
+    "workflow.voice_transcribed": '🎙️ Heard: "{transcript}"',
+    "workflow.voice_unreadable": (
+        "Sorry, I couldn't understand that voice note. Please try again, or type your message "
+        "instead."
+    ),
+    "workflow.voice_download_failed": (
+        "I couldn't download that voice note just now. Please try sending it again in a moment, "
+        "or type your message instead."
     ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Who paid you, or who did you pay? (party name)",

@@ -663,8 +663,17 @@ MESSAGES: dict[str, str] = {
         "kahantu, taapare photo puni pathantu."
     ),
     "workflow.unsupported_message_type": (
-        "Kshama karantu, mun ebe kebala text message ebong photo ra reply dei paribi. Doya kari "
-        "apankara message type karantu."
+        "Kshama karantu, mun ebe kebala text message, photo, ebong voice note ra reply dei "
+        "paribi. Doya kari apankara message type karantu."
+    ),
+    "workflow.voice_transcribed": '🎙️ Mun shunili: "{transcript}"',
+    "workflow.voice_unreadable": (
+        "Kshama karantu, mun sehi voice note bujhi paribi nahi. Doya kari puni cheshta karantu, "
+        "kimba apankara message type karantu."
+    ),
+    "workflow.voice_download_failed": (
+        "Mun ebe sehi voice note download kari paribi nahi. Doya kari tikie pare puni pathantu, "
+        "kimba apankara message type karantu."
     ),
     # ── Record payment ─────────────────────────────────────────────────────
     "payment.start": "Kie apananku pay kala, kimba apana kahaku pay kale? (party naam)",

@@ -32,8 +32,15 @@ whatsapp_status_received delivery-status webhook updates it.
 A `type: image` message is handled separately from the text/interactive
 ladder above (see _handle_invoice_photo) — invoice-photo OCR pre-fill
 (SPEC V0.3/Future), scoped to the existing dealer/receivable create_order
-flow. Other non-text types (audio/document/location) are still logged but
-get no reply — that remains out of scope.
+flow. A `type: audio` message (a WhatsApp voice note, see _handle_voice_note)
+is transcribed then fed straight into the same ladder every typed message
+goes through (_handle_text_message, factored out of this docstring's ladder
+so both entry points share it) — unlike the image path, it is NOT scoped to
+one flow, since a spoken "record payment" or a spoken "yes" mid-workflow
+must resolve exactly like typing those words would. Any other non-text type
+(document/video/sticker/location/contacts, …) still gets a deterministic
+"can't read this yet" reply rather than silence, but remains genuinely
+unhandled.
 """
 
 from __future__ import annotations
@@ -73,6 +80,7 @@ from app.services.query_menu import menu_router
 from app.services.reports.period import resolve_period
 from app.services.reports.registry import REPORTS
 from app.services.snapshot import build_snapshot, business_now
+from app.services.voice_transcription import transcribe_voice_note
 from app.services.whatsapp_client import (
     WhatsAppMediaTooLargeError,
     WhatsAppNotConfiguredError,
@@ -1088,6 +1096,161 @@ async def _send_reply_and_log(
     )
 
 
+async def _handle_text_message(
+    db: AsyncSession, company: Company, text: str
+) -> tuple[str, str | None, str, list[dict] | None]:
+    """Resolve `text` through the full reply-priority ladder documented in
+    this module's own docstring (onboarding > active workflow > pending
+    confirm > follow-up > menu trigger > instant command > deterministic
+    free text > LLM assistant). Shared by real inbound text/interactive
+    messages and a transcribed voice note (see _handle_voice_note) — a voice
+    note is just another way to produce `text`, so it must resolve through
+    the exact same priority order, never a separate/simpler path.
+
+    Returns (notification_type, command, reply, interactive_batch).
+    """
+    command: str | None = None
+    interactive_batch: list[dict] | None = None
+    if company.onboarding_state != OnboardingState.completed:
+        # Guided setup outranks everything else — mid-onboarding a "1" is an
+        # answer to the current question, not the "Cash Position" menu command.
+        notification_type = "onboarding"
+        reply = await handle_onboarding_message(db, company, text)
+    elif company.active_workflow is not None:
+        # A guided write workflow (Phase 2A) outranks the menu and the
+        # follow-up for the same reason follow-up already did — mid-flow, a
+        # bare "10" is the quantity/amount answer, not a menu command.
+        # Dispatch by the workflow's own value (not just its presence) so a
+        # second workflow type (Phase 2B) can register its own handler
+        # without this branch needing to change.
+        workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
+        if workflow_handler is not None:
+            notification_type = "write_workflow"
+            reply = await workflow_handler(db, company, text)
+        else:
+            # An active_workflow value nothing registers a handler for
+            # (shouldn't happen) — never leave the company stuck on a
+            # workflow this code can't run.
+            company.active_workflow = None
+            company.workflow_scratch = None
+            notification_type = "write_workflow_error"
+            reply = "Something went wrong. Please try again."
+    elif company.active_pending_operation_id is not None:
+        # In-memory pointer check (no query) — mirrors
+        # pending_follow_up_invoice_id below, so companies that never use a
+        # guided write workflow pay zero extra cost on every message.
+        pending_op = await get_pending_operation(db, company.active_pending_operation_id)
+        if pending_op is None:
+            # Pointer stale (shouldn't happen — every deletion path clears
+            # it in the same transaction).
+            company.active_pending_operation_id = None
+            notification_type = "pending_operation_missing"
+            reply = "Something went wrong with that. Please try again."
+        elif pending_op.expires_at < datetime.now(UTC):
+            await db.delete(pending_op)
+            company.active_pending_operation_id = None
+            notification_type = "pending_operation_expired"
+            reply = "That confirmation expired. Please start again."
+        else:
+            notification_type = "pending_operation_confirm"
+            reply = await handle_pending_operation_reply(db, company, pending_op, text)
+    elif company.pending_follow_up_invoice_id is not None:
+        # A pending follow-up takes priority over the numbered menu —
+        # "1"/"2"/"3" here answers the follow-up question, not "Cash Position".
+        notification_type = "follow_up_reply"
+        reply = await handle_follow_up_reply(db, company, text)
+    elif text.strip().lower() in _MENU_TRIGGERS:
+        command = text.strip().lower()
+        notification_type = "interactive_menu"
+        locale = resolve_locale(company)
+        # Each list message carries its own body; this reply is a
+        # plain-text safety net (kept bound for the shared send contract
+        # below).
+        reply = t("menu.fallback", locale)
+        interactive_batch = menu_messages(locale)
+    else:
+        # .lower() so the /cash-style slash aliases are case-insensitive
+        # like _WORKFLOW_START_TRIGGERS and _INSTANT_COMMANDS below —
+        # harmless for the plain "1"-"4" digits, which have no case.
+        command = menu_router.match(text.strip().lower())
+        if command is not None:
+            # 1-4 (and their /slash aliases) stay instant deterministic
+            # shortcuts.
+            snapshot = await build_snapshot(db, company.id)
+            result = menu_router.execute(command, snapshot)
+            notification_type = result.notification_type
+            reply = result.reply
+        elif (starter := _WORKFLOW_START_TRIGGERS.get(text.strip().lower())) is not None:
+            # Deterministic keyword trigger — works without AI, per Phase
+            # 2A's scope (see module docstring).
+            command = text.strip().lower()
+            notification_type = "write_workflow"
+            reply = starter(company)
+        elif (instant := _INSTANT_COMMANDS.get(text.strip().lower())) is not None:
+            command = text.strip().lower()
+            notification_type = "instant_command"
+            reply = await instant(db, company)
+        elif (deterministic := await _try_deterministic_free_text(db, company, text)) is not None:
+            # A narrower, parsed deterministic match ("balance <name>",
+            # "stock <item>", "if I sell N of X") — still never touches the
+            # LLM, but needs an argument _INSTANT_COMMANDS' exact-match dict
+            # can't take.
+            command = text.strip().lower()
+            notification_type = "instant_command"
+            reply = deterministic
+        else:
+            # Anything else -> the grounded LLM assistant, which answers
+            # free-form questions from real figures and never forwards an
+            # unverifiable number.
+            notification_type = ASSISTANT_NOTIFICATION_TYPE
+            reply = await answer_question(db, company, text)
+    return notification_type, command, reply, interactive_batch
+
+
+async def _dispatch_ladder_reply(
+    db: AsyncSession,
+    company: Company,
+    sender: str,
+    correlation_id: uuid.UUID,
+    *,
+    notification_type: str,
+    command: str | None,
+    reply: str,
+    interactive_batch: list[dict] | None,
+) -> None:
+    """Send whatever _handle_text_message decided — either the batch of
+    interactive list messages "menu" produces, or a single plain-text reply.
+    Factored out so both the real text/interactive branch and the
+    transcribed-voice-note branch (_handle_voice_note) share one send path.
+    """
+    if interactive_batch is not None:
+        # "menu" — several list messages, one per _send_reply_and_log call
+        # (Meta has no single-message way to exceed 10 rows). A redelivery
+        # of this inbound message only needs to find one whatsapp_reply_sent
+        # event to skip re-sending all of them — see _reply_already_sent.
+        for payload in interactive_batch:
+            await _send_reply_and_log(
+                db,
+                company,
+                sender,
+                notification_type=notification_type,
+                reply=payload["body"],
+                command=command,
+                correlation_id=correlation_id,
+                interactive=payload,
+            )
+    else:
+        await _send_reply_and_log(
+            db,
+            company,
+            sender,
+            notification_type=notification_type,
+            reply=reply,
+            command=command,
+            correlation_id=correlation_id,
+        )
+
+
 async def _handle_invoice_photo(db: AsyncSession, company: Company, message: dict) -> str:
     """Entry point for an inbound `type: image` message — invoice-photo OCR
     pre-fill (SPEC V0.3/Future's "OCR for invoice photos"), scoped to the
@@ -1126,6 +1289,101 @@ async def _handle_invoice_photo(db: AsyncSession, company: Company, message: dic
     if extraction is None:
         return t("order.ocr_unreadable", loc)
     return start_order_workflow_from_ocr(company, extraction)
+
+
+async def _handle_voice_note(
+    db: AsyncSession, company: Company, sender: str, message: dict, correlation_id: uuid.UUID
+) -> None:
+    """Entry point for an inbound `type: audio` message (a WhatsApp voice
+    note) — transcribes it (app/services/voice_transcription.py), then
+    routes the transcript through _handle_text_message exactly like a typed
+    message. Deliberately NOT gated on a "busy" state first, unlike
+    _handle_invoice_photo above — a voice note is just another way to
+    produce `text`, so a voice-note "yes" mid-onboarding (or mid any other
+    guided flow) must answer that flow's current question, not get a canned
+    "finish that first" reply; _handle_text_message already resolves every
+    one of those states correctly on its own, so no separate gate is needed
+    or wanted here.
+
+    The transcript is echoed back ahead of the actual reply, folded into the
+    very same outbound send rather than a separate one first — sending it
+    separately would reintroduce the exact race _dispatch_ladder_reply's
+    single-dispatch-per-inbound-message contract exists to avoid: a crash
+    between an ack send and the real reply would let a redelivery see
+    "already replied" (_reply_already_sent) and skip re-running a write
+    _handle_text_message already decided on. Folding it into one send keeps
+    this path exactly as crash-safe as a real typed message. Worth the
+    acknowledgment at all because voice is far more error-prone than typed
+    text — it's the only visibility a distributor gets into what was
+    actually understood before it's dispatched through every write-capable
+    branch _handle_text_message can reach.
+    """
+    loc = resolve_locale(company)
+    media_id = (message.get("audio") or {}).get("id")
+    if not media_id:
+        await _send_reply_and_log(
+            db,
+            company,
+            sender,
+            notification_type="voice_note_unreadable",
+            reply=t("workflow.voice_unreadable", loc),
+            command=None,
+            correlation_id=correlation_id,
+        )
+        return
+
+    try:
+        audio_bytes, mime_type = await download_media(media_id)
+    except (WhatsAppNotConfiguredError, WhatsAppSendError, WhatsAppMediaTooLargeError) as exc:
+        logger.warning("Voice note download failed for company %s: %s", company.id, exc)
+        await _send_reply_and_log(
+            db,
+            company,
+            sender,
+            notification_type="voice_note_download_failed",
+            reply=t("workflow.voice_download_failed", loc),
+            command=None,
+            correlation_id=correlation_id,
+        )
+        return
+
+    transcript = await transcribe_voice_note(audio_bytes, mime_type)
+    if not transcript:
+        await _send_reply_and_log(
+            db,
+            company,
+            sender,
+            notification_type="voice_note_unreadable",
+            reply=t("workflow.voice_unreadable", loc),
+            command=None,
+            correlation_id=correlation_id,
+        )
+        return
+
+    notification_type, command, reply, interactive_batch = await _handle_text_message(
+        db, company, transcript
+    )
+    ack = t("workflow.voice_transcribed", loc, transcript=transcript)
+    if interactive_batch is not None:
+        # "menu" triggered by voice — read-only, so folding the ack into the
+        # first list message's own body (rather than sending it separately)
+        # is purely a UX choice here, not a safety requirement like the
+        # plain-reply branch below; done the same way regardless for one
+        # consistent shape.
+        first, *rest = interactive_batch
+        interactive_batch = [{**first, "body": f"{ack}\n\n{first['body']}"}, *rest]
+    else:
+        reply = f"{ack}\n\n{reply}"
+    await _dispatch_ladder_reply(
+        db,
+        company,
+        sender,
+        correlation_id,
+        notification_type=notification_type,
+        command=command,
+        reply=reply,
+        interactive_batch=interactive_batch,
+    )
 
 
 @router.get(
@@ -1269,145 +1527,28 @@ async def receive_whatsapp_webhook(
 
                         if message.get("type") in ("text", "interactive"):
                             text = _extract_text_body(message)
-                            command: str | None = None
-                            interactive_batch: list[dict] | None = None
-                            if company.onboarding_state != OnboardingState.completed:
-                                # Guided setup outranks everything else — mid-onboarding
-                                # a "1" is an answer to the current question, not the
-                                # "Cash Position" menu command.
-                                notification_type = "onboarding"
-                                reply = await handle_onboarding_message(db, company, text)
-                            elif company.active_workflow is not None:
-                                # A guided write workflow (Phase 2A) outranks the menu
-                                # and the follow-up for the same reason follow-up
-                                # already did — mid-flow, a bare "10" is the quantity/
-                                # amount answer, not a menu command. Dispatch by the
-                                # workflow's own value (not just its presence) so a
-                                # second workflow type (Phase 2B) can register its own
-                                # handler without this branch needing to change.
-                                workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
-                                if workflow_handler is not None:
-                                    notification_type = "write_workflow"
-                                    reply = await workflow_handler(db, company, text)
-                                else:
-                                    # An active_workflow value nothing registers a
-                                    # handler for (shouldn't happen) — never leave the
-                                    # company stuck on a workflow this code can't run.
-                                    company.active_workflow = None
-                                    company.workflow_scratch = None
-                                    notification_type = "write_workflow_error"
-                                    reply = "Something went wrong. Please try again."
-                            elif company.active_pending_operation_id is not None:
-                                # In-memory pointer check (no query) — mirrors
-                                # pending_follow_up_invoice_id below, so companies
-                                # that never use a guided write workflow pay zero
-                                # extra cost on every message.
-                                pending_op = await get_pending_operation(
-                                    db, company.active_pending_operation_id
-                                )
-                                if pending_op is None:
-                                    # Pointer stale (shouldn't happen — every deletion
-                                    # path clears it in the same transaction).
-                                    company.active_pending_operation_id = None
-                                    notification_type = "pending_operation_missing"
-                                    reply = "Something went wrong with that. Please try again."
-                                elif pending_op.expires_at < datetime.now(UTC):
-                                    await db.delete(pending_op)
-                                    company.active_pending_operation_id = None
-                                    notification_type = "pending_operation_expired"
-                                    reply = "That confirmation expired. Please start again."
-                                else:
-                                    notification_type = "pending_operation_confirm"
-                                    reply = await handle_pending_operation_reply(
-                                        db, company, pending_op, text
-                                    )
-                            elif company.pending_follow_up_invoice_id is not None:
-                                # A pending follow-up takes priority over the numbered
-                                # menu — "1"/"2"/"3" here answers the follow-up
-                                # question, not "Cash Position".
-                                notification_type = "follow_up_reply"
-                                reply = await handle_follow_up_reply(db, company, text)
-                            elif text.strip().lower() in _MENU_TRIGGERS:
-                                command = text.strip().lower()
-                                notification_type = "interactive_menu"
-                                locale = resolve_locale(company)
-                                # Each list message carries its own body; this
-                                # reply is a plain-text safety net (kept bound
-                                # for the shared send contract below).
-                                reply = t("menu.fallback", locale)
-                                interactive_batch = menu_messages(locale)
-                            else:
-                                # .lower() so the /cash-style slash aliases are
-                                # case-insensitive like _WORKFLOW_START_TRIGGERS and
-                                # _INSTANT_COMMANDS below — harmless for the plain
-                                # "1"-"4" digits, which have no case.
-                                command = menu_router.match(text.strip().lower())
-                                if command is not None:
-                                    # 1-4 (and their /slash aliases) stay instant
-                                    # deterministic shortcuts.
-                                    snapshot = await build_snapshot(db, company.id)
-                                    result = menu_router.execute(command, snapshot)
-                                    notification_type = result.notification_type
-                                    reply = result.reply
-                                elif (
-                                    starter := _WORKFLOW_START_TRIGGERS.get(text.strip().lower())
-                                ) is not None:
-                                    # Deterministic keyword trigger — works without AI,
-                                    # per Phase 2A's scope (see module docstring).
-                                    command = text.strip().lower()
-                                    notification_type = "write_workflow"
-                                    reply = starter(company)
-                                elif (
-                                    instant := _INSTANT_COMMANDS.get(text.strip().lower())
-                                ) is not None:
-                                    command = text.strip().lower()
-                                    notification_type = "instant_command"
-                                    reply = await instant(db, company)
-                                elif (
-                                    deterministic := await _try_deterministic_free_text(
-                                        db, company, text
-                                    )
-                                ) is not None:
-                                    # A narrower, parsed deterministic match ("balance
-                                    # <name>", "stock <item>", "if I sell N of X") — still
-                                    # never touches the LLM, but needs an argument
-                                    # _INSTANT_COMMANDS' exact-match dict can't take.
-                                    command = text.strip().lower()
-                                    notification_type = "instant_command"
-                                    reply = deterministic
-                                else:
-                                    # Anything else -> the grounded LLM assistant, which
-                                    # answers free-form questions from real figures and
-                                    # never forwards an unverifiable number.
-                                    notification_type = ASSISTANT_NOTIFICATION_TYPE
-                                    reply = await answer_question(db, company, text)
-                            if interactive_batch is not None:
-                                # "menu" — several list messages, one per _send_reply_and_log
-                                # call (Meta has no single-message way to exceed 10 rows).
-                                # A redelivery of this inbound message only needs to find
-                                # one whatsapp_reply_sent event to skip re-sending all of
-                                # them — see _reply_already_sent.
-                                for payload in interactive_batch:
-                                    await _send_reply_and_log(
-                                        db,
-                                        company,
-                                        sender,
-                                        notification_type=notification_type,
-                                        reply=payload["body"],
-                                        command=command,
-                                        correlation_id=inbound_event.id,
-                                        interactive=payload,
-                                    )
-                            else:
-                                await _send_reply_and_log(
-                                    db,
-                                    company,
-                                    sender,
-                                    notification_type=notification_type,
-                                    reply=reply,
-                                    command=command,
-                                    correlation_id=inbound_event.id,
-                                )
+                            notification_type, command, reply, interactive_batch = (
+                                await _handle_text_message(db, company, text)
+                            )
+                            await _dispatch_ladder_reply(
+                                db,
+                                company,
+                                sender,
+                                inbound_event.id,
+                                notification_type=notification_type,
+                                command=command,
+                                reply=reply,
+                                interactive_batch=interactive_batch,
+                            )
+                        elif message.get("type") == "audio":
+                            # Voice note — see _handle_voice_note. Own branch,
+                            # not folded into the text/interactive dispatch
+                            # above, since an audio message needs a download
+                            # + transcribe step before it has any `text` for
+                            # _handle_text_message to read at all.
+                            await _handle_voice_note(
+                                db, company, sender, message, inbound_event.id
+                            )
                         elif message.get("type") == "image":
                             # Invoice-photo OCR pre-fill (SPEC V0.3/Future) —
                             # see _handle_invoice_photo. Own branch, not
@@ -1424,15 +1565,15 @@ async def receive_whatsapp_webhook(
                                 correlation_id=inbound_event.id,
                             )
                         else:
-                            # Any other message type (audio/voice notes,
-                            # documents, video, stickers, location, contacts,
-                            # …) previously got total silence — no reply of
-                            # any kind, indistinguishable from the message
-                            # never having arrived. A deterministic "can't
-                            # read this yet" reply closes that gap the same
-                            # way image handling already does above; actually
-                            # supporting any of these types (e.g. voice-note
-                            # transcription) is separate, unbuilt scope.
+                            # Any other message type (documents, video,
+                            # stickers, location, contacts, …) previously got
+                            # total silence — no reply of any kind,
+                            # indistinguishable from the message never having
+                            # arrived. A deterministic "can't read this yet"
+                            # reply closes that gap the same way image/audio
+                            # handling already does above; actually
+                            # supporting any of these remaining types is
+                            # separate, unbuilt scope.
                             loc = resolve_locale(company)
                             await _send_reply_and_log(
                                 db,

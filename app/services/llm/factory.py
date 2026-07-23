@@ -15,6 +15,7 @@ import time
 from app.core.config import Settings, get_settings
 from app.services.llm.base import (
     AllProvidersExhaustedError,
+    AudioTranscriptionUnsupportedError,
     LLMProvider,
     NoApiKeyConfiguredError,
     ProviderResult,
@@ -189,4 +190,58 @@ async def extract_invoice_image_with_fallback(
 
     raise AllProvidersExhaustedError(
         f"No configured vision-capable LLM provider succeeded. Tried: {', '.join(order)}."
+    )
+
+
+async def transcribe_audio_with_fallback(
+    *,
+    system_prompt: str,
+    audio_bytes: bytes,
+    mime_type: str,
+    settings: Settings | None = None,
+) -> ProviderResult:
+    """Same provider order/skip/abort semantics as generate_with_fallback, for
+    the voice-note transcription path (app/services/voice_transcription.py).
+    A provider with supports_audio=False is skipped exactly like one with no
+    API key — only Gemini implements audio input among the providers
+    configured here, same restraint already applied to the vision-capable
+    subset above.
+    """
+    settings = settings or get_settings()
+    order = _resolve_provider_order(settings)
+
+    for name in order:
+        provider = _build_provider(name, settings)
+        if not provider.supports_audio:
+            continue
+        started = time.monotonic()
+        try:
+            text = await asyncio.wait_for(
+                provider.transcribe_audio(
+                    system_prompt=system_prompt, audio_bytes=audio_bytes, mime_type=mime_type
+                ),
+                timeout=settings.llm_timeout_seconds,
+            )
+        except (NoApiKeyConfiguredError, AudioTranscriptionUnsupportedError):
+            continue
+        except ProviderUnavailableError as exc:
+            logger.warning("Audio provider %r unavailable, trying next: %s", name, exc)
+            continue
+        except TimeoutError:
+            logger.warning(
+                "Audio provider %r timed out after %.0fs, trying next.",
+                name,
+                settings.llm_timeout_seconds,
+            )
+            continue
+        if not text or not text.strip():
+            logger.warning("Audio provider %r returned a blank response, trying next.", name)
+            continue
+        latency = time.monotonic() - started
+        return ProviderResult(
+            provider=name, model=provider.model, text=text, latency_seconds=latency
+        )
+
+    raise AllProvidersExhaustedError(
+        f"No configured audio-capable LLM provider succeeded. Tried: {', '.join(order)}."
     )

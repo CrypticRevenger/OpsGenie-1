@@ -354,17 +354,19 @@ async def test_status_update_unknown_recipient_returns_200_and_writes_nothing(
     assert event is None
 
 
-# ── Unsupported message types (audio, documents, video, …) ───────────────────
+# ── Unsupported message types (documents, video, stickers, …) ────────────────
 
 
 @pytest.mark.asyncio
 async def test_unsupported_message_type_gets_a_reply_not_silence(
     db: AsyncSession, monkeypatch
 ) -> None:
-    # Regression: a voice note, a forwarded document, a video, a sticker, or
-    # any other type outside text/interactive/image previously got total
-    # silence — no reply of any kind, indistinguishable from the message
-    # never having arrived at all.
+    # Regression: a forwarded document, a video, a sticker, or any other type
+    # outside text/interactive/image/audio previously got total silence — no
+    # reply of any kind, indistinguishable from the message never having
+    # arrived at all. (Voice notes/audio used to be in this bucket too —
+    # see tests/test_voice_note_webhook.py for that path now that it's
+    # actually handled.)
     phone = _unique_phone()
     await _make_company(db, phone)
     bare_sender = phone.removeprefix("+")
@@ -377,7 +379,7 @@ async def test_unsupported_message_type_gets_a_reply_not_silence(
 
     monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
 
-    body = json.dumps(_messages_payload(sender=bare_sender, message_type="audio")).encode()
+    body = json.dumps(_messages_payload(sender=bare_sender, message_type="video")).encode()
     async with await _anon_client() as client:
         resp = await client.post(
             "/webhooks/whatsapp",
@@ -386,7 +388,7 @@ async def test_unsupported_message_type_gets_a_reply_not_silence(
         )
     assert resp.status_code == 200
     assert len(sent) == 1
-    assert "text messages and photos" in sent[0].lower()
+    assert "text messages, photos, and voice notes" in sent[0].lower()
 
 
 # ── Numbered query menu (Phase 8) ─────────────────────────────────────────────
