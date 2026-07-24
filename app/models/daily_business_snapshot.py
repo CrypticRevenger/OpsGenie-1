@@ -77,6 +77,15 @@ class DailyBusinessSnapshot(UUIDMixin, TimestampMixin, Base):
     orders_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     finalized_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Atomic claim marker for the evening WhatsApp brief send — see
+    # app/services/evening_brief.py::send_evening_brief. NULL until a tick
+    # claims this row via a conditional UPDATE ... WHERE delivered_at IS
+    # NULL; reset back to NULL if that attempt's send then fails, so a later
+    # tick can retry. This is the actual race guard (Postgres's row lock on
+    # this unique-constrained row), not just an informational timestamp —
+    # deliberately distinct from NotificationLog's own "sent"/"failed_to_send"
+    # bookkeeping, which stays the source of truth for delivery *history*.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # ── Relationships ────────────────────────────────────────────────────────
     company: Mapped[Company] = relationship("Company", back_populates="daily_business_snapshots")

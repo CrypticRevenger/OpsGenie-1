@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.i18n import Locale, resolve_locale, t
@@ -125,6 +125,20 @@ async def send_evening_brief(db: AsyncSession, company: Company) -> bool:
     (no-op) AND when this attempt's own send just failed — callers that need
     to tell those two apart (see evening_brief_delivered_today) should check
     it themselves rather than infer an outcome from this bool alone.
+
+    Real production bug (2026-07-24): the same distributor received three
+    duplicate evening briefs minutes apart. The scheduler's advisory lock
+    (app/core/scheduler.py::run_scheduled_tick) only protects against two
+    *tick invocations* racing each other; a plain "check NotificationLog,
+    then decide, then send" here still has a race window regardless of that
+    lock, and nothing else guaranteed only one caller could ever pass the
+    check-then-act sequence. Now claimed atomically instead: a single
+    conditional UPDATE against DailyBusinessSnapshot's own unique
+    (company_id, business_date) row — Postgres's row lock on that exact row
+    serializes two overlapping attempts by construction, which a
+    session-scoped advisory lock cannot guarantee under every possible
+    connection-pooling configuration. Mirrors the same atomic-claim shape
+    app/services/followup.py::send_due_today_follow_up already uses.
     """
     today = business_now(company.timezone).date()
     if await evening_brief_delivered_today(db, company, today):
@@ -134,6 +148,24 @@ async def send_evening_brief(db: AsyncSession, company: Company) -> bool:
         return False
 
     snapshot = await finalize_daily_snapshot(db, company, today)
+
+    claim = await db.execute(
+        update(DailyBusinessSnapshot)
+        .where(
+            DailyBusinessSnapshot.company_id == company.id,
+            DailyBusinessSnapshot.business_date == today,
+            DailyBusinessSnapshot.delivered_at.is_(None),
+        )
+        .values(delivered_at=business_now(company.timezone))
+    )
+    if claim.rowcount == 0:
+        logger.info(
+            "Evening brief for company %s: %s already claimed by another attempt, skipping.",
+            company.id,
+            today,
+        )
+        return False
+
     priority_actions = await get_priority_actions(db, company.id)
     text = _compose_text(snapshot, priority_actions, resolve_locale(company))
 
@@ -143,6 +175,18 @@ async def send_evening_brief(db: AsyncSession, company: Company) -> bool:
     except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
         logger.warning("Evening brief to %s not sent: %s", company.whatsapp_number, exc)
         send_result = None
+
+    if send_result is None:
+        # Release the claim so a later tick can retry today — matches the
+        # existing "keeps retrying on every later tick" contract.
+        await db.execute(
+            update(DailyBusinessSnapshot)
+            .where(
+                DailyBusinessSnapshot.company_id == company.id,
+                DailyBusinessSnapshot.business_date == today,
+            )
+            .values(delivered_at=None)
+        )
 
     db.add(
         NotificationLog(
