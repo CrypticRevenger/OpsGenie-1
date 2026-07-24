@@ -51,6 +51,36 @@ from app.services.writes.pending_operation import create_pending_operation
 _YES_WORDS = {"yes", "y", "1"}
 _NO_WORDS = {"no", "n", "2"}
 
+# A founder trying to check the help text or menu mid-reminder previously got
+# swallowed by this flow's own "didn't understand, reply 1/2" restatement —
+# confusing, since nothing told them *why* "help" didn't work. These words
+# now get an explicit "finish this first, then continue" reply instead (see
+# _current_question below), without cancelling the reminder the way
+# "cancel"/"stop" do. Mirrors app/services/followup.py's identical fix.
+_ORIENTATION_WORDS = {"help", "/help", "menu", "/menu", "commands", "what can you do"}
+
+
+def _current_question(scratch: dict, loc) -> str:
+    """Re-render whichever question this flow is currently waiting on — reused
+    both by the orientation-word "please answer this first" reply and (for
+    awaiting_paid_choice) the existing invalid-choice restatement, so the two
+    can never drift apart.
+    """
+    step = scratch.get("step")
+    if step == "awaiting_amount_confirm":
+        return t("reminder_confirm.amount_ask", loc, amount=format_inr(Decimal(scratch["amount"])))
+    if step == "awaiting_reschedule":
+        return t("reminder_confirm.reschedule_ask", loc)
+    # awaiting_paid_choice and any unexpected step both fall back to the
+    # original paid/not-yet question — the only one guaranteed to have both
+    # supplier_name and amount already in scratch.
+    return t(
+        "reminder_confirm.ask_paid",
+        loc,
+        supplier=scratch["supplier_name"],
+        amount=format_inr(Decimal(scratch["amount"])),
+    )
+
 
 def start_reminder_confirm(company: Company, item: dict, queue: list[dict]) -> str:
     """item: {"supplier_id","supplier_name","amount","invoice_id","invoice_number"}
@@ -82,6 +112,53 @@ def advance_reminder_queue(company: Company, queue: list[dict]) -> str:
     return "\n\n" + start_reminder_confirm(company, next_item, rest)
 
 
+def promote_queued_reminder(company: Company, context_id: str) -> bool:
+    """Let a founder use WhatsApp's native quote-reply on any *queued* (not
+    yet active) reminder message and have it jump ahead of whichever bill is
+    currently being asked about — app/services/notifications.py::
+    check_supplier_payment_reminders attaches each bill's own real wamid
+    ("whatsapp_message_id") to its scratch entry, whether it's the active one
+    or still sitting in "queue", specifically so this lookup is possible.
+
+    Returns False (no-op, caller proceeds exactly as if this were never
+    called) when: no reminder conversation is active at all; `context_id`
+    matches the *already*-active item (nothing to promote — the normal path
+    already handles this); or `context_id` matches nothing pending (an old,
+    already-resolved, or unrelated message) — a wrong guess here must never
+    corrupt a real in-progress conversation.
+
+    On an actual match against a queued item: that item becomes the new
+    active conversation (restarting fresh from its own first question,
+    "awaiting_paid_choice" — any partial progress on the *previously*-active
+    item, e.g. already having said "not yet" and being mid-reschedule, is
+    discarded, not preserved, a deliberate simplification), and the
+    previously-active item is put back at the front of the remaining queue
+    so it's still asked about later, not lost.
+    """
+    if company.active_workflow != "confirm_supplier_payment":
+        return False
+    scratch = company.workflow_scratch or {}
+    if scratch.get("whatsapp_message_id") == context_id:
+        return False
+
+    queue = scratch.get("queue", [])
+    match_index = next(
+        (i for i, item in enumerate(queue) if item.get("whatsapp_message_id") == context_id),
+        None,
+    )
+    if match_index is None:
+        return False
+
+    matched_item = queue[match_index]
+    rest = queue[:match_index] + queue[match_index + 1 :]
+    previously_active = {
+        key: value for key, value in scratch.items() if key not in ("step", "queue")
+    }
+    new_queue = [previously_active, *rest] if previously_active.get("supplier_name") else rest
+    start_reminder_confirm(company, matched_item, new_queue)
+    return True
+
+
 async def handle_reminder_confirm_workflow_message(
     db: AsyncSession, company: Company, text: str
 ) -> str:
@@ -95,6 +172,12 @@ async def handle_reminder_confirm_workflow_message(
 
     scratch = dict(company.workflow_scratch or {})
     step = scratch.get("step")
+
+    if stripped.lower() in _ORIENTATION_WORDS:
+        # Doesn't cancel — the reminder is still waiting, just tell the
+        # founder clearly what to do before their next message can go
+        # through, instead of the generic "didn't understand, reply 1/2".
+        return t("workflow.busy_reply_first", loc, question=_current_question(scratch, loc))
 
     if step == "awaiting_paid_choice":
         lowered = stripped.lower()

@@ -170,6 +170,42 @@ async def _send_and_log(
     return send_result is not None
 
 
+async def _send_and_log_with_id(
+    db: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    recipient: str,
+    notification_type: str,
+    message: str,
+) -> str | None:
+    """Same contract as _send_and_log, but returns the real WhatsApp message
+    id (wamid) on success instead of a bare bool — needed by
+    check_supplier_payment_reminders so a later native quote-reply to this
+    exact message can be matched back to which bill it was about (see
+    app/services/workflows/payment_reminder_confirm.py::promote_queued_
+    reminder). Kept separate from _send_and_log rather than changing that
+    function's return type — the other four notification rules that call it
+    have no use for the id, so there's nothing to gain by touching them too.
+    """
+    send_result = None
+    try:
+        send_result = await send_text_message(recipient, message)
+    except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
+        logger.warning("Notification (%s) to %s not sent: %s", notification_type, recipient, exc)
+
+    db.add(
+        NotificationLog(
+            company_id=company_id,
+            notification_type=notification_type,
+            recipient_whatsapp=recipient,
+            message_text=message,
+            whatsapp_message_id=send_result.message_id if send_result else None,
+            delivery_status="sent" if send_result else "failed_to_send",
+        )
+    )
+    return send_result.message_id if send_result else None
+
+
 async def _recent_activity_exists(
     db: AsyncSession,
     *,
@@ -320,14 +356,37 @@ async def check_supplier_payment_reminders(
             )
             message = f"{message}\n\n{question}"
 
-        delivered = await _send_and_log(
+        message_id = await _send_and_log_with_id(
             db,
             company_id=company.id,
             recipient=company.whatsapp_number,
             notification_type="supplier_payment_reminder",
             message=message,
         )
-        if not delivered:
+        if can_start_confirm and message_id is not None:
+            # Attach this bill's own wamid to its scratch entry — either the
+            # just-started active conversation (index 0) or its still-queued
+            # entry (index > 0, matched by invoice_id — its own message is
+            # only sent now, this same iteration, so this is the earliest
+            # point its id can be known) — so a later native quote-reply to
+            # *this specific* WhatsApp message can be recognized and jump
+            # the queue (see payment_reminder_confirm.py::
+            # promote_queued_reminder). A company mid some other flow
+            # (can_start_confirm is False) never got a queue started at all,
+            # so there's nothing to attach this to.
+            scratch = dict(company.workflow_scratch or {})
+            if index == 0:
+                scratch["whatsapp_message_id"] = message_id
+            else:
+                queue = scratch.get("queue", [])
+                for queued_item in queue:
+                    if queued_item.get("invoice_id") == str(payment.invoice_id):
+                        queued_item["whatsapp_message_id"] = message_id
+                        break
+                scratch["queue"] = queue
+            company.workflow_scratch = scratch
+
+        if not message_id:
             # Send failed — leave this bill undeduped so the next tick
             # retries it, instead of silently suppressing a same-day
             # reminder for the rest of the quiet window (see

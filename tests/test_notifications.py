@@ -309,6 +309,44 @@ async def test_supplier_reminder_dedups_within_24h(db: AsyncSession, recorded_se
 
 
 @pytest.mark.asyncio
+async def test_supplier_reminder_attaches_wamid_to_active_and_queued_items(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """Both the active reminder and any still-queued ones must carry their
+    own real WhatsApp message id in workflow_scratch — this is what lets a
+    later native quote-reply be matched back to the specific bill it was
+    about (see payment_reminder_confirm.py::promote_queued_reminder), rather
+    than only the founder's *first* reminder ever being addressable.
+    """
+    company = await _make_company(db)
+    first_bill = _supplier_payment(
+        supplier_name="Royal Meat Suppliers", due_date=TODAY + timedelta(days=1)
+    )
+    second_bill = _supplier_payment(
+        supplier_name="Premium Poultry", due_date=TODAY + timedelta(days=1)
+    )
+    snap = _snapshot(company.id, expected_payments_7d=[first_bill, second_bill])
+
+    sent = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 2
+    assert len(recorded_sends) == 2
+    await db.refresh(company)
+    scratch = company.workflow_scratch
+    assert scratch["supplier_name"] == "Royal Meat Suppliers"
+    active_wamid = scratch["whatsapp_message_id"]
+    assert active_wamid
+
+    queue = scratch["queue"]
+    assert len(queue) == 1
+    assert queue[0]["supplier_name"] == "Premium Poultry"
+    queued_wamid = queue[0]["whatsapp_message_id"]
+    assert queued_wamid
+    assert queued_wamid != active_wamid
+
+
+@pytest.mark.asyncio
 async def test_supplier_reminder_retries_after_a_failed_send(
     db: AsyncSession, monkeypatch
 ) -> None:

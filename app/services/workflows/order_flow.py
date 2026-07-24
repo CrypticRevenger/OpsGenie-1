@@ -21,6 +21,7 @@ guaranteed way out).
 
 from __future__ import annotations
 
+import uuid
 from decimal import Decimal
 
 from sqlalchemy import func, select
@@ -424,11 +425,18 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
             return t("order.need_product", loc)
         product = await _match_product(db, company.id, stripped)
         if product is not None and company.gst_varies_by_product and product.gst_rate is None:
-            # Blocked, not defaulted — falling back to company.gst_rate here
-            # would silently invoice at 0% (company.gst_rate is 0 in this
-            # mode). Stay on this same step so a different product name or
-            # "cancel" both still work.
-            return t("order.product_gst_missing", loc, product=product.name)
+            # Never defaulted — falling back to company.gst_rate here would
+            # silently invoice at 0% (company.gst_rate is 0 in this mode).
+            # Ask inline instead of blocking (this used to just refuse and
+            # point at "update gst"): same shape as the brand-new-product
+            # ask below (awaiting_new_product_gst_rate), plus one extra
+            # question this existing row needs that a new one doesn't —
+            # whether to persist the rate, since the founder might only mean
+            # it for this one order.
+            scratch["gst_pending_product_id"] = str(product.id)
+            scratch["step"] = "awaiting_existing_product_gst_rate"
+            company.workflow_scratch = scratch
+            return t("order.existing_product_gst_ask", loc, product=product.name)
         if product is not None and product.selling_price is not None:
             scratch["current_product"] = {
                 "name": product.name,
@@ -503,6 +511,55 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
         message = _advance_to_awaiting_price(scratch, loc, "order.price_ask", product=name)
         company.workflow_scratch = scratch
         return message
+
+    if step == "awaiting_existing_product_gst_rate":
+        try:
+            gst_rate = parse_gst_rate(stripped)
+        except ValueError:
+            return t("gst.rate_invalid", loc)
+        scratch["gst_pending_rate"] = str(gst_rate)
+        scratch["step"] = "awaiting_existing_product_gst_save"
+        company.workflow_scratch = scratch
+        product = await db.get(Product, uuid.UUID(scratch["gst_pending_product_id"]))
+        return t("order.existing_product_gst_save_ask", loc, product=product.name, rate=gst_rate)
+
+    if step == "awaiting_existing_product_gst_save":
+        if not _is(stripped, "yes", "y", "no", "n"):
+            return t("workflow.yes_no", loc)
+        product = await db.get(Product, uuid.UUID(scratch["gst_pending_product_id"]))
+        gst_rate = Decimal(scratch["gst_pending_rate"])
+        if _is(stripped, "yes", "y"):
+            product.gst_rate = gst_rate
+            confirmation = t(
+                "order.existing_product_gst_saved", loc, product=product.name, rate=gst_rate
+            )
+        else:
+            confirmation = t(
+                "order.existing_product_gst_not_saved", loc, product=product.name, rate=gst_rate
+            )
+        scratch.pop("gst_pending_product_id", None)
+        scratch.pop("gst_pending_rate", None)
+        if product.selling_price is not None:
+            scratch["current_product"] = {
+                "name": product.name,
+                "price": str(product.selling_price),
+                "gst_rate": str(gst_rate),
+            }
+            unit = product.unit or "units"
+            message = _advance_to_awaiting_quantity(
+                scratch, loc, "order.quantity_ask", unit=unit, product=product.name
+            )
+        else:
+            scratch["current_product"] = {
+                "name": product.name,
+                "price": None,
+                "gst_rate": str(gst_rate),
+            }
+            message = _advance_to_awaiting_price(
+                scratch, loc, "order.price_ask", product=product.name
+            )
+        company.workflow_scratch = scratch
+        return f"{confirmation}\n\n{message}"
 
     if step == "awaiting_price":
         try:

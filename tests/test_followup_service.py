@@ -637,3 +637,67 @@ async def test_no_op_when_a_guided_workflow_is_active(db: AsyncSession) -> None:
     assert result.status == "conversation_busy"
     await db.refresh(company)
     assert company.pending_follow_up_invoice_id is None
+
+
+# ── handle_follow_up_reply: "help"/"menu" mid-conversation ───────────────────
+# Previously fell through to followup.confirm_invalid's generic "didn't
+# understand, reply 1/2/3" restatement with no indication of *why* — a real
+# production report (2026-07-24). These now get an explicit "reply to this
+# first, then continue" message instead, without cancelling the follow-up the
+# way "cancel"/"stop" do.
+
+
+@pytest.mark.asyncio
+async def test_help_mid_confirmation_explains_without_cancelling(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id, name="Ram Traders")
+    invoice = await _make_invoice(
+        db,
+        company_id=company.id,
+        dealer_id=dealer.id,
+        due_date=TODAY,
+        total_amount=Decimal("49350.00"),
+    )
+    await _start_follow_up(db, company, invoice)
+
+    reply = await handle_follow_up_reply(db, company, "help")
+
+    assert "first" in reply.lower()
+    assert "Ram Traders" in reply
+    assert "49,350" in reply
+    await db.refresh(company)
+    assert company.pending_follow_up_invoice_id == invoice.id
+    assert company.pending_follow_up_state == FollowUpState.awaiting_confirmation
+
+
+@pytest.mark.asyncio
+async def test_menu_mid_partial_amount_explains_without_cancelling(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id)
+    invoice = await _make_invoice(db, company_id=company.id, dealer_id=dealer.id, due_date=TODAY)
+    await _start_follow_up(db, company, invoice)
+    await handle_follow_up_reply(db, company, "2")
+    await db.commit()
+
+    reply = await handle_follow_up_reply(db, company, "menu")
+
+    assert "first" in reply.lower()
+    await db.refresh(company)
+    assert company.pending_follow_up_state == FollowUpState.awaiting_partial_amount
+
+
+@pytest.mark.asyncio
+async def test_help_mid_expected_date_explains_without_cancelling(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company.id, name="Ram Traders")
+    invoice = await _make_invoice(db, company_id=company.id, dealer_id=dealer.id, due_date=TODAY)
+    await _start_follow_up(db, company, invoice)
+    await handle_follow_up_reply(db, company, "3")
+    await db.commit()
+
+    reply = await handle_follow_up_reply(db, company, "/help")
+
+    assert "first" in reply.lower()
+    assert "Ram Traders" in reply
+    await db.refresh(company)
+    assert company.pending_follow_up_state == FollowUpState.awaiting_expected_date

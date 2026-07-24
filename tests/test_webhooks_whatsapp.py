@@ -27,7 +27,11 @@ from app.models.company import Company, FollowUpState, OnboardingState
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
 from app.models.notification_log import NotificationLog
-from app.services.whatsapp_client import WhatsAppNotConfiguredError, WhatsAppSendResult
+from app.services.whatsapp_client import (
+    WhatsAppNotConfiguredError,
+    WhatsAppSendError,
+    WhatsAppSendResult,
+)
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +62,9 @@ def _sign(body: bytes) -> str:
     return f"sha256={digest}"
 
 
-def _messages_payload(*, sender: str, message_type: str = "text", text: str = "hello") -> dict:
+def _messages_payload(
+    *, sender: str, message_type: str = "text", text: str = "hello", context_id: str | None = None
+) -> dict:
     message: dict = {
         "from": sender,
         "id": f"wamid.{uuid.uuid4().hex}",
@@ -67,6 +73,11 @@ def _messages_payload(*, sender: str, message_type: str = "text", text: str = "h
     }
     if message_type == "text":
         message["text"] = {"body": text}
+    if context_id is not None:
+        # Meta's shape for a native WhatsApp quote-reply — the wamid of the
+        # message being replied to. See app/api/webhooks/whatsapp.py's
+        # promote_queued_reminder wiring.
+        message["context"] = {"id": context_id}
     return {
         "object": "whatsapp_business_account",
         "entry": [
@@ -1601,6 +1612,67 @@ async def test_crashed_reply_is_resumed_not_dropped(db: AsyncSession, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_failed_send_does_not_block_a_later_retry(db: AsyncSession, monkeypatch) -> None:
+    """A real WhatsApp send failure (a transient WhatsAppSendError, not a
+    code crash) previously still wrote the whatsapp_reply_sent marker
+    unconditionally — so the founder's phone got nothing, but any later
+    redelivery of that exact message would see "already replied to" and skip
+    it forever (a real production report: "/help" produced no reply at all).
+    A failed send must leave no marker, so a genuine redelivery resumes and
+    actually retries the send instead of going permanently silent.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    call_count = 0
+
+    async def _fails_once_then_succeeds(to: str, body: str) -> WhatsAppSendResult:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise WhatsAppSendError("simulated transient Meta API error")
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fails_once_then_succeeds)
+
+    payload = _messages_payload(sender=bare_sender, message_type="text", text="help")
+    body = json.dumps(payload).encode()
+    headers = {"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)}
+    async with await _anon_client() as client:
+        first = await client.post("/webhooks/whatsapp", content=body, headers=headers)
+        second = await client.post("/webhooks/whatsapp", content=body, headers=headers)
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert call_count == 2  # the redelivery actually retried the send, not skipped
+
+    inbound_events = (
+        await db.scalars(
+            select(BusinessEvent).where(
+                BusinessEvent.company_id == company_id,
+                BusinessEvent.event_type == BusinessEventType.whatsapp_message_received,
+            )
+        )
+    ).all()
+    assert len(inbound_events) == 1  # resumed, not re-inserted
+
+    logs = (
+        await db.scalars(select(NotificationLog).where(NotificationLog.company_id == company_id))
+    ).all()
+    assert sorted(log.delivery_status for log in logs) == ["failed_to_send", "sent"]
+
+    reply_sent_events = (
+        await db.scalars(
+            select(BusinessEvent).where(
+                BusinessEvent.company_id == company_id,
+                BusinessEvent.event_type == BusinessEventType.whatsapp_reply_sent,
+            )
+        )
+    ).all()
+    assert len(reply_sent_events) == 1  # only the successful attempt got a marker
+
+
+@pytest.mark.asyncio
 async def test_status_webhook_updates_matching_notification_log_delivery_status(
     db: AsyncSession,
 ) -> None:
@@ -1866,3 +1938,269 @@ async def test_onboarding_outranks_pending_follow_up(db: AsyncSession, monkeypat
     assert invoice.status == InvoiceStatus.Pending  # follow-up did NOT run
     await db.refresh(company)
     assert company.pending_follow_up_invoice_id is not None  # follow-up untouched
+
+
+# ── Dealer self-service (Phase 1, read-only) ─────────────────────────────────
+# See app/services/dealer_self_service.py for the unit-level reply-builder
+# tests; these prove the webhook-level wiring — a sender that matches no
+# Company's own whatsapp_number but does match an opted-in dealer's phone
+# gets routed to the separate dealer path, never the founder ladder.
+
+
+@pytest.mark.asyncio
+async def test_dealer_self_service_enabled_replies_with_balance(
+    db: AsyncSession, monkeypatch
+) -> None:
+    company = Company(
+        business_name="Dealer SS Co",
+        owner_name="Owner",
+        whatsapp_number=_unique_phone(),
+        dealer_self_service_enabled=True,
+    )
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+
+    dealer_phone = _unique_phone()
+    dealer = Dealer(company_id=company.id, name="Ram Traders", phone=dealer_phone)
+    db.add(dealer)
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        assert to == dealer_phone
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("dealer messages must never reach the LLM")),
+    )
+
+    bare_sender = dealer_phone.removeprefix("+")
+    body = json.dumps(_messages_payload(sender=bare_sender, text="balance")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "Ram Traders" in sent[0]
+    assert "No outstanding balance" in sent[0]
+
+    log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company.id))
+    assert log.notification_type == "dealer_self_service"
+
+
+@pytest.mark.asyncio
+async def test_dealer_self_service_disabled_drops_message(db: AsyncSession, monkeypatch) -> None:
+    """Same as today's unknown-sender behavior — a dealer whose distributor
+    hasn't opted in gets no reply at all, not a "please contact us" message
+    (that would itself confirm this phone is a real dealer to whoever sent
+    it).
+    """
+    company = Company(
+        business_name="Dealer SS Co",
+        owner_name="Owner",
+        whatsapp_number=_unique_phone(),
+        dealer_self_service_enabled=False,
+    )
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+
+    dealer_phone = _unique_phone()
+    dealer = Dealer(company_id=company.id, name="Ram Traders", phone=dealer_phone)
+    db.add(dealer)
+    await db.commit()
+
+    send_mock = AsyncMock(side_effect=AssertionError("should never send anything"))
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", send_mock)
+
+    bare_sender = dealer_phone.removeprefix("+")
+    body = json.dumps(_messages_payload(sender=bare_sender, text="balance")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    logs = (
+        await db.execute(select(NotificationLog).where(NotificationLog.company_id == company.id))
+    ).all()
+    assert logs == []
+
+
+@pytest.mark.asyncio
+async def test_founder_number_never_routed_to_dealer_path(db: AsyncSession, monkeypatch) -> None:
+    """A founder's own registered whatsapp_number always wins the lookup
+    first — even if, coincidentally, that exact phone is also on file as a
+    dealer's phone under a *different*, self-service-enabled company. The
+    founder must always get the real menu/assistant ladder, never the
+    dealer's tiny read-only command set.
+    """
+    shared_phone = _unique_phone()
+
+    founder_company = Company(
+        business_name="Founder Co", owner_name="Owner", whatsapp_number=shared_phone
+    )
+    db.add(founder_company)
+
+    other_company = Company(
+        business_name="Other Co",
+        owner_name="Owner",
+        whatsapp_number=_unique_phone(),
+        dealer_self_service_enabled=True,
+    )
+    db.add(other_company)
+    await db.commit()
+    await db.refresh(other_company)
+    db.add(Dealer(company_id=other_company.id, name="Ram Traders", phone=shared_phone))
+    await db.commit()
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    bare_sender = shared_phone.removeprefix("+")
+    body = json.dumps(_messages_payload(sender=bare_sender, text="help")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+    log = await db.scalar(
+        select(NotificationLog).where(NotificationLog.company_id == founder_company.id)
+    )
+    assert log is not None
+    assert log.notification_type == "instant_command"  # founder's /help, not dealer_self_service
+
+
+# ── Quote-reply queue-jumping for payment reminders ──────────────────────────
+# A real production request (2026-07-24): let the founder use WhatsApp's
+# native swipe/tap "Reply" on any pending reminder message and have that
+# specific bill answered immediately, even before the currently-active one.
+
+
+@pytest.mark.asyncio
+async def test_quote_reply_jumps_to_the_queued_reminder(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.active_workflow = "confirm_supplier_payment"
+    company.workflow_scratch = {
+        "step": "awaiting_paid_choice",
+        "whatsapp_message_id": "wamid.royal_meat",
+        "supplier_id": str(uuid.uuid4()),
+        "supplier_name": "Royal Meat Suppliers",
+        "amount": "90000.00",
+        "invoice_id": str(uuid.uuid4()),
+        "invoice_number": "INV-RM-001",
+        "queue": [
+            {
+                "whatsapp_message_id": "wamid.premium_poultry",
+                "supplier_id": str(uuid.uuid4()),
+                "supplier_name": "Premium Poultry",
+                "amount": "21000.00",
+                "invoice_id": str(uuid.uuid4()),
+                "invoice_number": "INV-PP-002",
+            }
+        ],
+    }
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    # Quote-reply "2" (not yet paid) directly to the *queued* Premium Poultry
+    # message — must be recognized and answered immediately, without first
+    # answering Royal Meat Suppliers.
+    body = json.dumps(
+        _messages_payload(sender=bare_sender, text="2", context_id="wamid.premium_poultry")
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert "Premium Poultry" in sent[-1]  # the "switched to" prefix names it
+    assert "21,000" in sent[-1]
+
+    await db.refresh(company)
+    assert company.workflow_scratch["supplier_name"] == "Premium Poultry"
+    assert company.workflow_scratch["step"] == "awaiting_reschedule"
+
+    # Royal Meat Suppliers must still be answerable afterward — requeued,
+    # not lost. Skip Premium Poultry's reschedule, then answer Royal Meat.
+    body2 = json.dumps(_messages_payload(sender=bare_sender, text="skip")).encode()
+    async with await _anon_client() as client:
+        resp2 = await client.post(
+            "/webhooks/whatsapp",
+            content=body2,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body2)},
+        )
+    assert resp2.status_code == 200
+    await db.refresh(company)
+    assert company.workflow_scratch["supplier_name"] == "Royal Meat Suppliers"
+    assert company.workflow_scratch["step"] == "awaiting_paid_choice"
+
+
+@pytest.mark.asyncio
+async def test_quote_reply_to_the_active_message_is_a_noop(db: AsyncSession, monkeypatch) -> None:
+    """Quoting the *already*-active reminder must behave exactly like a
+    plain unquoted reply — no "switched to" prefix, no requeue dance.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.active_workflow = "confirm_supplier_payment"
+    company.workflow_scratch = {
+        "step": "awaiting_paid_choice",
+        "whatsapp_message_id": "wamid.royal_meat",
+        "supplier_id": str(uuid.uuid4()),
+        "supplier_name": "Royal Meat Suppliers",
+        "amount": "90000.00",
+        "invoice_id": str(uuid.uuid4()),
+        "invoice_number": "INV-RM-001",
+        "queue": [],
+    }
+    await db.commit()
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    body = json.dumps(
+        _messages_payload(sender=bare_sender, text="2", context_id="wamid.royal_meat")
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert "switched" not in sent[-1].lower()

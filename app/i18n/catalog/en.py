@@ -89,6 +89,10 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • opt in all dealers — opt every dealer who hasn't opted out into broadcasts (confirm required)
 • edit dealer — reply 'marketing' to opt one dealer in or out
 
+*Dealer Self-Service*
+• enable dealer self-service / disable dealer self-service — let your dealers text this number \
+directly to check their own balance (off by default)
+
 *Quick Access*
 • menu — tap through your options instead of typing
 • help (or /help) — see this list again anytime"""
@@ -675,6 +679,9 @@ MESSAGES: dict[str, str] = {
         "I can't read a photo right now — we're in the middle of something. Reply 'cancel' to "
         "stop that first, then send the photo again."
     ),
+    "workflow.busy_reply_first": (
+        "Please reply to this first, then you can continue with your next message.\n\n{question}"
+    ),
     "workflow.unsupported_message_type": (
         "Sorry, I can only reply to text messages, photos, and voice notes right now. Please "
         "type your message."
@@ -781,13 +788,21 @@ MESSAGES: dict[str, str] = {
         "⚠️ This order would take {dealer}'s outstanding to {prospective}, over their credit "
         "limit of {limit}."
     ),
-    "order.product_gst_missing": (
-        "⚠️ '{product}' has no GST rate set, and this company's GST varies by product. Set "
-        "its rate first with 'update gst', then try this order again."
-    ),
     "order.new_product_gst_ask": (
         "This company's GST varies by product, so '{product}' needs its own GST%. "
         "What's the rate? (e.g. 5, 12, 18)"
+    ),
+    "order.existing_product_gst_ask": (
+        "This company's GST varies by product, and '{product}' doesn't have a rate on file yet. "
+        "What's the GST% for it? (e.g. 5, 12, 18)"
+    ),
+    "order.existing_product_gst_save_ask": (
+        "Save {rate}% as '{product}'s GST rate for future orders? Reply YES to save, NO to use "
+        "it for this order only."
+    ),
+    "order.existing_product_gst_saved": "✅ Saved — '{product}'s GST rate is now {rate}%.",
+    "order.existing_product_gst_not_saved": (
+        "OK — using {rate}% for this order only (not saved to '{product}')."
     ),
     # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
     "order.ocr_dealer_ask": (
@@ -1197,6 +1212,7 @@ MESSAGES: dict[str, str] = {
     "reminder_confirm.ask_paid": (
         "Have you already paid {supplier} {amount}?\nReply 1 if yes, 2 if not yet paid."
     ),
+    "reminder_confirm.switched_to": "🔄 Switched to {supplier}'s reminder ({amount}):",
     "reminder_confirm.invalid_choice": (
         "Sorry, I didn't catch that. Have you already paid {supplier} {amount}?\n"
         "Reply 1 if yes, 2 if not yet paid."
@@ -1277,4 +1293,27 @@ MESSAGES: dict[str, str] = {
     "evening.net_cash": "Net Cash Movement: {amount}",
     "evening.outstanding": "Outstanding Receivables: {amount}",
     "evening.priority_header": "Priority Actions:",
+    # ── Dealer self-service (Phase 1, read-only) ────────────────────────────
+    "dealer.balance.header": "Hi {dealer_name}, here's your account with {business_name}:",
+    "dealer.balance.outstanding": "💰 {amount} outstanding",
+    "dealer.balance.no_outstanding": "✅ No outstanding balance",
+    "dealer.balance.next_due": "📅 Next due: {date}",
+    "dealer.balance.last_payment": "🧾 Last payment: {amount} on {date}",
+    "dealer.help": (
+        "I can help you with:\n\nBALANCE — check your outstanding balance\nHELP — show this "
+        "message"
+    ),
+    "dealer.unrecognized": (
+        "Sorry, I didn't understand that. Reply BALANCE to check your outstanding, or HELP for "
+        "more."
+    ),
+    "dealer.ambiguous_number": (
+        "This number is linked to more than one business on OpsGenie. Please contact your "
+        "distributor directly."
+    ),
+    "settings.dealer_self_service_enabled": (
+        "✅ Dealer self-service is now ON — your dealers can text this number directly to check "
+        "their own balance."
+    ),
+    "settings.dealer_self_service_disabled": "Dealer self-service is now OFF.",
 }

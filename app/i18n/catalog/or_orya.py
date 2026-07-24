@@ -87,6 +87,10 @@ _HELP_TEXT = """*OpsGenie Help*
 • opt in all dealers — ଯେଉଁମାନେ opt-out କରିନାହାଁନ୍ତି ସେମାନଙ୍କୁ opt in କରନ୍ତୁ (confirm ଦରକାର)
 • edit dealer — 'marketing' reply କରି ଏକ ଡିଲରକୁ opt in/opt out କରନ୍ତୁ
 
+*ଡିଲର Self-Service*
+• enable dealer self-service / disable dealer self-service — ଆପଣଙ୍କ ଡିଲରମାନଙ୍କୁ ଏହି number ରେ \
+ସିଧା ନିଜ balance check କରିବାକୁ ଦିଅନ୍ତୁ (ଡିଫଲ୍ଟ off)
+
 *Quick Access*
 • menu — ଟାଇପ୍ କରିବା ବଦଳରେ option tap କରନ୍ତୁ
 • help (କିମ୍ବା /help) — ଏହି ତାଲିକା ଯେକୌଣସି ସମୟରେ ପୁଣି ଦେଖନ୍ତୁ"""
@@ -620,6 +624,9 @@ MESSAGES: dict[str, str] = {
         "ମୁଁ ବର୍ତ୍ତମାନ photo ପଢ଼ି ପାରିବି ନାହିଁ — ଆମେ କିଛି ଅନ୍ୟ କାର୍ଯ୍ୟ କରୁଛୁ। ପ୍ରଥମେ 'cancel' କୁହନ୍ତୁ, "
         "ତାପରେ photo ପୁଣି ପଠାନ୍ତୁ।"
     ),
+    "workflow.busy_reply_first": (
+        "ପ୍ରଥମେ ଏହାର reply ଦିଅନ୍ତୁ, ତାପରେ ଆପଣ ଆପଣଙ୍କର ପରବର୍ତ୍ତୀ message ପଠାଇପାରିବେ।\n\n{question}"
+    ),
     "workflow.unsupported_message_type": (
         "କ୍ଷମା କରନ୍ତୁ, ମୁଁ ବର୍ତ୍ତମାନ କେବଳ text message, photo, ଏବଂ voice note ର reply ଦେଇପାରିବି। "
         "ଦୟାକରି ଆପଣଙ୍କ message ଟାଇପ୍ କରନ୍ତୁ।"
@@ -727,13 +734,21 @@ MESSAGES: dict[str, str] = {
         "⚠️ ଏ order {dealer} ର outstanding କୁ {prospective} ପର୍ଯ୍ୟନ୍ତ ନେବ, ଯାହା ସେମାନଙ୍କ "
         "{limit} ର credit limit ଠାରୁ ଅଧିକ।"
     ),
-    "order.product_gst_missing": (
-        "⚠️ '{product}' ର କୌଣସି GST rate set ହୋଇନାହିଁ, ଏବଂ ଏ company ର GST product ଅନୁସାରେ "
-        "ଭିନ୍ନ ଭିନ୍ନ। ପ୍ରଥମେ 'update gst' ରେ ଏହାର rate set କରନ୍ତୁ, ତାପରେ ଏ order ପୁଣି try କରନ୍ତୁ।"
-    ),
     "order.new_product_gst_ask": (
         "ଏ company ର GST product ଅନୁସାରେ ଭିନ୍ନ ଭିନ୍ନ, ତେଣୁ '{product}' ପାଇଁ ନିଜ GST% "
         "ଦରକାର। Rate କେତେ? (ଯେମିତି 5, 12, 18)"
+    ),
+    "order.existing_product_gst_ask": (
+        "ଏ company ର GST product ଅନୁସାରେ ଭିନ୍ନ ଭିନ୍ନ, ଏବଂ '{product}' ର ଏବେ କୌଣସି rate set "
+        "ହୋଇନାହିଁ। ଏହାର GST% କେତେ? (ଯେମିତି 5, 12, 18)"
+    ),
+    "order.existing_product_gst_save_ask": (
+        "{rate}% କୁ '{product}' ର GST rate ଭବିଷ୍ୟତ orders ପାଇଁ save କରିବେ? YES reply "
+        "କରନ୍ତୁ save କରିବାକୁ, NO କେବଳ ଏ order ପାଇଁ।"
+    ),
+    "order.existing_product_gst_saved": "✅ Saved — '{product}' ର GST rate ବର୍ତ୍ତମାନ {rate}%।",
+    "order.existing_product_gst_not_saved": (
+        "ଠିକ୍ ଅଛି — ଏ order ପାଇଁ {rate}% use କରୁଛୁ ('{product}' ରେ save ହୋଇନାହିଁ)।"
     ),
     # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
     "order.ocr_dealer_ask": (
@@ -1109,6 +1124,7 @@ MESSAGES: dict[str, str] = {
         "ଆପଣ {supplier} କୁ {amount} pay କରି ସାରିଲେ କି?\n"
         "Reply 1 ଯଦି ହଁ, 2 ଯଦି ଏବେ ପର୍ଯ୍ୟନ୍ତ ନାହିଁ।"
     ),
+    "reminder_confirm.switched_to": "🔄 {supplier} ର reminder କୁ switch କଲୁ ({amount}):",
     "reminder_confirm.invalid_choice": (
         "ବୁଝି ପାରିଲି ନାହିଁ। ଆପଣ {supplier} କୁ {amount} pay କରି ସାରିଲେ କି?\n"
         "Reply 1 ଯଦି ହଁ, 2 ଯଦି ଏବେ ପର୍ଯ୍ୟନ୍ତ ନାହିଁ।"
@@ -1181,4 +1197,27 @@ MESSAGES: dict[str, str] = {
     "evening.net_cash": "Net Cash Movement: {amount}",
     "evening.outstanding": "Outstanding Receivables: {amount}",
     "evening.priority_header": "Priority Actions:",
+    # ── Dealer self-service (Phase 1, read-only) — DRAFT for founder review ─
+    "dealer.balance.header": "ନମସ୍କାର {dealer_name}, {business_name} ସହିତ ଆପଣଙ୍କ account:",
+    "dealer.balance.outstanding": "💰 {amount} outstanding",
+    "dealer.balance.no_outstanding": "✅ କୌଣସି outstanding balance ନାହିଁ",
+    "dealer.balance.next_due": "📅 ପରବର୍ତ୍ତୀ due: {date}",
+    "dealer.balance.last_payment": "🧾 ଶେଷ payment: {amount} ({date} ରେ)",
+    "dealer.help": (
+        "ମୁଁ ଏଥିରେ ସାହାଯ୍ୟ କରିପାରିବି:\n\nBALANCE — ଆପଣଙ୍କ outstanding balance check କରନ୍ତୁ\n"
+        "HELP — ଏହି message ପୁଣି ଦେଖନ୍ତୁ"
+    ),
+    "dealer.unrecognized": (
+        "କ୍ଷମା କରନ୍ତୁ, ମୁଁ ଏହା ବୁଝିପାରିଲି ନାହିଁ। ଆପଣଙ୍କ outstanding check କରିବାକୁ BALANCE, କିମ୍ବା "
+        "ଅଧିକ ସୂଚନା ପାଇଁ HELP reply କରନ୍ତୁ।"
+    ),
+    "dealer.ambiguous_number": (
+        "ଏହି number OpsGenie ରେ ଏକାଧିକ business ସହିତ ଜଡିତ ଅଛି। ଦୟାକରି ସିଧା ଆପଣଙ୍କ distributor "
+        "ସହିତ contact କରନ୍ତୁ।"
+    ),
+    "settings.dealer_self_service_enabled": (
+        "✅ Dealer self-service ବର୍ତ୍ତମାନ ON ଅଛି — ଆପଣଙ୍କ ଡିଲରମାନେ ଏବେ ଏହି number ରେ ସିଧା text "
+        "କରି ନିଜ balance check କରିପାରିବେ।"
+    ),
+    "settings.dealer_self_service_disabled": "Dealer self-service ବର୍ତ୍ତମାନ OFF ଅଛି।",
 }

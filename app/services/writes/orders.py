@@ -143,14 +143,29 @@ async def create_order(
             raise ValueError(f"Quantity for '{item['product_name']}' must be greater than zero")
 
         product = await _resolve_product(db, company.id, item)
-        if company.gst_varies_by_product and product.gst_rate is None:
+        # An item-level gst_rate (order_flow.py's awaiting_existing_product_
+        # gst_save "NO" branch — use this rate for this order only, don't
+        # persist it to the product) satisfies the gate and wins for this
+        # line's math even though the product row itself still has no rate
+        # on file. Distinct from the product's own persisted rate, which
+        # wins when the founder answered "YES" (already written to
+        # product.gst_rate before this call) or when the product already had
+        # one — either way _resolve_product's fresh fetch already reflects
+        # it, so there's nothing more to do for those cases here.
+        item_gst_rate_raw = item.get("gst_rate")
+        item_gst_rate = Decimal(item_gst_rate_raw) if item_gst_rate_raw is not None else None
+        if company.gst_varies_by_product and product.gst_rate is None and item_gst_rate is None:
             raise ValueError(
                 f"No GST rate on file for '{product.name}', and this company's GST "
                 "varies by product"
             )
         unit_price = product.selling_price
         line_total = (unit_price * quantity).quantize(_CENTS)
-        line_gst_rate = effective_gst_rate(product.gst_rate, company.gst_rate)
+        line_gst_rate = (
+            item_gst_rate
+            if item_gst_rate is not None
+            else effective_gst_rate(product.gst_rate, company.gst_rate)
+        )
         line_gst_amount = (line_total * line_gst_rate / Decimal("100")).quantize(_CENTS)
 
         product.stock_quantity = product.stock_quantity - quantity
