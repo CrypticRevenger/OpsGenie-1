@@ -10,10 +10,12 @@ instead of hitting Meta for real (same pattern as tests/test_scheduler.py).
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 
 import pytest
+from app.db.session import async_session_factory
 from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
 from app.models.daily_business_snapshot import DailyBusinessSnapshot
@@ -228,3 +230,72 @@ async def test_margin_note_appears_when_items_missing_cost_data(
     await db.commit()
 
     assert "no cost price on file" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_calls_from_separate_sessions_send_only_once(db: AsyncSession) -> None:
+    """Real production bug (2026-07-24): the same distributor received three
+    duplicate evening briefs minutes apart. The scheduler's own advisory lock
+    only protects against two tick *invocations* racing each other — nothing
+    guaranteed only one caller could pass send_evening_brief's own
+    check-then-act sequence. This drives two genuinely separate DB sessions
+    (mirroring two separate tick executions, the real-world shape of the
+    bug) through send_evening_brief concurrently and proves the atomic claim
+    (DailyBusinessSnapshot.delivered_at) lets only one actually send.
+    """
+    company = await _make_company(db)
+    company_id = company.id
+
+    sent: list[str] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _slow_send(to: str, body: str) -> WhatsAppSendResult:
+        # Widen the race window deterministically rather than hoping two
+        # real concurrent calls happen to overlap by pure timing luck.
+        started.set()
+        await release.wait()
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    import app.services.evening_brief as eb_module
+
+    eb_module.send_text_message = _slow_send
+
+    async def _attempt() -> bool:
+        async with async_session_factory() as session:
+            company_row = await session.get(Company, company_id)
+            result = await send_evening_brief(session, company_row)
+            await session.commit()
+            return result
+
+    async def _watcher() -> None:
+        # Whichever attempt wins the atomic claim reaches _slow_send and
+        # blocks there (holding the claim, uncommitted). The *other* attempt
+        # is meanwhile blocked at the DB level on the same row's UPDATE — it
+        # can never reach _slow_send at all, so nothing but a timer can
+        # unblock the winner. Releasing only after both are demonstrably
+        # in-flight (started + a short grace period for the loser to reach
+        # and queue behind the row lock) is what actually exercises the race,
+        # rather than the two calls happening to run strictly sequentially.
+        await started.wait()
+        await asyncio.sleep(0.2)
+        release.set()
+
+    results = await asyncio.gather(_attempt(), _attempt(), _watcher())
+    attempt_results = results[:2]
+
+    assert sorted(attempt_results) == [False, True]  # exactly one of the two actually sent
+    assert len(sent) == 1
+
+    async with async_session_factory() as verify_db:
+        logs = (
+            await verify_db.scalars(
+                select(NotificationLog).where(
+                    NotificationLog.company_id == company_id,
+                    NotificationLog.notification_type == "evening_brief",
+                )
+            )
+        ).all()
+        assert len(logs) == 1
+        assert logs[0].delivery_status == "sent"
