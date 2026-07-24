@@ -29,6 +29,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.i18n import Locale, resolve_locale, t
@@ -280,69 +281,131 @@ async def generate_briefing(db: AsyncSession, company_id: uuid.UUID) -> MorningB
     """build_snapshot -> get_priority_actions -> assemble payload ->
     generate_with_fallback -> append confidence indicator -> check
     traceability -> persist (with provider/model metadata) -> return.
+
+    Real production bug class (2026-07-24, same shape as the evening brief's
+    3x-send bug — see app/services/evening_brief.py::send_evening_brief):
+    this used to be a plain INSERT with no unique constraint behind it, and
+    is reachable from three largely-unlocked callers — the scheduler tick
+    (app/core/scheduler.py, holds its own tick-wide advisory lock, but that
+    only serializes tick invocations against each other), the admin
+    POST /briefing endpoint (app/api/admin/briefing.py, no lock at all), and
+    the webhook's on-demand "give me my briefing" reply
+    (app/api/webhooks/whatsapp.py::_morning_briefing_reply, protected against
+    a redelivery of the *same* inbound message but not against a genuinely
+    different caller racing it). Two overlapping callers for the same
+    company/day could each pass "no briefing yet" and generate a real
+    duplicate — a second LLM call and a second real WhatsApp send.
+
+    Now claimed atomically first: a placeholder row is inserted against
+    MorningBriefing's own unique (company_id, business_date) constraint
+    *before* any expensive work, so a losing concurrent caller finds out
+    immediately (via IntegrityError) rather than after also paying for a
+    real LLM call. Postgres blocks the loser's INSERT until the winner's
+    transaction resolves, so the loser's post-conflict re-read is guaranteed
+    to see the winner's committed row (or, if the winner's attempt itself
+    failed and rolled back, the loser's own INSERT then succeeds and it
+    proceeds to generate for real) — same guarantee-by-row-lock shape as
+    send_evening_brief's delivered_at claim and
+    followup.py::send_due_today_follow_up's pointer claim.
     """
     company = await db.get(Company, company_id)
     if company is None:
         raise ValueError(f"Company {company_id} not found")
 
-    snapshot = await build_snapshot(db, company_id)
-    recommendations = await get_priority_actions(db, company_id, snapshot=snapshot)
-    stock_out_forecasts = await build_stock_out_forecasts(
-        db, company_id, snapshot.generated_at.date()
-    )
-    payload = assemble_briefing_payload(snapshot, recommendations)
+    today = business_now(company.timezone).date()
 
-    result = await generate_with_fallback(
-        system_prompt=SYSTEM_PROMPT_TEMPLATE.format(
-            language=resolve_locale(company).narration_instruction
-        ),
-        user_content=json.dumps(payload),
-    )
-    indicator = confidence_indicator(snapshot.confidence_score, snapshot.data_freshness_hours)
-    banner = stale_data_banner(snapshot.data_freshness_hours)
-    watch = build_watch_this_week(snapshot, stock_out_forecasts, resolve_locale(company))
-    # Order: stale-data caveat (qualifies trust in everything below) -> Watch
-    # this week (highest-priority operational risks, read first) -> LLM
-    # narrative -> confidence footer -> menu prompt.
-    body = "\n\n".join(part for part in (banner, watch, result.text) if part)
-    generated_text = f"{body}\n\n{indicator}\n\n{t('menu.prompt', resolve_locale(company))}"
-
-    unverified = find_unverified_amounts(result.text, payload)
-    if unverified:
-        logger.warning(
-            "Briefing for company %s mentions amounts not found in the source payload: %s",
-            company_id,
-            unverified,
-        )
-
-    # Provider/model metadata is stored inside snapshot_json rather than as a
-    # new column — avoids a schema migration for observability data that
-    # isn't part of the traceable business payload (see _flatten's "_"-prefix
-    # skip above, which keeps it out of the traceability check).
-    stored_snapshot = {
-        **payload,
-        "_llm_metadata": {
-            "provider": result.provider,
-            "model": result.model,
-            "latency_seconds": result.latency_seconds,
-        },
-    }
-
-    briefing = MorningBriefing(
+    claim = MorningBriefing(
         company_id=company_id,
-        generated_text=generated_text,
-        snapshot_json=_json_safe(stored_snapshot),
-        confidence_score=Decimal(str(round(snapshot.confidence_score, 2))),
-        data_freshness_hours=(
-            round(snapshot.data_freshness_hours)
-            if snapshot.data_freshness_hours is not None
-            else None
-        ),
+        business_date=today,
+        generated_text="",
+        snapshot_json={},
     )
-    db.add(briefing)
+    db.add(claim)
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        # rollback() expires every object in the session's identity map,
+        # including `company` — re-fetch it so latest_briefing_today's query
+        # (which touches company.id while building the WHERE clause, plain
+        # synchronous attribute access) doesn't trigger an implicit lazy-load
+        # outside of an awaited context (MissingGreenlet).
+        company = await db.get(Company, company_id)
+        existing = await latest_briefing_today(db, company, today)
+        if existing is not None:
+            logger.info(
+                "Briefing generation for company %s: %s lost the claim race, "
+                "using the winner's briefing instead.",
+                company_id,
+                today,
+            )
+            return existing
+        raise
+
+    try:
+        snapshot = await build_snapshot(db, company_id)
+        recommendations = await get_priority_actions(db, company_id, snapshot=snapshot)
+        stock_out_forecasts = await build_stock_out_forecasts(
+            db, company_id, snapshot.generated_at.date()
+        )
+        payload = assemble_briefing_payload(snapshot, recommendations)
+
+        result = await generate_with_fallback(
+            system_prompt=SYSTEM_PROMPT_TEMPLATE.format(
+                language=resolve_locale(company).narration_instruction
+            ),
+            user_content=json.dumps(payload),
+        )
+        indicator = confidence_indicator(snapshot.confidence_score, snapshot.data_freshness_hours)
+        banner = stale_data_banner(snapshot.data_freshness_hours)
+        watch = build_watch_this_week(snapshot, stock_out_forecasts, resolve_locale(company))
+        # Order: stale-data caveat (qualifies trust in everything below) -> Watch
+        # this week (highest-priority operational risks, read first) -> LLM
+        # narrative -> confidence footer -> menu prompt.
+        body = "\n\n".join(part for part in (banner, watch, result.text) if part)
+        generated_text = f"{body}\n\n{indicator}\n\n{t('menu.prompt', resolve_locale(company))}"
+
+        unverified = find_unverified_amounts(result.text, payload)
+        if unverified:
+            logger.warning(
+                "Briefing for company %s mentions amounts not found in the source payload: %s",
+                company_id,
+                unverified,
+            )
+
+        # Provider/model metadata is stored inside snapshot_json rather than as a
+        # new column — avoids a schema migration for observability data that
+        # isn't part of the traceable business payload (see _flatten's "_"-prefix
+        # skip above, which keeps it out of the traceability check).
+        stored_snapshot = {
+            **payload,
+            "_llm_metadata": {
+                "provider": result.provider,
+                "model": result.model,
+                "latency_seconds": result.latency_seconds,
+            },
+        }
+    except Exception:
+        # Release the claim so a later attempt (this same tick's alert path,
+        # or the next tick) can retry today rather than being permanently
+        # wedged behind a placeholder row that never got real content — the
+        # caller's own broad except-Exception handler (see
+        # app/core/scheduler.py::_dispatch_for_company) commits this same
+        # session afterward regardless of what raised, which would otherwise
+        # persist the empty placeholder as if it were a real (broken)
+        # briefing.
+        await db.rollback()
+        raise
+
+    claim.generated_text = generated_text
+    claim.snapshot_json = _json_safe(stored_snapshot)
+    claim.confidence_score = Decimal(str(round(snapshot.confidence_score, 2)))
+    claim.data_freshness_hours = (
+        round(snapshot.data_freshness_hours) if snapshot.data_freshness_hours is not None else None
+    )
     await db.commit()
-    await db.refresh(briefing)
-    return briefing
+    await db.refresh(claim)
+    return claim
 
 
 def _json_safe(payload: dict) -> dict:

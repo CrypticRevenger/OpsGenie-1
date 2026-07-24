@@ -41,6 +41,7 @@ from app.models.business_event import BusinessEvent, BusinessEventType
 from app.models.company import Company
 from app.models.invoice import Invoice
 from app.models.pending_operation import PendingOperationType
+from app.services.duplicate_check import find_similar_payment
 from app.services.followup import _parse_relative_date
 from app.services.importer.normalizer import parse_amount
 from app.services.money_format import format_inr
@@ -216,6 +217,31 @@ async def handle_reminder_confirm_workflow_message(
         supplier_name = scratch["supplier_name"]
         invoice_number = scratch.get("invoice_number")
         target = t("payment.target_invoice", loc, number=invoice_number) if invoice_number else ""
+
+        # payment.preview's template has a {warning} placeholder — omitting
+        # this kwarg used to make t() raise KeyError internally, caught, and
+        # fall back to returning the RAW unformatted template (every
+        # placeholder literal, e.g. "Confirm: {amount} {verb} {party}...")
+        # straight into a live WhatsApp reply. Same duplicate-payment
+        # advisory check payment_flow.py's own preview step already runs.
+        warning = ""
+        duplicate = await find_similar_payment(
+            db,
+            company_id=company.id,
+            direction="payable",
+            party_id=uuid.UUID(scratch["supplier_id"]),
+            payment_date=today,
+            amount=amount,
+        )
+        if duplicate is not None:
+            warning = "\n" + t(
+                "payment.duplicate_warning",
+                loc,
+                party=supplier_name,
+                amount=format_inr(amount),
+                date=today.isoformat(),
+            )
+
         preview = t(
             "payment.preview",
             loc,
@@ -224,6 +250,7 @@ async def handle_reminder_confirm_workflow_message(
             party=supplier_name,
             target=target,
             date=today.isoformat(),
+            warning=warning,
         )
         await create_pending_operation(
             db,

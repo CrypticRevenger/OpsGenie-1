@@ -50,6 +50,16 @@ _MEDIA_DOWNLOAD_TIMEOUT_SECONDS = 30.0
 # photo has no reason to be larger, and this bounds how much a single
 # webhook request reads into memory.
 _MAX_MEDIA_DOWNLOAD_BYTES = 10 * 1024 * 1024
+# Meta rejects a text message body over this outright (400 "Param text.body
+# must be at most 4096 characters long") — a real production failure,
+# 2026-07-24: some reply exceeded it, the send failed, and the founder got
+# nothing at all instead of a message. Every known caller already tries to
+# stay well under this (e.g. instant_reports.py's _LIST_REPLY_CAP), so this
+# should rarely trigger — it's a last-resort safety net for whichever caller
+# doesn't (or a future one), so an oversized reply is truncated rather than
+# silently dropped entirely.
+_MAX_TEXT_BODY_CHARS = 4096
+_TRUNCATION_SUFFIX = "\n\n… (message truncated — too long for WhatsApp)"
 
 
 class WhatsAppNotConfiguredError(Exception):
@@ -114,6 +124,14 @@ async def _post_message(payload: dict, to: str) -> WhatsAppSendResult:
 
 
 async def send_text_message(to: str, body: str) -> WhatsAppSendResult:
+    if len(body) > _MAX_TEXT_BODY_CHARS:
+        logger.warning(
+            "WhatsApp text body to %s is %d chars, over Meta's %d-char limit — truncating.",
+            to,
+            len(body),
+            _MAX_TEXT_BODY_CHARS,
+        )
+        body = body[: _MAX_TEXT_BODY_CHARS - len(_TRUNCATION_SUFFIX)] + _TRUNCATION_SUFFIX
     return await _post_message(
         {"messaging_product": "whatsapp", "type": "text", "text": {"body": body}}, to
     )

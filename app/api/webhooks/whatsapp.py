@@ -448,10 +448,19 @@ async def _aging_report_reply(db: AsyncSession, company: Company) -> str:
     return await _report_link_reply(db, company, report="aging")
 
 
-async def _help_reply(db: AsyncSession, company: Company) -> str:
-    # The full help block lives in the i18n catalog (menu.help_text) so it's
-    # localized per company; command keywords inside it stay English triggers.
-    return t("menu.help_text", resolve_locale(company))
+def _help_reply_parts(company: Company) -> list[str]:
+    """The full help block, as two plain-text messages. Real production bug
+    (2026-07-24): stored as a single message, the English text alone was
+    4,594 characters — over Meta's hard 4,096-char limit on a single text
+    body (every other locale catalog was over too) — so every "help"/"/help"
+    send failed outright (a real 400: "Param text.body must be at most 4096
+    characters long") and the founder got nothing at all, indistinguishable
+    from the command not existing. Split at a natural section boundary
+    (menu.help_text / menu.help_text_more) rather than truncated, so no
+    command documented here is lost.
+    """
+    loc = resolve_locale(company)
+    return [t("menu.help_text", loc), t("menu.help_text_more", loc)]
 
 
 async def _change_language_reply(db: AsyncSession, company: Company) -> str:
@@ -471,6 +480,11 @@ async def _change_language_reply(db: AsyncSession, company: Company) -> str:
 # or a bare keyword the free-form assistant (app/services/assistant.py)
 # already understands.
 _MENU_TRIGGERS = ("menu", "/menu")
+
+# "help" sends the full command reference as two plain-text messages (see
+# _help_reply_parts) — split, not truncated, since the combined text is over
+# Meta's 4,096-char single-message limit in every locale.
+_HELP_TRIGGERS = ("/help", "help", "commands", "what can you do")
 
 
 # Menu *structure* only — the tappable-row ids stay fixed English (they're
@@ -892,10 +906,6 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "recent payments": instant_reports.recent_payments_reply,
     "all payments": instant_reports.all_payments_reply,
     "all time payments": instant_reports.all_payments_reply,
-    "/help": _help_reply,
-    "help": _help_reply,
-    "commands": _help_reply,
-    "what can you do": _help_reply,
     "change language": _change_language_reply,
     "change script": _change_language_reply,
     "language": _change_language_reply,
@@ -1223,6 +1233,15 @@ async def _handle_text_message(
         # below).
         reply = t("menu.fallback", locale)
         interactive_batch = menu_messages(locale)
+    elif text.strip().lower() in _HELP_TRIGGERS:
+        command = text.strip().lower()
+        notification_type = "instant_command"
+        parts = _help_reply_parts(company)
+        reply = parts[0]
+        # Plain-text batch — no "sections" key, so _dispatch_ladder_reply
+        # sends each as an ordinary text message rather than an interactive
+        # list (see its own docstring for that distinction).
+        interactive_batch = [{"body": part} for part in parts]
     else:
         # .lower() so the /cash-style slash aliases are case-insensitive
         # like _WORKFLOW_START_TRIGGERS and _INSTANT_COMMANDS below —
@@ -1273,17 +1292,25 @@ async def _dispatch_ladder_reply(
     reply: str,
     interactive_batch: list[dict] | None,
 ) -> None:
-    """Send whatever _handle_text_message decided — either the batch of
-    interactive list messages "menu" produces, or a single plain-text reply.
-    Factored out so both the real text/interactive branch and the
-    transcribed-voice-note branch (_handle_voice_note) share one send path.
+    """Send whatever _handle_text_message decided — either a batch of several
+    messages ("menu"'s tappable interactive lists, or "help"'s two plain-text
+    halves — see _help_reply_parts), or a single plain-text reply. Factored
+    out so both the real text/interactive branch and the transcribed-voice-
+    note branch (_handle_voice_note) share one send path.
     """
     if interactive_batch is not None:
-        # "menu" — several list messages, one per _send_reply_and_log call
-        # (Meta has no single-message way to exceed 10 rows). A redelivery
-        # of this inbound message only needs to find one whatsapp_reply_sent
-        # event to skip re-sending all of them — see _reply_already_sent.
+        # Several messages, one per _send_reply_and_log call (Meta has no
+        # single-message way to exceed either its 10-row interactive-list cap
+        # or its 4,096-char text cap). A redelivery of this inbound message
+        # only needs to find one whatsapp_reply_sent event to skip re-sending
+        # all of them — see _reply_already_sent.
         for payload in interactive_batch:
+            # A batch entry with no "sections" key is plain text (help's two
+            # halves), not a real interactive-list payload (menu's) — Meta's
+            # interactive-list API requires body/button_text/sections, so
+            # passing a plain-text entry to send_interactive_list_message
+            # would be a malformed request.
+            is_interactive = "sections" in payload
             await _send_reply_and_log(
                 db,
                 company,
@@ -1292,7 +1319,7 @@ async def _dispatch_ladder_reply(
                 reply=payload["body"],
                 command=command,
                 correlation_id=correlation_id,
-                interactive=payload,
+                interactive=payload if is_interactive else None,
             )
     else:
         await _send_reply_and_log(

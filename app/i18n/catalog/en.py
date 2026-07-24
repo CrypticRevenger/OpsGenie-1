@@ -49,9 +49,9 @@ _HELP_TEXT_EN = """*OpsGenie Help*
 • all invoices — every invoice, not just recent
 • payments / recent payments — latest payments recorded
 • all payments / all time payments — every payment, not just recent
-• faq / policy — your saved business policy answers (delivery days, returns, minimum order)
+• faq / policy — your saved business policy answers (delivery days, returns, minimum order)"""
 
-*Manage Products* (guided, one question at a time)
+_HELP_TEXT_EN_MORE = """*Manage Products* (guided, one question at a time)
 • add product (or /add_product) — add a new item: name, stock, unit, selling price, purchase price
 • update stock (or /update_stock) — change a product's stock quantity
 • update price (or /update_price) — change a product's selling price
@@ -263,6 +263,7 @@ MESSAGES: dict[str, str] = {
     "reports.delivery_status.status.failed_to_send": "not sent",
     # ── Help text (single block; command keywords stay English triggers) ───
     "menu.help_text": _HELP_TEXT_EN,
+    "menu.help_text_more": _HELP_TEXT_EN_MORE,
     # ── Onboarding: guided business setup (shown after language is chosen) ──
     "onboarding.intro": (
         "👋 Welcome to OpsGenie! Let's set up your business — it takes about 5 minutes, "

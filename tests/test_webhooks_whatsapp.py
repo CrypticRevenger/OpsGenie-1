@@ -923,9 +923,16 @@ async def test_help_command_replies_with_command_guide(db: AsyncSession, monkeyp
     routed to the LLM assistant, which has no fixed answer for "what can this
     bot do" and would risk inventing commands that don't exist.
 
-    Every /slash_command mentioned in the reply is checked against the real
-    registries (_WORKFLOW_START_TRIGGERS, _INSTANT_COMMANDS, menu_router) so
-    the help text can't silently drift out of sync with what actually works.
+    Sent as two plain-text messages, not one — real production bug
+    (2026-07-24): the combined help text is over Meta's 4,096-char single-
+    message limit in every locale, so the single-message send always failed
+    outright and "/help" produced no reply at all. See
+    app.api.webhooks.whatsapp._help_reply_parts.
+
+    Every /slash_command mentioned across both messages is checked against
+    the real registries (_WORKFLOW_START_TRIGGERS, _INSTANT_COMMANDS,
+    menu_router) so the help text can't silently drift out of sync with what
+    actually works.
     """
     import re
 
@@ -952,8 +959,10 @@ async def test_help_command_replies_with_command_guide(db: AsyncSession, monkeyp
             headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
         )
     assert resp.status_code == 200
-    assert len(sent) == 1
-    reply = sent[0]
+    assert len(sent) == 2
+    for part in sent:
+        assert len(part) <= 4096, "each help message must fit in a single WhatsApp text body"
+    reply = "\n".join(sent)
 
     # (?<![\w]) so "in/out" doesn't false-positive-match "/out" as a command —
     # a real /slash_command is always preceded by whitespace, "(", or start.
@@ -963,6 +972,8 @@ async def test_help_command_replies_with_command_guide(db: AsyncSession, monkeyp
         assert (
             command in webhook_module._WORKFLOW_START_TRIGGERS
             or command in webhook_module._INSTANT_COMMANDS
+            or command in webhook_module._HELP_TRIGGERS
+            or command in webhook_module._MENU_TRIGGERS
             or menu_router.match(command) == command
         ), f"{command} is advertised in /help but isn't a registered command"
 
@@ -981,7 +992,8 @@ async def test_help_command_aliases_all_reach_the_same_reply(
 
     # "menu" is deliberately excluded — it sends a tappable interactive list
     # instead of this plain-text reply (see the "menu" tests below).
-    for alias in ["help", "Help", "commands", "what can you do"]:
+    aliases = ["help", "Help", "commands", "what can you do"]
+    for alias in aliases:
         phone = _unique_phone()
         await _make_company(db, phone)
         bare_sender = phone.removeprefix("+")
@@ -994,8 +1006,11 @@ async def test_help_command_aliases_all_reach_the_same_reply(
             )
         assert resp.status_code == 200
 
-    assert len(sent) == 4
-    assert len(set(sent)) == 1  # every alias produces the identical help text
+    # Each alias sends two messages (see _help_reply_parts) — group by alias
+    # and confirm every alias produced the identical (part1, part2) pair.
+    assert len(sent) == len(aliases) * 2
+    pairs = {tuple(sent[i : i + 2]) for i in range(0, len(sent), 2)}
+    assert len(pairs) == 1  # every alias produces the identical two-part help text
 
 
 # ── Slash-command aliases ────────────────────────────────────────────────────
@@ -1352,9 +1367,11 @@ async def test_tapped_button_reply_routes_like_typed_text(db: AsyncSession, monk
 
     from app.i18n import t
 
-    # Help text is now catalog-driven; an English (default-locale) company gets
-    # the English help block.
-    assert sent == [t("menu.help_text", "en")]
+    # Help text is now catalog-driven, split across two messages (see
+    # _help_reply_parts — the combined text is over Meta's 4,096-char
+    # single-message limit); an English (default-locale) company gets the
+    # English help block.
+    assert sent == [t("menu.help_text", "en"), t("menu.help_text_more", "en")]
 
 
 @pytest.mark.asyncio
@@ -1617,7 +1634,11 @@ async def test_failed_send_does_not_block_a_later_retry(db: AsyncSession, monkey
     code crash) previously still wrote the whatsapp_reply_sent marker
     unconditionally — so the founder's phone got nothing, but any later
     redelivery of that exact message would see "already replied to" and skip
-    it forever (a real production report: "/help" produced no reply at all).
+    it forever (a real production report — originally reported against
+    "/help", which is a two-message reply as of 2026-07-24's help-text split
+    fix; a single-reply command like "cash" isolates this test's actual
+    subject, the single-message failed-send/redelivery contract, from that
+    unrelated multi-message batching behavior).
     A failed send must leave no marker, so a genuine redelivery resumes and
     actually retries the send instead of going permanently silent.
     """
@@ -1636,7 +1657,7 @@ async def test_failed_send_does_not_block_a_later_retry(db: AsyncSession, monkey
 
     monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fails_once_then_succeeds)
 
-    payload = _messages_payload(sender=bare_sender, message_type="text", text="help")
+    payload = _messages_payload(sender=bare_sender, message_type="text", text="cash")
     body = json.dumps(payload).encode()
     headers = {"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)}
     async with await _anon_client() as client:

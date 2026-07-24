@@ -31,7 +31,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -76,12 +76,51 @@ _TICK_ADVISORY_LOCK_KEY = 728113
 async def _deliver_briefing(db: AsyncSession, company: Company, briefing: MorningBriefing) -> bool:
     """Send an already-generated briefing and record the outcome on the row.
     Returns True on a successful send.
+
+    Claims delivery atomically first via MorningBriefing.delivery_claimed_at
+    (same shape as evening_brief's delivered_at claim on
+    DailyBusinessSnapshot) — closes the send-side duplicate race for two
+    overlapping dispatch attempts (e.g. two overlapping scheduler ticks, the
+    same real-world shape as the evening brief's 3x-send production bug)
+    both reaching this same undelivered row at once. Postgres's row lock on
+    the exact briefing row serializes them by construction.
+
+    A lost claim refreshes `briefing` from the DB and returns whether the
+    row is now actually "sent" — so a caller checking *why* this returned
+    False can distinguish "another attempt is delivering/just delivered
+    this" (delivery_status now "sent", not a real failure — don't alert the
+    founder) from "this row is genuinely undelivered" (still None/
+    failed_to_send). There's an inherent narrow window where a concurrent
+    winner has claimed but not yet resolved — this call reports that as a
+    failure too, same accepted tradeoff evening_brief's own analogous check
+    (evening_brief_delivered_today) already makes.
     """
+    claim = await db.execute(
+        update(MorningBriefing)
+        .where(
+            MorningBriefing.id == briefing.id,
+            MorningBriefing.delivery_claimed_at.is_(None),
+        )
+        .values(delivery_claimed_at=business_now(company.timezone))
+    )
+    if claim.rowcount == 0:
+        await db.refresh(briefing)
+        logger.info(
+            "Briefing %s already claimed for delivery by another attempt (status=%s), skipping.",
+            briefing.id,
+            briefing.delivery_status,
+        )
+        return briefing.delivery_status == "sent"
+
     try:
         result = await send_text_message(company.whatsapp_number, briefing.generated_text)
     except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
         logger.warning("Briefing delivery to %s failed: %s", company.whatsapp_number, exc)
         briefing.delivery_status = "failed_to_send"
+        # Release the claim so a later tick can retry — matches the existing
+        # "keeps retrying" contract instead of wedging this row behind a
+        # claim nothing will ever release.
+        briefing.delivery_claimed_at = None
         return False
     briefing.sent_at = business_now(company.timezone)
     briefing.delivery_status = "sent"

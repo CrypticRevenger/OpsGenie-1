@@ -48,9 +48,9 @@ _HELP_TEXT = """*OpsGenie Help*
 • all invoices — pratyeka invoice, kebala natun nuhe
 • payments / recent payments — natun record hoithiba payments
 • all payments / all time payments — pratyeka payment, kebala natun nuhe
-• faq / policy — apanka save hoithiba business policy (delivery days, returns, minimum order)
+• faq / policy — apanka save hoithiba business policy (delivery days, returns, minimum order)"""
 
-*Products Manage karantu* (guided, gotie gotie prashna)
+_HELP_TEXT_MORE = """*Products Manage karantu* (guided, gotie gotie prashna)
 • add product (kimba /add_product) — natun item: name, stock, unit, selling price, purchase price
 • update stock (kimba /update_stock) — product ra stock badalantu
 • update price (kimba /update_price) — product ra selling price badalantu
@@ -260,6 +260,7 @@ MESSAGES: dict[str, str] = {
     "reports.delivery_status.status.failed_to_send": "not sent",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    "menu.help_text_more": _HELP_TEXT_MORE,
     # ── Onboarding ─────────────────────────────────────────────────────────
     "onboarding.intro": (
         "👋 OpsGenie ku swagat! Chaluntu apanka business set up karantu — 5 minute lagiba, "
