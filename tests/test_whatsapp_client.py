@@ -65,6 +65,44 @@ async def test_send_text_message_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_send_text_message_truncates_body_over_4096_chars(monkeypatch):
+    """Real production failure (2026-07-24): a reply body over WhatsApp's
+    4096-char limit got a real 400 from Meta ("Param text.body must be at
+    most 4096 characters long") and the founder got nothing at all — the
+    whole send silently failed. Truncated here instead so something always
+    gets through.
+    """
+    captured_bodies = []
+
+    class _FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"messages": [{"id": "wamid.ABC123"}]}
+
+    async def _fake_post(self, url, json, headers):
+        captured_bodies.append(json["text"]["body"])
+        return _FakeResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+
+    class _Settings:
+        whatsapp_token = "fake-token"
+        whatsapp_phone_number_id = "123456"
+
+    monkeypatch.setattr("app.services.whatsapp_client.get_settings", lambda: _Settings())
+
+    oversized = "x" * 5000
+    result = await send_text_message("+919999999999", oversized)
+
+    assert isinstance(result, WhatsAppSendResult)  # the send still succeeds
+    sent_body = captured_bodies[0]
+    assert len(sent_body) <= 4096
+    assert sent_body.endswith("(message truncated — too long for WhatsApp)")
+
+
+@pytest.mark.asyncio
 async def test_send_text_message_raises_on_non_2xx(monkeypatch):
     class _FakeResponse:
         status_code = 400

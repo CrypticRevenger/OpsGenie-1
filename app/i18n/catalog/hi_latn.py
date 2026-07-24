@@ -49,9 +49,9 @@ _HELP_TEXT = """*OpsGenie Help*
 • all invoices — har invoice, sirf naye nahi
 • payments / recent payments — naye record kiye payments
 • all payments / all time payments — har payment, sirf naye nahi
-• faq / policy — aapki saved business policy (delivery days, returns, minimum order)
+• faq / policy — aapki saved business policy (delivery days, returns, minimum order)"""
 
-*Products Manage karein* (guided, ek-ek sawaal)
+_HELP_TEXT_MORE = """*Products Manage karein* (guided, ek-ek sawaal)
 • add product (ya /add_product) — naya item: name, stock, unit, selling price, purchase price
 • update stock (ya /update_stock) — product ka stock quantity badlein
 • update price (ya /update_price) — product ki selling price badlein
@@ -261,6 +261,7 @@ MESSAGES: dict[str, str] = {
     "reports.delivery_status.status.failed_to_send": "not sent",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    "menu.help_text_more": _HELP_TEXT_MORE,
     # ── Onboarding ─────────────────────────────────────────────────────────
     "onboarding.intro": (
         "👋 OpsGenie me swagat hai! Chaliye aapka business set up karein — 5 minute lagenge, "

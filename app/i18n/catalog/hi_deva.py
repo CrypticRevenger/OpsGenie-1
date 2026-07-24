@@ -47,9 +47,9 @@ _HELP_TEXT = """*OpsGenie Help*
 • all invoices — हर इनवॉइस, सिर्फ़ नए नहीं
 • payments / recent payments — नए दर्ज पेमेंट
 • all payments / all time payments — हर पेमेंट, सिर्फ़ नए नहीं
-• faq / policy — आपकी सेव की गई बिज़नेस पॉलिसी (delivery days, returns, minimum order)
+• faq / policy — आपकी सेव की गई बिज़नेस पॉलिसी (delivery days, returns, minimum order)"""
 
-*प्रोडक्ट्स मैनेज करें* (guided, एक-एक सवाल)
+_HELP_TEXT_MORE = """*प्रोडक्ट्स मैनेज करें* (guided, एक-एक सवाल)
 • add product (या /add_product) — नया आइटम: name, stock, unit, बिक्री कीमत, खरीद कीमत
 • update stock (या /update_stock) — प्रोडक्ट का स्टॉक बदलें
 • update price (या /update_price) — प्रोडक्ट की बिक्री कीमत बदलें
@@ -251,6 +251,7 @@ MESSAGES: dict[str, str] = {
     "reports.delivery_status.status.failed_to_send": "नहीं भेजा गया",
     # ── Help text ──────────────────────────────────────────────────────────
     "menu.help_text": _HELP_TEXT,
+    "menu.help_text_more": _HELP_TEXT_MORE,
     # ── Onboarding ─────────────────────────────────────────────────────────
     "onboarding.intro": (
         "👋 OpsGenie में स्वागत है! चलिए आपका बिज़नेस सेट अप करें — 5 मिनट लगेंगे, "

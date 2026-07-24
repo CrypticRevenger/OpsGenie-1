@@ -50,6 +50,31 @@ def test_placeholders_match_english_per_key(code: str) -> None:
         )
 
 
+# WhatsApp rejects a text message body outright over this length (a real
+# Meta 400: "Param text.body must be at most 4096 characters long").
+_WHATSAPP_TEXT_LIMIT = 4096
+
+
+def test_no_catalog_message_exceeds_whatsapp_text_limit() -> None:
+    """Real production bug (2026-07-24): menu.help_text alone was 4,594 chars
+    in English — and over the limit in every other locale too — so every
+    "help"/"/help" send failed outright and the founder got nothing at all,
+    indistinguishable from the command not existing. Fixed by splitting it
+    into menu.help_text + menu.help_text_more (see
+    app/api/webhooks/whatsapp.py::_help_reply_parts). Guards against any
+    catalog message — now or added later — silently growing past this limit
+    again: a raw template's length is a lower bound on what actually gets
+    sent, since interpolated values (amounts, names, dates) only make the
+    real message longer.
+    """
+    for code, catalog in CATALOGS.items():
+        for key, template in catalog.items():
+            assert len(template) <= _WHATSAPP_TEXT_LIMIT, (
+                f"catalog[{code!r}][{key!r}] is {len(template)} chars — over "
+                f"WhatsApp's {_WHATSAPP_TEXT_LIMIT}-char text-message limit"
+            )
+
+
 def test_resolve_locale_canonical_codes() -> None:
     for code in SUPPORTED_LOCALES:
         assert resolve_locale(code).code == code

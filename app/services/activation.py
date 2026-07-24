@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -74,8 +75,27 @@ async def activate_company(db: AsyncSession, company: Company) -> tuple[str, boo
     Idempotent: a company that's already active is left alone and the welcome
     is not re-sent. Returns (status, welcome_sent) where status is
     "already_active" or "activated".
+
+    The activation flip itself is claimed atomically — a plain "read
+    company.subscription_active, then decide, then write" here has the same
+    race shape as the evening brief's 3x-send bug (see
+    app/services/evening_brief.py::send_evening_brief): two overlapping
+    callers (a founder double-tapping "Activate" in the admin dashboard
+    before the page updates, or a retried request after a slow response —
+    both admin/companies.py's activate-subscription route and the public
+    /onboard wizard's final step call this same function, neither behind any
+    lock) could both read subscription_active=False, both flip it True, and
+    both send a real duplicate welcome template. The conditional UPDATE
+    (WHERE subscription_active IS FALSE) makes only one of them actually
+    flip the row — Postgres's row lock serializes the two attempts, so the
+    loser's UPDATE simply matches zero rows once the winner commits.
     """
-    if company.subscription_active:
+    claim = await db.execute(
+        update(Company)
+        .where(Company.id == company.id, Company.subscription_active.is_(False))
+        .values(subscription_active=True)
+    )
+    if claim.rowcount == 0:
         return "already_active", False
     company.subscription_active = True
     await db.commit()
