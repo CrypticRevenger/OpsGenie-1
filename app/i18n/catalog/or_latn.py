@@ -88,6 +88,10 @@ _HELP_TEXT = """*OpsGenie Help*
 • opt in all dealers — je opt-out kari nahanti, taku broadcast re opt in karantu (confirm darkar)
 • edit dealer — 'marketing' reply kari eka dealer ku opt in/opt out karantu
 
+*Dealer Self-Service*
+• enable dealer self-service / disable dealer self-service — apankara dealer manaku e number re \
+sidha nija balance check karibaku dia (default off)
+
 *Quick Access*
 • menu — type karibaru option tap karantu
 • help (kimba /help) — e list kebe bi punarbara dekhantu"""
@@ -662,6 +666,9 @@ MESSAGES: dict[str, str] = {
         "Mun ebe photo padhi paribi nahi — amhe kichi anya kariba re achhu. Prathame 'cancel' "
         "kahantu, taapare photo puni pathantu."
     ),
+    "workflow.busy_reply_first": (
+        "Prathame ehara reply diantu, taapare apana pravartee message pathaipaaribe.\n\n{question}"
+    ),
     "workflow.unsupported_message_type": (
         "Kshama karantu, mun ebe kebala text message, photo, ebong voice note ra reply dei "
         "paribi. Doya kari apankara message type karantu."
@@ -776,14 +783,21 @@ MESSAGES: dict[str, str] = {
         "⚠️ E order {dealer} ra outstanding ku {prospective} tharu jaiba, jaha unankara "
         "{limit} ra credit limit tharu adhika."
     ),
-    "order.product_gst_missing": (
-        "⚠️ '{product}' ra kono GST rate set heinahi, au e company ra GST product anusare "
-        "bhinna bhinna. Prathame 'update gst' re ehara rate set karantu, tapare e order "
-        "puni try karantu."
-    ),
     "order.new_product_gst_ask": (
         "E company ra GST product anusare bhinna bhinna, tenu '{product}' pain nija GST% "
         "darkar. Rate kete? (jemiti 5, 12, 18)"
+    ),
+    "order.existing_product_gst_ask": (
+        "E company ra GST product anusare bhinna bhinna, au '{product}' ra ebe kouna rate "
+        "set heinahi. Ehara GST% kete? (jemiti 5, 12, 18)"
+    ),
+    "order.existing_product_gst_save_ask": (
+        "{rate}% ku '{product}' ra GST rate bhavishya orders pain save karibe? YES reply "
+        "karantu save karibaku, NO kebala e order pain."
+    ),
+    "order.existing_product_gst_saved": "✅ Saved — '{product}' ra GST rate ebe {rate}%.",
+    "order.existing_product_gst_not_saved": (
+        "Thik achi — e order pain {rate}% use karuchhu ('{product}' re save heinahi)."
     ),
     # ── Create order: invoice-photo OCR pre-fill ────────────────────────────
     "order.ocr_dealer_ask": (
@@ -1228,6 +1242,7 @@ MESSAGES: dict[str, str] = {
         "Apana {supplier} ku {amount} pay kari sarile ki?\n"
         "Reply 1 jadi han, 2 jadi ebe paryanta nahin."
     ),
+    "reminder_confirm.switched_to": "🔄 {supplier} ra reminder ku switch kala ({amount}):",
     "reminder_confirm.invalid_choice": (
         "Bujhi parili nahin. Apana {supplier} ku {amount} pay kari sarile ki?\n"
         "Reply 1 jadi han, 2 jadi ebe paryanta nahin."
@@ -1302,4 +1317,27 @@ MESSAGES: dict[str, str] = {
     "evening.net_cash": "Net Cash Movement: {amount}",
     "evening.outstanding": "Outstanding Receivables: {amount}",
     "evening.priority_header": "Priority Actions:",
+    # ── Dealer self-service (Phase 1, read-only) — DRAFT for founder review ─
+    "dealer.balance.header": "Namaskar {dealer_name}, {business_name} saha apankara account:",
+    "dealer.balance.outstanding": "💰 {amount} outstanding",
+    "dealer.balance.no_outstanding": "✅ Kouna outstanding balance nahin",
+    "dealer.balance.next_due": "📅 Paravarti due: {date}",
+    "dealer.balance.last_payment": "🧾 Shesha payment: {amount} ({date} re)",
+    "dealer.help": (
+        "Mun ethire sahajya kari paribi:\n\nBALANCE — apankara outstanding balance check karantu\n"
+        "HELP — e message puni dekhantu"
+    ),
+    "dealer.unrecognized": (
+        "Kshama karantu, mun eha bujhi paribi nahi. Apankara outstanding check karibaku BALANCE, "
+        "kimba adhika suchana pain HELP reply karantu."
+    ),
+    "dealer.ambiguous_number": (
+        "E number OpsGenie re ekadhika business saha judi achi. Doya kari sidha apankara "
+        "distributor sahita contact karantu."
+    ),
+    "settings.dealer_self_service_enabled": (
+        "✅ Dealer self-service ebe ON achi — apankara dealer mane ebe e number re sidha text "
+        "kari nija balance check kari paribe."
+    ),
+    "settings.dealer_self_service_disabled": "Dealer self-service ebe OFF achi.",
 }

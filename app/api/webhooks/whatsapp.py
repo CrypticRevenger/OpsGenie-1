@@ -41,10 +41,23 @@ must resolve exactly like typing those words would. Any other non-text type
 (document/video/sticker/location/contacts, …) still gets a deterministic
 "can't read this yet" reply rather than silence, but remains genuinely
 unhandled.
+
+A sender that matches no Company's own `whatsapp_number` is not necessarily
+unknown: if it's a Dealer's phone under a company with
+`dealer_self_service_enabled`, it's routed to a completely separate,
+read-only path (app.services.dealer_self_service) instead of being dropped —
+see `is_dealer_message` below. This is a structurally distinct ladder, not an
+extension of the one above: it never touches onboarding/workflow/pending-op/
+follow-up state and never reaches the founder's menu, instant commands, or
+the LLM assistant. A phone that matches a Dealer row in more than one company
+is refused outright (a generic "contact your distributor" reply, no data
+sent) rather than guessing which company it belongs to — see
+find_dealer_company's own docstring.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -52,6 +65,7 @@ import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
@@ -72,8 +86,15 @@ from app.services import instant_reports
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
+from app.services.dealer_self_service import (
+    Ambiguous,
+    DealerMatch,
+    find_dealer_company,
+    handle_dealer_message,
+)
 from app.services.followup import handle_follow_up_reply
 from app.services.invoice_ocr import extract_invoice_from_image
+from app.services.money_format import format_inr
 from app.services.onboarding_flow import handle_onboarding_message, start_language_change
 from app.services.party_lookup import find_party
 from app.services.query_menu import menu_router
@@ -125,6 +146,7 @@ from app.services.workflows.payment_flow import (
 )
 from app.services.workflows.payment_reminder_confirm import (
     handle_reminder_confirm_workflow_message,
+    promote_queued_reminder,
 )
 from app.services.workflows.product_flow import (
     handle_add_product_workflow_message,
@@ -320,6 +342,21 @@ async def _opt_in_all_dealers_reply(db: AsyncSession, company: Company) -> str:
         return t("broadcast.opt_in_all_none", loc)
     await create_pending_operation(db, company, PendingOperationType.bulk_opt_in_dealers, {})
     return t("broadcast.opt_in_all_confirm", loc, count=count)
+
+
+async def _enable_dealer_self_service_reply(db: AsyncSession, company: Company) -> str:
+    """Write-immediately settings toggle (an attribute flip, not a
+    money-affecting write) — same tier as update_product's plain field edits,
+    no PendingOperation confirm gate needed. See
+    app/services/dealer_self_service.py for what this actually turns on.
+    """
+    company.dealer_self_service_enabled = True
+    return t("settings.dealer_self_service_enabled", resolve_locale(company))
+
+
+async def _disable_dealer_self_service_reply(db: AsyncSession, company: Company) -> str:
+    company.dealer_self_service_enabled = False
+    return t("settings.dealer_self_service_disabled", resolve_locale(company))
 
 
 def _current_month_str(company: Company) -> str:
@@ -868,6 +905,12 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "opt in all": _opt_in_all_dealers_reply,
     "enable marketing for all dealers": _opt_in_all_dealers_reply,
     "/opt_in_all_dealers": _opt_in_all_dealers_reply,
+    "enable dealer self-service": _enable_dealer_self_service_reply,
+    "enable dealer self service": _enable_dealer_self_service_reply,
+    "/enable_dealer_self_service": _enable_dealer_self_service_reply,
+    "disable dealer self-service": _disable_dealer_self_service_reply,
+    "disable dealer self service": _disable_dealer_self_service_reply,
+    "/disable_dealer_self_service": _disable_dealer_self_service_reply,
 }
 
 logger = logging.getLogger(__name__)
@@ -1054,8 +1097,19 @@ async def _send_reply_and_log(
     """Send `reply` over WhatsApp (best-effort — a failed or unconfigured send
     is logged, never raised, so the inbound webhook still 200s to Meta) and
     durably record the attempt: a NotificationLog row keyed by Meta's message
-    id, plus a whatsapp_reply_sent BusinessEvent carrying `correlation_id`
-    back to the inbound message that triggered this reply.
+    id, plus — only when the send actually succeeded — a whatsapp_reply_sent
+    BusinessEvent carrying `correlation_id` back to the inbound message that
+    triggered this reply.
+
+    That marker is the *only* thing _reply_already_sent checks to decide
+    whether a Meta redelivery of this inbound message should be skipped or
+    reprocessed. Writing it unconditionally (the original behavior) meant a
+    real send failure — a transient WhatsApp API error, not a code bug —
+    still got permanently marked "handled": the founder's phone never
+    received anything, but any future redelivery of that exact message would
+    see the marker and silently skip retrying it forever. Now a failed send
+    leaves no marker, so a genuine redelivery resumes and tries the send
+    again instead of going permanently silent.
 
     `interactive`, if given, is sent instead of plain text (a tappable list —
     see send_interactive_list_message); `reply` is still stored in the
@@ -1086,14 +1140,15 @@ async def _send_reply_and_log(
     # in the BusinessEvent payload below.
     await db.flush()
 
-    await _record_reply_sent_event(
-        db,
-        company,
-        correlation_id=correlation_id,
-        notification_log_id=log.id,
-        whatsapp_message_id=send_result.message_id if send_result else None,
-        command=command,
-    )
+    if send_result is not None:
+        await _record_reply_sent_event(
+            db,
+            company,
+            correlation_id=correlation_id,
+            notification_log_id=log.id,
+            whatsapp_message_id=send_result.message_id,
+            command=command,
+        )
 
 
 async def _handle_text_message(
@@ -1460,11 +1515,42 @@ async def receive_whatsapp_webhook(
                     try:
                         sender = _normalize_to_e164(message.get("from", ""))
                         company = await _find_company_by_whatsapp_number(db, sender)
+                        is_dealer_message = False
+                        dealer: Dealer | None = None
                         if company is None:
-                            logger.warning(
-                                "WhatsApp message from unknown sender %s — skipping.", sender
-                            )
-                            continue
+                            # Not a founder's own number — see if it's a
+                            # dealer opted into self-service (Phase 1,
+                            # read-only; app/services/dealer_self_service.py).
+                            # Founder lookup above always wins and is
+                            # unaffected by any of this.
+                            dealer_match = await find_dealer_company(db, sender)
+                            if isinstance(dealer_match, Ambiguous):
+                                # Never attribute this to any one company's
+                                # audit trail — see find_dealer_company's
+                                # docstring. Best-effort, no
+                                # NotificationLog/BusinessEvent tied to a
+                                # single (possibly wrong) company.
+                                with contextlib.suppress(
+                                    WhatsAppNotConfiguredError, WhatsAppSendError
+                                ):
+                                    await send_text_message(
+                                        sender, t("dealer.ambiguous_number", DEFAULT_LOCALE)
+                                    )
+                                logger.warning(
+                                    "Inbound %s matches dealers in multiple companies —"
+                                    " refusing.",
+                                    sender,
+                                )
+                                continue
+                            if isinstance(dealer_match, DealerMatch):
+                                company = dealer_match.company
+                                dealer = dealer_match.dealer
+                                is_dealer_message = True
+                            else:
+                                logger.warning(
+                                    "WhatsApp message from unknown sender %s — skipping.", sender
+                                )
+                                continue
                         existing_inbound = await _find_inbound_event(db, company, message.get("id"))
                         if existing_inbound is not None:
                             if await _reply_already_sent(db, company, existing_inbound.id):
@@ -1525,11 +1611,82 @@ async def receive_whatsapp_webhook(
                             )
                             continue
 
-                        if message.get("type") in ("text", "interactive"):
+                        if is_dealer_message:
+                            # Structurally separate from the founder ladder
+                            # below — a dealer message never reaches
+                            # onboarding/workflow/pending-op/follow-up state,
+                            # never the founder's menu/instant commands, never
+                            # the LLM assistant. Voice/photo/other from a
+                            # dealer is out of scope for this slice and gets
+                            # the same deterministic fallback any other
+                            # unhandled type gets.
+                            assert dealer is not None
+                            if message.get("type") in ("text", "interactive"):
+                                text = _extract_text_body(message)
+                                await _send_reply_and_log(
+                                    db,
+                                    company,
+                                    sender,
+                                    notification_type="dealer_self_service",
+                                    reply=await handle_dealer_message(db, company, dealer, text),
+                                    command=text.strip().lower(),
+                                    correlation_id=inbound_event.id,
+                                )
+                            else:
+                                loc = resolve_locale(company)
+                                await _send_reply_and_log(
+                                    db,
+                                    company,
+                                    sender,
+                                    notification_type="unsupported_message_type",
+                                    reply=t("workflow.unsupported_message_type", loc),
+                                    command=None,
+                                    correlation_id=inbound_event.id,
+                                )
+                        elif message.get("type") in ("text", "interactive"):
                             text = _extract_text_body(message)
+                            # Native WhatsApp quote-reply on a specific queued
+                            # payment reminder — let the founder jump ahead of
+                            # whichever bill is currently active instead of
+                            # being forced through the queue in strict order.
+                            # A no-op (returns False) whenever this isn't a
+                            # reminder-jump: no reminder conversation active,
+                            # quoting the already-active message, or quoting
+                            # something unrelated — see promote_queued_
+                            # reminder's own docstring.
+                            context_id = (message.get("context") or {}).get("id")
+                            promoted = bool(context_id) and promote_queued_reminder(
+                                company, context_id
+                            )
+                            # Snapshot the promoted bill's own details *before*
+                            # _handle_text_message runs — the very reply being
+                            # processed can itself finish this reminder (e.g.
+                            # a full "1, yes paid" confirmation clears
+                            # workflow_scratch entirely), so reading scratch
+                            # afterward could no longer show what was just
+                            # switched to.
+                            switched_supplier = (
+                                (company.workflow_scratch or {}).get("supplier_name")
+                                if promoted
+                                else None
+                            )
+                            switched_amount = (
+                                (company.workflow_scratch or {}).get("amount") if promoted else None
+                            )
                             notification_type, command, reply, interactive_batch = (
                                 await _handle_text_message(db, company, text)
                             )
+                            if promoted:
+                                reply = (
+                                    t(
+                                        "reminder_confirm.switched_to",
+                                        resolve_locale(company),
+                                        supplier=switched_supplier,
+                                        amount=format_inr(Decimal(switched_amount)),
+                                    )
+                                    + "\n\n"
+                                    + reply
+                                )
                             await _dispatch_ladder_reply(
                                 db,
                                 company,

@@ -202,6 +202,15 @@ class Company(UUIDMixin, TimestampMixin, Base):
     gst_varies_by_product: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Founder opt-in letting a dealer text this company's own WhatsApp number
+    # directly and get back their own balance (see
+    # app/services/dealer_self_service.py). Defaults False, same opt-in-not-
+    # opt-out precedent as Dealer.marketing_opt_in/direct_reminders_enabled —
+    # toggled via the "enable/disable dealer self-service" WhatsApp command,
+    # never automatically.
+    dealer_self_service_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     # Phase 9 — InvoiceDueDateFollowUpService conversation state (see
     # app/services/followup.py). Only one follow-up conversation is active

@@ -68,6 +68,12 @@ logger = logging.getLogger(__name__)
 
 _OPEN_STATUSES = (InvoiceStatus.Pending, InvoiceStatus.Partially_Paid)
 
+# A founder trying to check the help text or menu mid-follow-up previously
+# got swallowed by this flow's own "didn't understand" restatement — see
+# handle_follow_up_reply. Mirrors app/services/workflows/
+# payment_reminder_confirm.py's identical constant/fix.
+_ORIENTATION_WORDS = {"help", "/help", "menu", "/menu", "commands", "what can you do"}
+
 FollowUpSendStatus = Literal["sent", "already_pending", "none_due", "conversation_busy"]
 
 
@@ -386,6 +392,21 @@ async def handle_follow_up_reply(db: AsyncSession, company: Company, text: str) 
         await db.scalar(select(Dealer.name).where(Dealer.id == invoice.dealer_id)) or "the dealer"
     )
     stripped = text.strip()
+
+    if stripped.lower() in _ORIENTATION_WORDS:
+        # Same fix as payment_reminder_confirm.py's identical gap — "help"/
+        # "menu" mid-follow-up previously fell through to
+        # followup.confirm_invalid's generic "didn't understand" restatement
+        # with no indication of *why*. Doesn't cancel — just tells the
+        # founder what to finish first.
+        if company.pending_follow_up_state == FollowUpState.awaiting_expected_date:
+            question = t("followup.ask_expected_date", loc, dealer=dealer_name)
+        elif company.pending_follow_up_state == FollowUpState.awaiting_partial_amount:
+            question = t("followup.ask_partial", loc)
+        else:
+            outstanding = invoice.total_amount - await _invoice_paid_amount(db, invoice.id)
+            question = _follow_up_message(invoice, dealer_name, outstanding, loc)
+        return t("workflow.busy_reply_first", loc, question=question)
 
     if company.pending_follow_up_state == FollowUpState.awaiting_confirmation:
         if stripped == "1":

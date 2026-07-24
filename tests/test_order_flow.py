@@ -996,14 +996,14 @@ async def test_advance_amount_of_one_or_two_not_swallowed_as_yes_no(
 
 
 @pytest.mark.asyncio
-async def test_order_blocks_product_with_no_gst_rate_when_company_varies_by_product(
+async def test_order_asks_gst_rate_inline_for_existing_product_and_saves_it(
     db: AsyncSession, monkeypatch
 ) -> None:
-    """When Company.gst_varies_by_product is True, a product with no
-    per-product gst_rate set must never silently fall back to
-    company.gst_rate (which is 0 in that mode) — the line is refused and the
-    user stays on the same step so they can pick a different product or
-    cancel outright.
+    """When Company.gst_varies_by_product is True, a matched *existing*
+    product with no per-product gst_rate set must never silently fall back
+    to company.gst_rate (which is 0 in that mode) — but instead of refusing
+    the order outright (the old behavior), it now asks for the rate inline,
+    then offers to save it to the product for future orders.
     """
     phone = _unique_phone()
     company_id = await _make_company(db, phone)
@@ -1012,7 +1012,9 @@ async def test_order_blocks_product_with_no_gst_rate_when_company_varies_by_prod
     company.gst_varies_by_product = True
     await db.commit()
     await _make_dealer(db, company_id, "Ram Traders")
-    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))  # gst_rate=None
+    product_id = await _make_product(
+        db, company_id, "Rice", selling_price=Decimal("55.00")
+    )  # gst_rate=None
 
     sent: list[str] = []
     monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
@@ -1021,10 +1023,89 @@ async def test_order_blocks_product_with_no_gst_rate_when_company_varies_by_prod
         await _send(client, bare_sender, "new order")
         await _send(client, bare_sender, "Ram Traders")
         await _send(client, bare_sender, "Rice")
-        assert "no gst rate" in sent[-1].lower()
-        assert "update gst" in sent[-1].lower()
+        assert "gst" in sent[-1].lower()
+        assert "rice" in sent[-1].lower()
 
-        # Still on awaiting_product — cancel works and no order was queued.
+        await _send(client, bare_sender, "not a number")
+        assert "0 and 100" in sent[-1].lower()
+
+        await _send(client, bare_sender, "5")
+        assert "save" in sent[-1].lower()
+        assert "5" in sent[-1]
+
+        await _send(client, bare_sender, "YES")
+        assert "quantity" in sent[-1].lower() or "how many" in sent[-1].lower()
+
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        assert "confirm" in sent[-1].lower()
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.gst_amount == Decimal("27.50")  # 550.00 * 5%
+
+    product = await db.get(Product, product_id)
+    assert product.gst_rate == Decimal("5")
+
+
+@pytest.mark.asyncio
+async def test_order_gst_rate_not_saved_when_declined(db: AsyncSession, monkeypatch) -> None:
+    """Answering NO to the save-question must still use the entered rate for
+    *this* order's line item, without persisting it to the product row.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.gst_varies_by_product = True
+    await db.commit()
+    await _make_dealer(db, company_id, "Ram Traders")
+    product_id = await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "5")
+        await _send(client, bare_sender, "NO")
+        assert "quantity" in sent[-1].lower() or "how many" in sent[-1].lower()
+
+        await _send(client, bare_sender, "10")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
+    assert invoice is not None
+    assert invoice.gst_amount == Decimal("27.50")  # this order still charged 5%
+
+    product = await db.get(Product, product_id)
+    assert product.gst_rate is None  # never persisted
+
+
+@pytest.mark.asyncio
+async def test_order_gst_rate_ask_can_still_be_cancelled(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    company = await db.get(Company, company_id)
+    company.gst_varies_by_product = True
+    await db.commit()
+    await _make_dealer(db, company_id, "Ram Traders")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "Rice")
         await _send(client, bare_sender, "cancel")
         assert "cancelled" in sent[-1].lower()
 
