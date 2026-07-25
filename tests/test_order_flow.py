@@ -221,6 +221,9 @@ async def test_new_dealer_confirmed_and_created_on_execute(db: AsyncSession, mon
         assert "don't have" in sent[-1].lower()
 
         await _send(client, bare_sender, "yes")
+        assert "phone number" in sent[-1].lower()
+
+        await _send(client, bare_sender, "skip")
         assert "what product" in sent[-1].lower()
 
         await _send(client, bare_sender, "Rice")
@@ -233,6 +236,77 @@ async def test_new_dealer_confirmed_and_created_on_execute(db: AsyncSession, mon
         select(Dealer).where(Dealer.company_id == company_id, Dealer.name == "Brand New Dealer")
     )
     assert dealer is not None
+    assert dealer.phone is None
+
+
+@pytest.mark.asyncio
+async def test_new_dealer_phone_is_collected_and_saved(db: AsyncSession, monkeypatch) -> None:
+    """Providing a real number (instead of 'skip') at the new phone question
+    (fix for the bug where a dealer added inline during order creation could
+    never receive their invoice directly, since nothing ever asked for their
+    phone) persists it on the created Dealer row.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+    # A fixed valid Indian mobile prefix (6-9), not _unique_phone()'s fully
+    # random 10 digits — that helper only sometimes lands on a valid prefix
+    # and normalize_party_phone rejects the rest (same pre-existing flake
+    # documented for tests/test_company_export.py's own _unique_phone()).
+    dealer_phone = f"+919{uuid.uuid4().int % 1_000_000_000:09d}"
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Spandan")
+        await _send(client, bare_sender, "yes")
+        assert "phone number" in sent[-1].lower()
+
+        await _send(client, bare_sender, dealer_phone)
+        assert "what product" in sent[-1].lower()
+
+        await _send(client, bare_sender, "Rice")
+        await _send(client, bare_sender, "5")
+        await _send(client, bare_sender, "done")
+        await _send(client, bare_sender, "YES")
+        assert "created" in sent[-1].lower()
+
+    dealer = await db.scalar(
+        select(Dealer).where(Dealer.company_id == company_id, Dealer.name == "Spandan")
+    )
+    assert dealer is not None
+    assert dealer.phone == dealer_phone
+
+
+@pytest.mark.asyncio
+async def test_new_dealer_invalid_phone_reasked(db: AsyncSession, monkeypatch) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_product(db, company_id, "Rice", selling_price=Decimal("55.00"))
+
+    sent: list[str] = []
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_sender(sent))
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "Spandan")
+        await _send(client, bare_sender, "yes")
+
+        await _send(client, bare_sender, "not a phone number")
+        assert "phone" in sent[-1].lower()
+        assert "what product" not in sent[-1].lower()
+
+        await _send(client, bare_sender, "skip")
+        assert "what product" in sent[-1].lower()
+
+    dealer = await db.scalar(
+        select(Dealer).where(Dealer.company_id == company_id, Dealer.name == "Spandan")
+    )
+    assert dealer is None  # not created yet — only happens at YES/execute
 
 
 @pytest.mark.asyncio
@@ -746,6 +820,7 @@ async def test_new_dealer_skips_duplicate_and_credit_checks(
         await _send(client, bare_sender, "new order")
         await _send(client, bare_sender, "Brand New Dealer")
         await _send(client, bare_sender, "yes")
+        await _send(client, bare_sender, "skip")
         await _send(client, bare_sender, "Rice")
         await _send(client, bare_sender, "10")
         await _send(client, bare_sender, "done")

@@ -616,6 +616,15 @@ MESSAGES: dict[str, str] = {
     "workflow.cancelled": "OK, cancel कर दिया।",
     "workflow.yes_no": "कृपया yes या no reply करें।",
     "workflow.error_restart": ("कुछ गड़बड़ हो गई। कृपया दोबारा '{trigger}' बोलकर शुरू करें।"),
+    "workflow.interrupt_ask": (
+        "आपका '{current}' अभी भी अधूरा है। इसे रद्द करके '{new}' शुरू करने के लिए YES भेजें, "
+        "या '{current}' जारी रखने के लिए NO भेजें।"
+    ),
+    "workflow.interrupt_resumed": "ठीक है, '{current}' जारी रख रहे हैं।",
+    "workflow.continue_or_end_ask": (
+        "क्या दोबारा यही करना है? जारी रखने के लिए अपना अगला जवाब भेजें, या खत्म करने के लिए 'done' भेजें।"
+    ),
+    "workflow.continue_or_end_closing": "ठीक है! ज़रूरत हो तो बताएं।",
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
     "workflow.photo_busy": (
@@ -1028,6 +1037,9 @@ MESSAGES: dict[str, str] = {
         "Invoices update हुए: {invoices}\n"
         "बाकी outstanding: {outstanding}"
     ),
+    "pending.payment_declined_amend": (
+        "Record नहीं हुआ। {question}\n(या रोकने के लिए 'cancel' भेजें।)"
+    ),
     "pending.order_failed": "वह order नहीं बन पाया: {error}। कृपया दोबारा शुरू करें।",
     "pending.order_line": "- {quantity} x {product} = {total}",
     "pending.order_stock_warning": "\n⚠️ अब stock negative है: {products}",
@@ -1038,6 +1050,7 @@ MESSAGES: dict[str, str] = {
     "pending.order_pdf_sent_to_founder": (
         "\n({dealer} तक सीधे नहीं पहुंच पाया — PDF ऊपर भेज दिया है, आप खुद forward कर दें।)"
     ),
+    "pending.order_pdf_sent_both": "\nPDF आपको और {dealer} दोनों को भेज दिया।",
     "pending.order_success": (
         "✅ Order {number} {dealer} के लिए बना।\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"

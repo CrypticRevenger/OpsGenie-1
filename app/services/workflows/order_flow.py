@@ -39,6 +39,7 @@ from app.services.invoice_ocr import ExtractedInvoice
 from app.services.money_format import format_inr
 from app.services.onboarding_flow import _is
 from app.services.party_outstanding import calculate_party_outstanding
+from app.services.phone import InvalidPhoneNumberError, normalize_party_phone
 from app.services.snapshot import business_now
 from app.services.writes.pending_operation import create_pending_operation
 
@@ -346,6 +347,10 @@ async def _preview_and_finalize(
         "advance_paid": None,
         "duplicate_invoice_number": duplicate_invoice_number,
         "credit_limit_breach": credit_limit_breach,
+        # Only ever set when this order just created a brand-new dealer
+        # inline (awaiting_new_dealer_phone above) — None for an existing
+        # dealer, who already has whatever phone (if any) is on file.
+        "dealer_phone": scratch.get("dealer_phone"),
     }
     return preview, payload
 
@@ -405,6 +410,23 @@ async def handle_order_workflow_message(db: AsyncSession, company: Company, text
             return t("workflow.cancelled", loc)
         if not _is(stripped, "yes", "y"):
             return t("workflow.yes_no", loc)
+        scratch["step"] = "awaiting_new_dealer_phone"
+        company.workflow_scratch = scratch
+        # Reuses onboarding/add-dealer's own phone question verbatim (see
+        # app/services/workflows/party_flow.py's awaiting_phone step) —
+        # without asking here, a dealer created through this inline path
+        # would never get a phone on file, so create_order's invoice PDF
+        # could never be sent to them directly (see invoice_delivery.py).
+        return t("onboarding.party.phone_ask", loc, name=scratch["dealer_name"])
+
+    if step == "awaiting_new_dealer_phone":
+        if not _is(stripped, "skip"):
+            try:
+                scratch["dealer_phone"] = normalize_party_phone(stripped)
+            except InvalidPhoneNumberError:
+                return t("onboarding.party.phone_invalid", loc)
+        else:
+            scratch["dealer_phone"] = None
         scratch["items"] = []
         message = _advance_to_awaiting_product(
             scratch, loc, "order.new_dealer_added", dealer=scratch["dealer_name"]

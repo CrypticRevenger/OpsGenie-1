@@ -353,6 +353,9 @@ async def test_ocr_no_dealer_extracted_still_reaches_working_flow(
         assert "don't have" in sent[-1].lower()  # new-dealer confirm
 
         await _send_text(client, bare_sender, "yes")
+        assert "phone number" in sent[-1].lower()
+
+        await _send_text(client, bare_sender, "skip")
         assert "sugar" in sent[-1].lower()  # queued item suggestion still offered
 
 

@@ -171,9 +171,16 @@ async def test_upload_failure_leaves_nobody_with_the_pdf(db: AsyncSession) -> No
 async def test_sends_via_template_and_logs_when_configured(
     db: AsyncSession, monkeypatch
 ) -> None:
+    """A reachable dealer (phone on file + template configured) now gets the
+    PDF *in addition to* the founder, not instead of them — the founder
+    always gets their own copy of every invoice (see invoice_delivery.py's
+    module docstring for why this changed from a founder-fallback-only
+    design).
+    """
     monkeypatch.setattr(get_settings(), "invoice_document_template_name", "invoice_doc")
 
     uploaded = _patch_upload(monkeypatch)
+    document_calls = _patch_send_document(monkeypatch)
 
     sent_calls: list[dict] = []
 
@@ -204,18 +211,32 @@ async def test_sends_via_template_and_logs_when_configured(
 
     delivery = await send_invoice_document(db, company, result, b"%PDF-fake")
     assert delivery.sent_to_dealer is True
-    assert delivery.sent_to_founder is False
+    assert delivery.sent_to_founder is True
     assert sent_calls[0]["to"] == dealer_phone
     assert sent_calls[0]["template_name"] == "invoice_doc"
     assert sent_calls[0]["header_media_id"] == "media-id-123"
     assert uploaded["mime_type"] == "application/pdf"
+    assert document_calls[0]["to"] == company.whatsapp_number
 
-    log = await db.scalar(
-        select(NotificationLog).where(NotificationLog.company_id == company.id)
+    dealer_log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "invoice_document",
+        )
     )
-    assert log is not None
-    assert log.delivery_status == "sent"
-    assert log.recipient_whatsapp == dealer_phone
+    assert dealer_log is not None
+    assert dealer_log.delivery_status == "sent"
+    assert dealer_log.recipient_whatsapp == dealer_phone
+
+    founder_log = await db.scalar(
+        select(NotificationLog).where(
+            NotificationLog.company_id == company.id,
+            NotificationLog.notification_type == "invoice_document_founder_fallback",
+        )
+    )
+    assert founder_log is not None
+    assert founder_log.delivery_status == "sent"
+    assert founder_log.recipient_whatsapp == company.whatsapp_number
 
     event = await db.scalar(
         select(BusinessEvent).where(

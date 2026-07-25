@@ -375,6 +375,11 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
                 "amount": str(amount),
                 "payment_date": payment_date.isoformat(),
                 "invoice_id": scratch.get("invoice_id"),
+                # Cosmetic only (which invoice the preview names) — re-read on
+                # a declined confirm's amend-resume (see
+                # app/services/writes/pending_operation.py) so the resumed
+                # flow's own eventual preview can still show it.
+                "invoice_number": scratch.get("invoice_number"),
             },
         )
         company.active_workflow = None

@@ -674,6 +674,16 @@ MESSAGES: dict[str, str] = {
     "workflow.error_restart": (
         "Something went wrong with that. Please start again by saying '{trigger}'."
     ),
+    "workflow.interrupt_ask": (
+        "You still have '{current}' in progress. Reply YES to cancel it and start '{new}' "
+        "instead, or NO to continue with '{current}'."
+    ),
+    "workflow.interrupt_resumed": "OK, continuing with '{current}'.",
+    "workflow.continue_or_end_ask": (
+        "Want to do that again? Reply with your next answer to continue, or 'done' if you're "
+        "finished."
+    ),
+    "workflow.continue_or_end_closing": "OK! Let me know if you need anything else.",
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
     "workflow.photo_busy": (
@@ -1123,6 +1133,9 @@ MESSAGES: dict[str, str] = {
         "Invoices updated: {invoices}\n"
         "Remaining outstanding: {outstanding}"
     ),
+    "pending.payment_declined_amend": (
+        "Not recorded. {question}\n(Or reply 'cancel' to stop.)"
+    ),
     "pending.order_failed": "Couldn't create that order: {error}. Please start again.",
     "pending.order_line": "- {quantity} x {product} = {total}",
     "pending.order_stock_warning": "\n⚠️ Stock now negative for: {products}",
@@ -1134,6 +1147,7 @@ MESSAGES: dict[str, str] = {
         "\n(Couldn't reach {dealer} directly — sent you the PDF above so you can forward "
         "it yourself.)"
     ),
+    "pending.order_pdf_sent_both": "\nPDF sent to you and to {dealer}.",
     "pending.order_success": (
         "✅ Order {number} created for {dealer}.\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"

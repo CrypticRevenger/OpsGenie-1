@@ -619,6 +619,16 @@ MESSAGES: dict[str, str] = {
     "workflow.cancelled": "OK, cancel କରିଦେଲି।",
     "workflow.yes_no": "ଦୟାକରି yes କିମ୍ବା no reply କରନ୍ତୁ।",
     "workflow.error_restart": ("କିଛି ଭୁଲ୍ ହୋଇଗଲା। ଦୟାକରି ପୁଣି '{trigger}' କହି ଆରମ୍ଭ କରନ୍ତୁ।"),
+    "workflow.interrupt_ask": (
+        "ଆପଣଙ୍କର '{current}' ଏବେ ବି ବାକି ଅଛି। ଏହାକୁ cancel କରି '{new}' ଆରମ୍ଭ କରିବାକୁ YES "
+        "ପଠାନ୍ତୁ, କିମ୍ବା '{current}' ଜାରି ରଖିବାକୁ NO ପଠାନ୍ତୁ।"
+    ),
+    "workflow.interrupt_resumed": "ଠିକ୍ ଅଛି, '{current}' ଜାରି ରଖୁଛୁ।",
+    "workflow.continue_or_end_ask": (
+        "ପୁଣି ଏହା କରିବାକୁ ଚାହାନ୍ତି କି? ଜାରି ରଖିବାକୁ ଆପଣଙ୍କର ପରବର୍ତ୍ତୀ ଉତ୍ତର ପଠାନ୍ତୁ, "
+        "କିମ୍ବା ସରିଗଲେ 'done' ପଠାନ୍ତୁ।"
+    ),
+    "workflow.continue_or_end_closing": "ଠିକ୍ ଅଛି! ଦରକାର ହେଲେ କହନ୍ତୁ।",
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
     "workflow.photo_busy": (
@@ -1032,6 +1042,9 @@ MESSAGES: dict[str, str] = {
         "Invoices update ହେଲା: {invoices}\n"
         "ବାକି outstanding: {outstanding}"
     ),
+    "pending.payment_declined_amend": (
+        "Record ହେଲା ନାହିଁ। {question}\n(କିମ୍ବା ରୋକିବାକୁ 'cancel' ପଠାନ୍ତୁ।)"
+    ),
     "pending.order_failed": "ସେ order ତିଆରି ହେଲା ନାହିଁ: {error}। ଦୟାକରି ପୁଣି ଆରମ୍ଭ କରନ୍ତୁ।",
     "pending.order_line": "- {quantity} x {product} = {total}",
     "pending.order_stock_warning": "\n⚠️ ଏବେ stock negative: {products}",
@@ -1043,6 +1056,7 @@ MESSAGES: dict[str, str] = {
         "\n({dealer} ଙ୍କ ପାଖରେ ସିଧା ପହଞ୍ଚିପାରିଲା ନାହିଁ — PDF ଉପରେ ପଠାଇଦିଆଗଲା, ଆପଣ ନିଜେ "
         "forward କରିଦିଅନ୍ତୁ।)"
     ),
+    "pending.order_pdf_sent_both": "\nPDF ଆପଣଙ୍କୁ ଓ {dealer} ଙ୍କୁ ଦୁହିଁଙ୍କୁ ପଠାଇଦିଆଗଲା।",
     "pending.order_success": (
         "✅ Order {number} {dealer} ପାଇଁ ତିଆରି ହେଲା।\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"
