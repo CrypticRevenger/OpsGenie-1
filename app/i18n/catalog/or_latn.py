@@ -1332,15 +1332,24 @@ MESSAGES: dict[str, str] = {
     "evening.net_cash": "Net Cash Movement: {amount}",
     "evening.outstanding": "Outstanding Receivables: {amount}",
     "evening.priority_header": "Priority Actions:",
-    # ── Dealer self-service (Phase 1, read-only) — DRAFT for founder review ─
+    # ── Dealer self-service (Phases 1-2, read-only) — DRAFT for founder review
     "dealer.balance.header": "Namaskar {dealer_name}, {business_name} saha apankara account:",
     "dealer.balance.outstanding": "💰 {amount} outstanding",
     "dealer.balance.no_outstanding": "✅ Kouna outstanding balance nahin",
     "dealer.balance.next_due": "📅 Paravarti due: {date}",
     "dealer.balance.last_payment": "🧾 Shesha payment: {amount} ({date} re)",
+    "dealer.statement.ready": (
+        "Apanka {business_name} saha account statement ({period}) taiyar.\nDownload "
+        "({ttl} min valid):\n{links}"
+    ),
+    "dealer.statement.not_configured": (
+        "Kshama karantu, ebe statement available nahin — doya kari sidha {business_name} saha "
+        "contact karantu."
+    ),
     "dealer.help": (
         "Mun ethire sahajya kari paribi:\n\nBALANCE — apankara outstanding balance check karantu\n"
-        "HELP — e message puni dekhantu"
+        "STATEMENT — apankara account statement check karantu (PDF/Excel)\nHELP — e message puni "
+        "dekhantu"
     ),
     "dealer.unrecognized": (
         "Kshama karantu, mun eha bujhi paribi nahi. Apankara outstanding check karibaku BALANCE, "

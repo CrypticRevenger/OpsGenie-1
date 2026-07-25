@@ -1,7 +1,8 @@
-"""Dealer self-service over WhatsApp — read-only Phase 1.
+"""Dealer self-service over WhatsApp — read-only, Phases 1-2.
 
 A dealer texts the distributor's own WhatsApp number directly and gets back
-their own outstanding balance / next due date / last payment, without ever
+their own outstanding balance / next due date / last payment (Phase 1), or a
+signed download link to their own ledger statement (Phase 2), without ever
 going through the founder. This is a structurally separate path from the
 founder's command ladder in app/api/webhooks/whatsapp.py: it never touches
 Company.active_workflow / onboarding_state / active_pending_operation_id /
@@ -25,13 +26,18 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.i18n import resolve_locale, t
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceStatus
 from app.models.payment import Payment
+from app.services.company_export import generate_export_link
 from app.services.money_format import format_inr
 from app.services.party_outstanding import calculate_party_outstanding
+from app.services.reports.period import resolve_period
+from app.services.reports.registry import REPORTS
+from app.services.snapshot import business_now
 
 # Duplicated locally rather than imported from party_outstanding.py's private
 # _OPEN_STATUSES — this codebase already repeats this exact tuple verbatim in
@@ -151,6 +157,61 @@ async def dealer_balance_reply(db: AsyncSession, company: Company, dealer: Deale
     return "\n".join(lines)
 
 
+def _current_month_str(company: Company) -> str:
+    today = business_now(company.timezone).date()
+    return f"{today.year:04d}-{today.month:02d}"
+
+
+async def dealer_statement_reply(db: AsyncSession, company: Company, dealer: Dealer) -> str:
+    """Phase 2 — ledger/statement PDF on request. Same signed-export-link
+    mechanism `_report_link_reply` (app/api/webhooks/whatsapp.py) uses for
+    the founder, scoped to just this one dealer's own ledger via `party_id`.
+
+    Unlike the founder's own report links, `party_id` here is a real access-
+    control boundary rather than a convenience: the export link's signature
+    covers `party_id` (see company_export.py::generate_export_link), so this
+    dealer can never edit the resulting link's `party` query param to reach
+    another dealer's or the company's own data — verify_export_link rejects
+    a link whose party doesn't match what was actually signed.
+    """
+    settings = get_settings()
+    loc = resolve_locale(company)
+    if not settings.export_link_secret or not settings.public_base_url:
+        return t("dealer.statement.not_configured", loc, business_name=company.business_name)
+
+    spec = REPORTS["ledger"]
+    month = _current_month_str(company)
+    period_label = resolve_period(month_str=month).label
+
+    excel_link = generate_export_link(
+        company,
+        base_url=settings.public_base_url,
+        report="ledger",
+        month=month,
+        party_id=dealer.id,
+    )
+    lines = [f"Excel: {excel_link}"]
+    if spec.build_pdf is not None:
+        pdf_link = generate_export_link(
+            company,
+            base_url=settings.public_base_url,
+            report="ledger",
+            format="pdf",
+            month=month,
+            party_id=dealer.id,
+        )
+        lines.append(f"PDF: {pdf_link}")
+
+    return t(
+        "dealer.statement.ready",
+        loc,
+        business_name=company.business_name,
+        period=period_label,
+        ttl=settings.export_link_ttl_minutes,
+        links="\n".join(lines),
+    )
+
+
 def dealer_help_reply(company: Company) -> str:
     """Deliberately minimal — just the real commands, not a padded list. The
     less a dealer has to remember, the better.
@@ -172,6 +233,10 @@ _DEALER_COMMANDS: dict[str, Callable[[AsyncSession, Company, Dealer], Awaitable[
     "outstanding": dealer_balance_reply,
     "dues": dealer_balance_reply,
     "how much do i owe": dealer_balance_reply,
+    "statement": dealer_statement_reply,
+    "my statement": dealer_statement_reply,
+    "ledger": dealer_statement_reply,
+    "my ledger": dealer_statement_reply,
     "help": _dealer_help_command,
 }
 

@@ -15,6 +15,7 @@ import json
 import uuid
 from datetime import date
 from decimal import Decimal
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from app.core.config import get_settings
@@ -318,6 +319,33 @@ async def test_signed_link_valid_then_tampered_then_expired(db: AsyncSession) ->
 
 
 @pytest.mark.asyncio
+async def test_signed_link_party_id_is_part_of_the_signature(db: AsyncSession) -> None:
+    """A party-scoped link (e.g. a single dealer's own ledger, see
+    app/services/dealer_self_service.py::dealer_statement_reply) must not be
+    usable for a *different* party just by editing the `party` query param —
+    unlike report/format/period, party_id is a real access-control boundary
+    and has to be part of what's signed, not a free-riding query param."""
+    company = await _make_company(db)
+    real_party_id = uuid.uuid4()
+    other_party_id = uuid.uuid4()
+
+    link = generate_export_link(
+        company,
+        base_url="http://localhost:8000",
+        report="ledger",
+        party_id=real_party_id,
+    )
+    parts = urlsplit(link)
+    _, _, cid, expires, sig = parts.path.split("/")
+    query_party = parse_qs(parts.query)["party"][0]
+    assert query_party == str(real_party_id)
+
+    assert verify_export_link(uuid.UUID(cid), int(expires), sig, party_id=real_party_id) is True
+    assert verify_export_link(uuid.UUID(cid), int(expires), sig, party_id=other_party_id) is False
+    assert verify_export_link(uuid.UUID(cid), int(expires), sig, party_id=None) is False
+
+
+@pytest.mark.asyncio
 async def test_signed_link_rejects_when_secret_unset(db: AsyncSession, monkeypatch) -> None:
     settings = get_settings()
     monkeypatch.setattr(settings, "export_link_secret", None)
@@ -420,6 +448,56 @@ async def test_public_export_endpoint_ledger_report_with_party(db: AsyncSession)
     assert resp.status_code == 200
     wb = load_workbook(io.BytesIO(resp.content))
     assert "Ledger" in wb.sheetnames
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_rejects_party_swapped_on_signed_link(
+    db: AsyncSession,
+) -> None:
+    """End-to-end version of test_signed_link_party_id_is_part_of_the_signature
+    through the real HTTP route: a link signed for one dealer's ledger must
+    404/403 rather than silently serving a different dealer's data when the
+    `party` query param is edited in transit."""
+    company = await _make_company(db)
+    dealer_a = Dealer(company_id=company.id, name="Dealer A")
+    dealer_b = Dealer(company_id=company.id, name="Dealer B")
+    db.add_all([dealer_a, dealer_b])
+    await db.commit()
+    await db.refresh(dealer_a)
+    await db.refresh(dealer_b)
+
+    link = generate_export_link(
+        company, base_url="http://test", report="ledger", party_id=dealer_a.id
+    )
+    path = link.removeprefix("http://test")
+    tampered_path = path.replace(str(dealer_a.id), str(dealer_b.id))
+    assert tampered_path != path
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(tampered_path)
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_public_export_endpoint_rejects_party_added_to_unscoped_link(
+    db: AsyncSession,
+) -> None:
+    """Adding a `party` query param to a link that never had one signed must
+    also fail closed, not just swapping between two signed parties."""
+    company = await _make_company(db)
+    dealer = Dealer(company_id=company.id, name="Ram Traders")
+    db.add(dealer)
+    await db.commit()
+    await db.refresh(dealer)
+
+    link = generate_export_link(company, base_url="http://test", report="ledger")
+    path = link.removeprefix("http://test") + f"&party={dealer.id}"
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as anon_client:
+        resp = await anon_client.get(path)
+    assert resp.status_code == 403
 
 
 @pytest.mark.asyncio

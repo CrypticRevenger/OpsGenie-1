@@ -7,13 +7,16 @@ the same HMAC-signing convention app/api/webhooks/whatsapp.py already uses to
 verify Meta's own payloads. A link is only ever valid for
 EXPORT_LINK_TTL_MINUTES (default 30) from the moment it was generated.
 
-`report`/`format`/`from`/`to`/`month`/`party` are optional query params, not
-part of the signed path — see company_export.py::generate_export_link's
-docstring for why that's safe. No query params at all reproduces the
-original, single all-time-workbook behavior exactly (report defaults to
-"full"). Report metadata (display name, which builder, whether a party/PDF
-is required) all comes from app.services.reports.registry.REPORTS — this
-route has no per-report branching of its own.
+`report`/`format`/`from`/`to`/`month` are optional query params, not part of
+the signed path — see company_export.py::generate_export_link's docstring for
+why that's safe. `party` is different: it's passed through to
+verify_export_link and must match what was actually signed, so a link issued
+for one party can't be edited to read another party's data. No query params
+at all reproduces the original, single all-time-workbook behavior exactly
+(report defaults to "full"). Report metadata (display name, which builder,
+whether a party/PDF is required) all comes from
+app.services.reports.registry.REPORTS — this route has no per-report
+branching of its own.
 """
 
 from __future__ import annotations
@@ -57,7 +60,7 @@ async def download_company_export(
     party: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    if not verify_export_link(company_id, expires_at, signature):
+    if not verify_export_link(company_id, expires_at, signature, party_id=party):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Link is invalid or has expired."
         )
