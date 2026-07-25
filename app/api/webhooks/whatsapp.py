@@ -95,7 +95,7 @@ from app.services.dealer_self_service import (
 from app.services.followup import handle_follow_up_reply
 from app.services.invoice_ocr import extract_invoice_from_image
 from app.services.money_format import format_inr
-from app.services.onboarding_flow import handle_onboarding_message, start_language_change
+from app.services.onboarding_flow import _is, handle_onboarding_message, start_language_change
 from app.services.party_lookup import find_party
 from app.services.query_menu import menu_router
 from app.services.reports.period import resolve_period
@@ -1161,16 +1161,95 @@ async def _send_reply_and_log(
         )
 
 
+def _workflow_display_label(company: Company) -> str:
+    """Best-effort human-readable label for the currently-active workflow,
+    for the interrupt/continue prompts below. Reuses the exact trigger
+    phrase that started it when known — same "interpolate the raw
+    keyword/trigger into a translated sentence" precedent already used by
+    workflow.error_restart — else falls back to the raw active_workflow key
+    (an OCR-started order flow never has a trigger phrase to reuse).
+    """
+    return company.active_workflow_start_trigger or company.active_workflow or ""
+
+
+def _offer_continue_or_end(company: Company, reply: str, start_trigger: str | None) -> str:
+    """Append a "want to do that again, or are you done?" prompt right after
+    a guided flow has just fully ended this turn (cancelled or completed,
+    not handed off to a PendingOperation confirm — see the two call sites
+    below) so the founder doesn't have to re-type the whole trigger phrase
+    to do another one (Company.pending_continue_prompt's own docstring).
+    No-ops (returns `reply` unchanged) when the flow's original start
+    trigger isn't known/replayable — e.g. an OCR-started order, or the
+    scheduler-driven confirm_supplier_payment reminder flow, neither of
+    which set active_workflow_start_trigger — degrading to today's plain
+    behavior rather than offering a prompt it can't actually act on.
+    """
+    if start_trigger is None or start_trigger not in _WORKFLOW_START_TRIGGERS:
+        return reply
+    company.pending_continue_prompt = start_trigger
+    loc = resolve_locale(company)
+    return reply + "\n\n" + t("workflow.continue_or_end_ask", loc)
+
+
+async def _resolve_continue_or_end(db: AsyncSession, company: Company, text: str) -> str:
+    """Resolve a reply to the prompt _offer_continue_or_end set. "done" (and
+    its synonyms) ends cleanly; anything else restarts the same flow via its
+    original starter and, unless the reply was itself just "yes"/"continue",
+    immediately re-dispatches `text` as the restarted flow's first answer —
+    the "single go" convenience of typing the next party/dealer/etc. name
+    directly instead of first replying "yes" and waiting to be asked again.
+    """
+    loc = resolve_locale(company)
+    trigger = company.pending_continue_prompt
+    stripped = text.strip()
+    company.pending_continue_prompt = None
+    if _is(stripped, "done", "no", "n", "end", "finish", "stop", "cancel"):
+        return t("workflow.continue_or_end_closing", loc)
+    starter = _WORKFLOW_START_TRIGGERS.get(trigger) if trigger else None
+    if starter is None:
+        return t("workflow.continue_or_end_closing", loc)
+    reply = starter(company)
+    company.active_workflow_start_trigger = trigger
+    if _is(stripped, "yes", "y", "continue"):
+        return reply
+    handler = _WORKFLOW_HANDLERS[company.active_workflow]
+    return await handler(db, company, text)
+
+
+def _resolve_workflow_interrupt(company: Company, text: str) -> str:
+    """Resolve YES/NO to the "cancel your {current} and start {new} instead?"
+    prompt set when a recognized workflow-start trigger arrives mid another
+    guided flow (Company.pending_workflow_interrupt's own docstring). NO
+    leaves workflow_scratch completely untouched, so the interrupted flow
+    resumes exactly where it left off on the founder's next message.
+    """
+    loc = resolve_locale(company)
+    new_trigger = company.pending_workflow_interrupt
+    current_label = _workflow_display_label(company)
+    stripped = text.strip()
+    if _is(stripped, "yes", "y"):
+        company.pending_workflow_interrupt = None
+        starter = _WORKFLOW_START_TRIGGERS[new_trigger]
+        reply = starter(company)
+        company.active_workflow_start_trigger = new_trigger
+        return reply
+    if _is(stripped, "no", "n"):
+        company.pending_workflow_interrupt = None
+        return t("workflow.interrupt_resumed", loc, current=current_label)
+    return t("workflow.interrupt_ask", loc, current=current_label, new=new_trigger)
+
+
 async def _handle_text_message(
     db: AsyncSession, company: Company, text: str
 ) -> tuple[str, str | None, str, list[dict] | None]:
     """Resolve `text` through the full reply-priority ladder documented in
-    this module's own docstring (onboarding > active workflow > pending
-    confirm > follow-up > menu trigger > instant command > deterministic
-    free text > LLM assistant). Shared by real inbound text/interactive
-    messages and a transcribed voice note (see _handle_voice_note) — a voice
-    note is just another way to produce `text`, so it must resolve through
-    the exact same priority order, never a separate/simpler path.
+    this module's own docstring (onboarding > continue-or-end prompt >
+    workflow-interrupt prompt > active workflow > pending confirm >
+    follow-up > menu trigger > instant command > deterministic free text >
+    LLM assistant). Shared by real inbound text/interactive messages and a
+    transcribed voice note (see _handle_voice_note) — a voice note is just
+    another way to produce `text`, so it must resolve through the exact same
+    priority order, never a separate/simpler path.
 
     Returns (notification_type, command, reply, interactive_batch).
     """
@@ -1181,6 +1260,12 @@ async def _handle_text_message(
         # answer to the current question, not the "Cash Position" menu command.
         notification_type = "onboarding"
         reply = await handle_onboarding_message(db, company, text)
+    elif company.pending_continue_prompt is not None:
+        notification_type = "workflow_continue_prompt"
+        reply = await _resolve_continue_or_end(db, company, text)
+    elif company.pending_workflow_interrupt is not None:
+        notification_type = "workflow_interrupt_confirm"
+        reply = _resolve_workflow_interrupt(company, text)
     elif company.active_workflow is not None:
         # A guided write workflow (Phase 2A) outranks the menu and the
         # follow-up for the same reason follow-up already did — mid-flow, a
@@ -1188,18 +1273,44 @@ async def _handle_text_message(
         # Dispatch by the workflow's own value (not just its presence) so a
         # second workflow type (Phase 2B) can register its own handler
         # without this branch needing to change.
-        workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
-        if workflow_handler is not None:
-            notification_type = "write_workflow"
-            reply = await workflow_handler(db, company, text)
+        stripped_lower = text.strip().lower()
+        if stripped_lower in _WORKFLOW_START_TRIGGERS:
+            # A recognized command arrived mid this flow — don't silently
+            # swallow it as literal input to whatever question is currently
+            # pending (e.g. a party-name step treating "/create_order" as a
+            # party name, per the real bug this closes); ask before
+            # switching. Deliberately only this exact, narrow trigger set —
+            # never menu_router's bare "1"-"4" or _MENU_TRIGGERS/
+            # _HELP_TRIGGERS, since digits are legitimate answers inside many
+            # flows (dealer/supplier picks, invoice-selection index, etc.).
+            company.pending_workflow_interrupt = stripped_lower
+            notification_type = "workflow_interrupt_ask"
+            loc = resolve_locale(company)
+            reply = t(
+                "workflow.interrupt_ask",
+                loc,
+                current=_workflow_display_label(company),
+                new=stripped_lower,
+            )
         else:
-            # An active_workflow value nothing registers a handler for
-            # (shouldn't happen) — never leave the company stuck on a
-            # workflow this code can't run.
-            company.active_workflow = None
-            company.workflow_scratch = None
-            notification_type = "write_workflow_error"
-            reply = "Something went wrong. Please try again."
+            workflow_handler = _WORKFLOW_HANDLERS.get(company.active_workflow)
+            if workflow_handler is not None:
+                notification_type = "write_workflow"
+                previous_trigger = company.active_workflow_start_trigger
+                reply = await workflow_handler(db, company, text)
+                if company.active_workflow is None and company.active_pending_operation_id is None:
+                    # The flow fully ended this turn (cancelled or completed
+                    # with no confirm gate) rather than merely advancing a
+                    # step — offer to do it again.
+                    reply = _offer_continue_or_end(company, reply, previous_trigger)
+            else:
+                # An active_workflow value nothing registers a handler for
+                # (shouldn't happen) — never leave the company stuck on a
+                # workflow this code can't run.
+                company.active_workflow = None
+                company.workflow_scratch = None
+                notification_type = "write_workflow_error"
+                reply = "Something went wrong. Please try again."
     elif company.active_pending_operation_id is not None:
         # In-memory pointer check (no query) — mirrors
         # pending_follow_up_invoice_id below, so companies that never use a
@@ -1218,7 +1329,14 @@ async def _handle_text_message(
             reply = "That confirmation expired. Please start again."
         else:
             notification_type = "pending_operation_confirm"
+            # Captured before resolving — a successful/cancelled resolution
+            # deletes the row, and fix-1's amend-on-NO resume (record_payment
+            # only) leaves active_workflow set instead, in which case this is
+            # simply never consumed below.
+            start_trigger = (pending_op.payload or {}).get("start_trigger")
             reply = await handle_pending_operation_reply(db, company, pending_op, text)
+            if company.active_pending_operation_id is None and company.active_workflow is None:
+                reply = _offer_continue_or_end(company, reply, start_trigger)
     elif company.pending_follow_up_invoice_id is not None:
         # A pending follow-up takes priority over the numbered menu —
         # "1"/"2"/"3" here answers the follow-up question, not "Cash Position".
@@ -1260,6 +1378,7 @@ async def _handle_text_message(
             command = text.strip().lower()
             notification_type = "write_workflow"
             reply = starter(company)
+            company.active_workflow_start_trigger = command
         elif (instant := _INSTANT_COMMANDS.get(text.strip().lower())) is not None:
             command = text.strip().lower()
             notification_type = "instant_command"
@@ -1353,6 +1472,8 @@ async def _handle_invoice_photo(db: AsyncSession, company: Company, message: dic
         or company.active_workflow is not None
         or company.active_pending_operation_id is not None
         or company.pending_follow_up_invoice_id is not None
+        or company.pending_continue_prompt is not None
+        or company.pending_workflow_interrupt is not None
     )
     if busy:
         return t("workflow.photo_busy", loc)
@@ -1370,7 +1491,13 @@ async def _handle_invoice_photo(db: AsyncSession, company: Company, message: dic
     extraction = await extract_invoice_from_image(image_bytes, mime_type)
     if extraction is None:
         return t("order.ocr_unreadable", loc)
-    return start_order_workflow_from_ocr(company, extraction)
+    reply = start_order_workflow_from_ocr(company, extraction)
+    # Not started via _WORKFLOW_START_TRIGGERS, so there's no trigger phrase
+    # to replay later — leave it unset (None) so _offer_continue_or_end
+    # degrades to today's plain behavior when this order later ends, rather
+    # than reusing a stale trigger left over from an earlier flow.
+    company.active_workflow_start_trigger = None
+    return reply
 
 
 async def _handle_voice_note(

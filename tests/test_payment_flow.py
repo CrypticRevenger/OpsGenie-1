@@ -197,7 +197,15 @@ async def test_full_walk_existing_dealer_yes_commits(db: AsyncSession, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_no_discards_pending_operation(db: AsyncSession, monkeypatch) -> None:
+async def test_no_on_record_payment_amends_instead_of_restarting(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Declining the final confirm no longer discards the whole guided flow
+    (the old "must restart from the party name" bug) — it resumes right at
+    the amount question, with the party/invoice already known, so a typo'd
+    amount can be fixed in one extra message and the payment still lands
+    against the same invoice once confirmed.
+    """
     phone = _unique_phone()
     company_id = await _make_company(db, phone)
     bare_sender = phone.removeprefix("+")
@@ -219,16 +227,33 @@ async def test_no_discards_pending_operation(db: AsyncSession, monkeypatch) -> N
         assert "confirm" in sent[-1].lower()
 
         await _send(client, bare_sender, "NO")
-        assert "cancelled" in sent[-1].lower()
+        assert "cancelled" not in sent[-1].lower()
+        assert "not recorded" in sent[-1].lower()
+        assert "how much" in sent[-1].lower()
 
-    payment_count = len(
-        (await db.execute(select(Payment).where(Payment.company_id == company_id))).scalars().all()
-    )
-    assert payment_count == 0
-    remaining_op = await db.scalar(
-        select(PendingOperation).where(PendingOperation.company_id == company_id)
-    )
-    assert remaining_op is None
+        payment_count = len(
+            (await db.execute(select(Payment).where(Payment.company_id == company_id)))
+            .scalars()
+            .all()
+        )
+        assert payment_count == 0
+        remaining_op = await db.scalar(
+            select(PendingOperation).where(PendingOperation.company_id == company_id)
+        )
+        assert remaining_op is None
+
+        # Corrected amount, without re-typing the party name.
+        await _send(client, bare_sender, "4500")
+        await _send(client, bare_sender, "today")
+        assert "confirm" in sent[-1].lower()
+        assert "4,500" in sent[-1] or "4500" in sent[-1]
+
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+
+    payment = await db.scalar(select(Payment).where(Payment.company_id == company_id))
+    assert payment is not None
+    assert payment.amount == Decimal("4500.00")
 
 
 @pytest.mark.asyncio
@@ -625,4 +650,144 @@ async def test_invoice_selection_bad_input_reasks(db: AsyncSession, monkeypatch)
         assert "1 to 2" in sent[-1]
 
         await _send(client, bare_sender, "1")
+
+
+@pytest.mark.asyncio
+async def test_continue_or_end_prompt_after_payment_completes(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """After a payment is confirmed, the founder is offered "do that again,
+    or done?" instead of having to re-type "record payment" from scratch —
+    and replying with the next party's name directly (no separate "yes"
+    round trip) both restarts the flow and answers its first question in one
+    go.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoice(db, company_id, "Ram Traders", "INV-PF4", Decimal("5000.00"))
+    await _make_dealer_with_invoice(db, company_id, "Sita Stores", "INV-PF5", Decimal("2000.00"))
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "5000")
+        await _send(client, bare_sender, "today")
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+        assert "do that again" in sent[-1].lower()
+
+        # Single go: the next party's name directly, no "yes" needed first.
+        await _send(client, bare_sender, "Sita Stores")
         assert "how much" in sent[-1].lower()
+
+        await _send(client, bare_sender, "2000")
+        await _send(client, bare_sender, "today")
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+
+        await _send(client, bare_sender, "done")
+        assert "let me know" in sent[-1].lower()
+
+    payments = (
+        (await db.execute(select(Payment).where(Payment.company_id == company_id)))
+        .scalars()
+        .all()
+    )
+    assert len(payments) == 2
+
+    company = await db.get(Company, company_id)
+    assert company.active_workflow is None
+    assert company.active_pending_operation_id is None
+    assert company.pending_continue_prompt is None
+
+
+@pytest.mark.asyncio
+async def test_mid_flow_trigger_asks_before_switching(db: AsyncSession, monkeypatch) -> None:
+    """A recognized workflow-start trigger arriving mid another guided flow
+    (the real bug: tapping "Create Order" mid payment-recording got silently
+    treated as a party name) must ask before switching, and NO must resume
+    the original flow exactly where it left off, losing nothing.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoice(db, company_id, "Ram Traders", "INV-PF6", Decimal("5000.00"))
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Ram Traders")
+        assert "how much" in sent[-1].lower()
+
+        await _send(client, bare_sender, "new order")
+        assert "record payment" in sent[-1].lower() or "record_payment" in sent[-1].lower()
+        assert "new order" in sent[-1].lower()
+        assert "yes" in sent[-1].lower() and "no" in sent[-1].lower()
+
+        await _send(client, bare_sender, "no")
+        assert "continuing" in sent[-1].lower()
+
+        # The payment flow resumed exactly where it left off — still
+        # awaiting the amount, no need to re-enter the party.
+        await _send(client, bare_sender, "5000")
+        assert "when was this paid" in sent[-1].lower()
+
+        await _send(client, bare_sender, "today")
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+
+    payment = await db.scalar(select(Payment).where(Payment.company_id == company_id))
+    assert payment is not None
+    assert payment.amount == Decimal("5000.00")
+
+
+@pytest.mark.asyncio
+async def test_mid_flow_trigger_yes_cancels_and_switches(
+    db: AsyncSession, monkeypatch
+) -> None:
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoice(db, company_id, "Ram Traders", "INV-PF7", Decimal("5000.00"))
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Ram Traders")
+        assert "how much" in sent[-1].lower()
+
+        await _send(client, bare_sender, "new order")
+        await _send(client, bare_sender, "yes")
+        # The order flow's own opening question, not the payment flow's.
+        assert "who is this order for" in sent[-1].lower()
+
+    company = await db.get(Company, company_id)
+    assert company.active_workflow == "create_order"
+    assert company.pending_workflow_interrupt is None
+    payment_count = len(
+        (await db.execute(select(Payment).where(Payment.company_id == company_id))).scalars().all()
+    )
+    assert payment_count == 0

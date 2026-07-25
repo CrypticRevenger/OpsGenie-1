@@ -90,6 +90,12 @@ def start_reminder_confirm(company: Company, item: dict, queue: list[dict]) -> s
     """
     loc = resolve_locale(company)
     company.active_workflow = "confirm_supplier_payment"
+    # Not started via _WORKFLOW_START_TRIGGERS (this is scheduler/queue-
+    # driven, never a founder-typed keyword) — clear any stale trigger left
+    # over from an earlier, unrelated flow so the webhook's generic
+    # continue-or-end offer (app/api/webhooks/whatsapp.py) never misfires
+    # once this reminder conversation ends.
+    company.active_workflow_start_trigger = None
     company.workflow_scratch = {"step": "awaiting_paid_choice", "queue": queue, **item}
     return t(
         "reminder_confirm.ask_paid",

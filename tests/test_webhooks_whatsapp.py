@@ -145,6 +145,16 @@ async def _anon_client() -> AsyncClient:
     return AsyncClient(transport=transport, base_url="http://test")
 
 
+async def _send(client: AsyncClient, sender: str, text: str) -> None:
+    body = json.dumps(_messages_payload(sender=sender, text=text)).encode()
+    resp = await client.post(
+        "/webhooks/whatsapp",
+        content=body,
+        headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+    )
+    assert resp.status_code == 200
+
+
 # ── GET verification ──────────────────────────────────────────────────────────
 
 
@@ -2224,4 +2234,47 @@ async def test_quote_reply_to_the_active_message_is_a_noop(db: AsyncSession, mon
             headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
         )
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_continue_or_end_prompt_after_write_immediate_flow(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """The "do that again, or done?" prompt (Company.pending_continue_prompt)
+    isn't specific to PendingOperation-gated flows like record_payment/
+    create_order — it's generic in the webhook routing ladder, so a
+    write-immediate flow like add_dealer (no confirm gate at all) gets it
+    too, with no changes needed in party_flow.py itself.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "add dealer")
+        await _send(client, bare_sender, "one by one")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "skip")
+        await _send(client, bare_sender, "skip")
+        await _send(client, bare_sender, "done")
+        assert "do that again" in sent[-1].lower()
+
+        await _send(client, bare_sender, "done")
+        assert "let me know" in sent[-1].lower()
+
+    dealer = await db.scalar(select(Dealer).where(Dealer.company_id == company_id))
+    assert dealer is not None
+    assert dealer.name == "Ram Traders"
+
+    company = await db.get(Company, company_id)
+    assert company.active_workflow is None
+    assert company.pending_continue_prompt is None
     assert "switched" not in sent[-1].lower()

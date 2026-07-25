@@ -661,6 +661,16 @@ MESSAGES: dict[str, str] = {
     "workflow.error_restart": (
         "Kichi bhul heigala. Daya kari puni '{trigger}' kahi arambha karantu."
     ),
+    "workflow.interrupt_ask": (
+        "Apanka '{current}' abhi baki achi. Eha cancel kari '{new}' arambha karibaku YES "
+        "pathantu, kimba '{current}' jari rakhibaku NO pathantu."
+    ),
+    "workflow.interrupt_resumed": "Thik achi, '{current}' jari rakhuchhu.",
+    "workflow.continue_or_end_ask": (
+        "Puni eha karibaku chahanti ki? Jari rakhibaku apanka paravarti uttara pathantu, "
+        "kimba sarigala hele 'done' pathantu."
+    ),
+    "workflow.continue_or_end_closing": "Thik achi! Darkar hele kahantu.",
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
     "workflow.photo_busy": (
@@ -1134,6 +1144,9 @@ MESSAGES: dict[str, str] = {
         "Invoices update hela: {invoices}\n"
         "Baki outstanding: {outstanding}"
     ),
+    "pending.payment_declined_amend": (
+        "Record heli nahin. {question}\n(Kimba rokibaku 'cancel' pathantu.)"
+    ),
     "pending.order_failed": "Se order tiari heli nahin: {error}. Daya kari puni arambha karantu.",
     "pending.order_line": "- {quantity} x {product} = {total}",
     "pending.order_stock_warning": "\n⚠️ Ebe stock negative: {products}",
@@ -1146,6 +1159,7 @@ MESSAGES: dict[str, str] = {
         "\n({dealer} ku sidha pahunchi paridele nahin — PDF upare pathaideli, apana nije "
         "forward karidiantu.)"
     ),
+    "pending.order_pdf_sent_both": "\nPDF apananku au {dealer} ku duhenkanku pathaidela.",
     "pending.order_success": (
         "✅ Order {number} {dealer} paain tiari hela.\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"

@@ -270,6 +270,28 @@ class Company(UUIDMixin, TimestampMixin, Base):
         ForeignKey("pending_operations.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Routing-layer bookkeeping for the webhook's guided-workflow ladder
+    # (app/api/webhooks/whatsapp.py) — deliberately NOT stored inside
+    # workflow_scratch, which is owned entirely by each individual workflow's
+    # own step logic and asserted by exact dict equality in some tests (e.g.
+    # tests/test_product_flow.py). All three are set/read/cleared only by the
+    # webhook routing ladder and app/services/writes/pending_operation.py,
+    # never by the workflow files themselves.
+    #
+    # Which _WORKFLOW_START_TRIGGERS key started the currently-active
+    # workflow (or fed the currently-active PendingOperation) — lets a flow
+    # that later ends (cancelled or completed) be restarted with the exact
+    # same starter, e.g. "update stock" vs "update price" both set
+    # active_workflow="update_product" but must not be conflated when
+    # offering to "do that again".
+    active_workflow_start_trigger: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set while asking "you still have {current} in progress — cancel it and
+    # start {new} instead?" after a recognized workflow-start trigger arrives
+    # mid another guided flow.
+    pending_workflow_interrupt: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Set while asking "want to do that again, or are you done?" after a
+    # guided flow ends. Holds the _WORKFLOW_START_TRIGGERS key to restart.
+    pending_continue_prompt: Mapped[str | None] = mapped_column(String, nullable=True)
 
     # ── Relationships ────────────────────────────────────────────────────────
     dealers: Mapped[list[Dealer]] = relationship(

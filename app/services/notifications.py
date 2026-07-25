@@ -426,7 +426,14 @@ async def check_supplier_payment_reminders(
 
 
 async def _send_dealer_direct_reminder(
-    db: AsyncSession, company: Company, dealer_phone: str, message: str
+    db: AsyncSession,
+    company: Company,
+    dealer_phone: str,
+    message: str,
+    *,
+    dealer_name: str,
+    amount_display: str,
+    days_overdue: int,
 ) -> bool:
     """Proactively message a dealer's own WhatsApp — same free-form-vs-
     template branch as app/services/writes/broadcast.py's send loop (a
@@ -434,6 +441,15 @@ async def _send_dealer_direct_reminder(
     number first, so outside their own 24h session window this needs a
     Meta-approved template), reused rather than duplicated. Never raises —
     same fail-open contract as _send_and_log.
+
+    The template branch (dealer_payment_reminder_v2, confirmed Active in
+    WhatsApp Manager 2026-07-25) has 4 variables — dealer name, business
+    name, amount, days overdue, in that order, matching notify.
+    dealer_direct_reminder's own wording — so it needs each field passed
+    discretely, not the single pre-composed `message` string. That string is
+    still used for the free-form within-session-window branch above (a
+    plain text message, no template needed there) and for the
+    NotificationLog's stored text either way.
     """
     settings = get_settings()
     since = datetime.now(UTC) - timedelta(hours=SESSION_WINDOW_HOURS)
@@ -448,7 +464,7 @@ async def _send_dealer_direct_reminder(
                 dealer_phone,
                 settings.dealer_reminder_template_name,
                 settings.dealer_reminder_template_language,
-                body_params=[message],
+                body_params=[dealer_name, company.business_name, amount_display, str(days_overdue)],
             )
     except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
         logger.warning("Dealer direct reminder to %s not sent: %s", dealer_phone, exc)
@@ -518,7 +534,13 @@ async def check_dealer_overdue_alerts(
                 days=dealer.days_overdue,
             )
             dealer_reminder_sent = await _send_dealer_direct_reminder(
-                db, company, dealer.dealer_phone, dealer_message
+                db,
+                company,
+                dealer.dealer_phone,
+                dealer_message,
+                dealer_name=dealer.dealer_name,
+                amount_display=format_inr(dealer.outstanding),
+                days_overdue=dealer.days_overdue,
             )
 
         if not delivered:

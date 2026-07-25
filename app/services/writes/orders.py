@@ -112,6 +112,7 @@ async def create_order(
     dealer_name: str,
     items: list[dict],
     advance_paid: Decimal | None = None,
+    dealer_phone: str | None = None,
 ) -> CreateOrderResult:
     """Record a WhatsApp-guided order as a receivable invoice against a
     dealer, decrementing catalogue stock for each line.
@@ -124,6 +125,13 @@ async def create_order(
     trail, and "amount exceeds outstanding" all come for free and can never
     drift from how every other payment in this system is recorded.
 
+    dealer_phone (optional) only ever applies when this order is creating a
+    brand-new dealer — order_flow.py's awaiting_new_dealer_phone step
+    collects it inline, since a dealer added this way would otherwise never
+    have a phone on file and could never receive their invoice PDF directly
+    (see invoice_delivery.py). Ignored for an existing dealer, same as
+    find_or_create_party itself never overwrites one.
+
     Raises ValueError on re-validation failure (a quantity of zero or less,
     a product with no price collected, or an advance_paid that exceeds the
     order's own total) — the caller turns this into a friendly reply rather
@@ -132,7 +140,9 @@ async def create_order(
     if not items:
         raise ValueError("An order needs at least one product")
 
-    dealer = await find_or_create_party(db, company.id, "receivable", dealer_name)
+    dealer = await find_or_create_party(
+        db, company.id, "receivable", dealer_name, phone=dealer_phone
+    )
 
     lines: list[OrderLine] = []
     negative_stock_warnings: list[str] = []

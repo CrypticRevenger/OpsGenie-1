@@ -8,14 +8,16 @@ this module never re-derives money or stock, only delivers what was already
 computed.
 
 Never blocks invoice creation: every failure mode below degrades to a
-friendly "not sent" note rather than an exception. Whenever the dealer/
-supplier can't be reached directly — no phone on file, an unconfigured
-INVOICE_DOCUMENT_TEMPLATE_NAME, or the template send itself failing — the
-same PDF is instead handed straight to the founder's own chat
-(company.whatsapp_number, the number this whole conversation is already
-happening on, safely inside its own session window) so the invoice doesn't
-just vanish; the founder can forward it manually. Only a total upload
-failure (WhatsApp not configured at all) leaves nobody with the PDF.
+friendly "not sent" note rather than an exception. The PDF always goes to
+the founder's own chat (company.whatsapp_number, the number this whole
+conversation is already happening on, safely inside its own session window)
+— by explicit request, not just as a fallback — and, independently,
+*additionally* to the dealer directly whenever they have a phone on file and
+INVOICE_DOCUMENT_TEMPLATE_NAME is configured. (Earlier behavior sent the
+founder a copy only when the dealer send failed/wasn't possible; the founder
+now always gets one regardless, so they have a copy of every invoice even
+when the dealer is also reachable.) Only a total upload failure (WhatsApp
+not configured at all) leaves nobody with the PDF.
 """
 
 from __future__ import annotations
@@ -41,14 +43,20 @@ from app.services.writes.orders import CreateOrderResult
 logger = logging.getLogger(__name__)
 
 _NOTIFICATION_TYPE = "invoice_document"
-_FOUNDER_FALLBACK_NOTIFICATION_TYPE = "invoice_document_founder_fallback"
+# Historical name/value kept as-is (predates the always-send-to-founder
+# change) — NotificationLog rows already use this string, and nothing about
+# founder delivery becoming unconditional changes what a "founder copy of
+# this invoice" log entry means.
+_FOUNDER_NOTIFICATION_TYPE = "invoice_document_founder_fallback"
 
 
 @dataclass(frozen=True)
 class InvoiceDeliveryResult:
-    """Which recipient actually received the PDF, if either — at most one of
-    these is ever True. pending_operation.py words the confirmation reply
-    differently for each case.
+    """Which recipient(s) actually received the PDF. Both can be True (the
+    common case — founder always gets a copy, dealer gets one too when
+    reachable) or both False (the PDF upload itself failed).
+    pending_operation.py words the confirmation reply differently for each
+    combination.
     """
 
     sent_to_dealer: bool
@@ -58,8 +66,9 @@ class InvoiceDeliveryResult:
 async def send_invoice_document(
     db: AsyncSession, company: Company, result: CreateOrderResult, pdf_bytes: bytes
 ) -> InvoiceDeliveryResult:
-    """Upload the PDF once, try the dealer's document template, and fall back
-    to the founder's own chat when that isn't possible.
+    """Upload the PDF once, then attempt both deliveries independently: the
+    dealer's document template (only when reachable) and the founder's own
+    chat (always) — neither attempt's outcome gates the other.
     """
     settings = get_settings()
     filename = f"{result.invoice_number}.pdf"
@@ -139,24 +148,24 @@ async def send_invoice_document(
         )
     )
 
-    if dealer_message_id:
-        return InvoiceDeliveryResult(sent_to_dealer=True, sent_to_founder=False)
-
+    # Always attempted, independent of whether the dealer send above
+    # succeeded — the founder gets their own copy of every invoice either
+    # way, not only when the dealer couldn't be reached.
     founder_message_id: str | None = None
+    caption = f"Invoice {result.invoice_number} for {result.dealer_name}"
+    if not dealer_message_id:
+        caption += " — couldn't reach them directly, please forward this to them."
     try:
         send_result = await send_document_message(
             company.whatsapp_number,
             media_id,
             filename,
-            caption=(
-                f"Invoice {result.invoice_number} for {result.dealer_name} — couldn't "
-                "reach them directly, please forward this to them."
-            ),
+            caption=caption,
         )
         founder_message_id = send_result.message_id
     except (WhatsAppNotConfiguredError, WhatsAppSendError) as exc:
         logger.warning(
-            "Invoice %s: founder-fallback PDF delivery failed: %s",
+            "Invoice %s: founder PDF delivery failed: %s",
             result.invoice_number,
             exc,
         )
@@ -164,11 +173,13 @@ async def send_invoice_document(
     db.add(
         NotificationLog(
             company_id=company.id,
-            notification_type=_FOUNDER_FALLBACK_NOTIFICATION_TYPE,
+            notification_type=_FOUNDER_NOTIFICATION_TYPE,
             recipient_whatsapp=company.whatsapp_number,
-            message_text=f"Invoice {result.invoice_number} PDF (founder fallback)",
+            message_text=f"Invoice {result.invoice_number} PDF (founder copy)",
             whatsapp_message_id=founder_message_id,
             delivery_status="sent" if founder_message_id else "failed_to_send",
         )
     )
-    return InvoiceDeliveryResult(sent_to_dealer=False, sent_to_founder=bool(founder_message_id))
+    return InvoiceDeliveryResult(
+        sent_to_dealer=bool(dealer_message_id), sent_to_founder=bool(founder_message_id)
+    )

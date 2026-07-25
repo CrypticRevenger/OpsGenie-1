@@ -72,8 +72,21 @@ async def create_pending_operation(
     """Create a new pending confirmation, replacing any stale one for this
     company — only one is ever meaningful at a time (the guided flow that
     creates this always clears active_workflow in the same step).
+
+    Threads company.active_workflow_start_trigger (set by the webhook
+    routing ladder when the now-ending guided flow started — see
+    app/api/webhooks/whatsapp.py) into the payload as "start_trigger", since
+    every call site here runs *before* the calling workflow clears
+    active_workflow/active_workflow_start_trigger to None. This lets the
+    webhook's generic "want to do that again?" continue-or-end offer
+    (Company.pending_continue_prompt) work for every PendingOperation-gated
+    flow (record_payment, create_order, update_gst, ...) without any of
+    those workflow files needing to know about it themselves.
     """
     await db.execute(delete(PendingOperation).where(PendingOperation.company_id == company.id))
+    if "start_trigger" not in payload:
+        payload = {**payload, "start_trigger": company.active_workflow_start_trigger}
+    company.active_workflow_start_trigger = None
     op = PendingOperation(
         company_id=company.id,
         operation_type=operation_type,
@@ -176,6 +189,7 @@ async def execute_pending_operation(
                     advance_paid=(
                         Decimal(payload["advance_paid"]) if payload.get("advance_paid") else None
                     ),
+                    dealer_phone=payload.get("dealer_phone"),
                 )
         except (ValueError, KeyError, TypeError) as exc:
             # Same reasoning as the record_payment branch above: a re-
@@ -235,7 +249,12 @@ async def execute_pending_operation(
                 "Invoice %s: PDF generation/delivery failed (non-blocking).",
                 result.invoice_number,
             )
-        if pdf_sent_to_dealer:
+        # send_invoice_document always attempts the founder copy, so the two
+        # flags are no longer mutually exclusive (see invoice_delivery.py) —
+        # "both" is now the common case for a dealer with a phone on file.
+        if pdf_sent_to_dealer and pdf_sent_to_founder:
+            pdf_note = t("pending.order_pdf_sent_both", loc, dealer=result.dealer_name)
+        elif pdf_sent_to_dealer:
             pdf_note = t("pending.order_pdf_sent", loc, dealer=result.dealer_name)
         elif pdf_sent_to_founder:
             pdf_note = t("pending.order_pdf_sent_to_founder", loc, dealer=result.dealer_name)
@@ -496,6 +515,37 @@ async def handle_pending_operation_reply(
     if stripped in _YES_WORDS:
         return await execute_pending_operation(db, company, op)
     if stripped in _NO_WORDS:
+        # A declined record_payment gets a chance to just fix the amount/date
+        # instead of restarting the whole guided flow from the party name —
+        # unless this confirmation came from a supplier-payment reminder
+        # (payment_reminder_confirm.py's reminder_queue), where "no" correctly
+        # means "not yet paid" and already has its own reschedule branch;
+        # conflating the two would break that flow's semantics.
+        if op.operation_type == PendingOperationType.record_payment and not op.payload.get(
+            "reminder_queue"
+        ):
+            # Local import: payment_flow.py imports create_pending_operation
+            # from this module, so importing it back at module level here
+            # would be a circular import — same reason order_flow.py/
+            # payment_reminder_confirm are imported locally elsewhere in
+            # this file.
+            from app.services.workflows.payment_flow import _amount_prompt
+
+            payload = op.payload
+            await db.delete(op)
+            _clear_active_pending_operation(company)
+            company.active_workflow = "record_payment"
+            company.active_workflow_start_trigger = payload.get("start_trigger")
+            company.workflow_scratch = {
+                "step": "awaiting_amount",
+                "direction": payload["direction"],
+                "party_name": payload["party_name"],
+                "invoice_id": payload.get("invoice_id"),
+                "invoice_number": payload.get("invoice_number"),
+            }
+            question = _amount_prompt(payload["direction"], loc)
+            return t("pending.payment_declined_amend", loc, question=question)
+
         # Reminder-triggered record_payment confirmations carry same-tick
         # bills queued behind them — see payment_reminder_confirm.py. A "no"
         # here still resolves this one (declined), so the next queued bill

@@ -647,6 +647,16 @@ MESSAGES: dict[str, str] = {
     "workflow.error_restart": (
         "Kuch gadbad ho gayi. Kripya dobara '{trigger}' bolkar shuru karein."
     ),
+    "workflow.interrupt_ask": (
+        "Aapka '{current}' abhi bhi adhura hai. Ise cancel karke '{new}' shuru karne ke liye "
+        "YES bhejein, ya '{current}' jaari rakhne ke liye NO bhejein."
+    ),
+    "workflow.interrupt_resumed": "OK, '{current}' jaari rakh rahe hain.",
+    "workflow.continue_or_end_ask": (
+        "Kya dobara yahi karna hai? Jaari rakhne ke liye apna agla jawab bhejein, ya khatam "
+        "karne ke liye 'done' bhejein."
+    ),
+    "workflow.continue_or_end_closing": "OK! Zaroorat ho to bataayein.",
     "workflow.kind_dealer": "dealer",
     "workflow.kind_supplier": "supplier",
     "workflow.photo_busy": (
@@ -1120,6 +1130,9 @@ MESSAGES: dict[str, str] = {
         "Invoices update hue: {invoices}\n"
         "Baaki outstanding: {outstanding}"
     ),
+    "pending.payment_declined_amend": (
+        "Record nahi hua. {question}\n(Ya rokne ke liye 'cancel' bhejein.)"
+    ),
     "pending.order_failed": "Woh order nahi ban paya: {error}. Kripya dobara shuru karein.",
     "pending.order_line": "- {quantity} x {product} = {total}",
     "pending.order_stock_warning": "\n⚠️ Ab stock negative hai: {products}",
@@ -1131,6 +1144,7 @@ MESSAGES: dict[str, str] = {
         "\n({dealer} tak seedha nahi pahunch paya — PDF upar bhej diya hai, aap khud "
         "forward kar dein.)"
     ),
+    "pending.order_pdf_sent_both": "\nPDF aapko aur {dealer} dono ko bhej diya.",
     "pending.order_success": (
         "✅ Order {number} {dealer} ke liye bana.\n{lines}\n"
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"

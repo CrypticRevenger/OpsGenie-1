@@ -632,10 +632,10 @@ async def test_dealer_direct_reminder_uses_template_outside_session_window(
         risk_level="High", dealer_phone=_unique_phone(), direct_reminders_enabled=True
     )
     monkeypatch.setattr(get_settings(), "dealer_reminder_template_name", "dealer_reminder_tmpl")
-    template_calls: list[tuple[str, str, str]] = []
+    template_calls: list[tuple[str, str, list]] = []
 
     async def _fake_send_template(to, template_name, language_code, body_params=None, **kwargs):
-        template_calls.append((to, template_name, body_params[0] if body_params else ""))
+        template_calls.append((to, template_name, body_params or []))
         return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
 
     monkeypatch.setattr("app.services.notifications.send_template_message", _fake_send_template)
@@ -649,6 +649,14 @@ async def test_dealer_direct_reminder_uses_template_outside_session_window(
     assert len(template_calls) == 1
     assert template_calls[0][0] == dealer.dealer_phone
     assert template_calls[0][1] == "dealer_reminder_tmpl"
+    # dealer_payment_reminder_v2's 4 variables, discrete and in order — not
+    # the single pre-composed message string this used to send.
+    assert template_calls[0][2] == [
+        dealer.dealer_name,
+        company.business_name,
+        "₹42,000",
+        "20",
+    ]
 
     log = await db.scalar(
         select(NotificationLog).where(

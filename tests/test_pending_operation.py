@@ -94,7 +94,10 @@ async def test_create_pending_operation_sets_expiry_and_payload(db: AsyncSession
     await db.commit()
 
     assert op.operation_type == PendingOperationType.record_payment
-    assert op.payload == payload
+    # create_pending_operation adds "start_trigger" (from
+    # company.active_workflow_start_trigger, unset here) to every payload —
+    # see its own docstring.
+    assert op.payload == {**payload, "start_trigger": None}
     expected_expiry = before + timedelta(minutes=30)
     assert abs((op.expires_at - expected_expiry).total_seconds()) < 5
     assert company.active_pending_operation_id == op.id
@@ -203,6 +206,40 @@ async def test_execute_pending_operation_stale_outstanding_reraises_and_deletes(
 async def test_handle_pending_operation_reply_no_cancels_without_executing(
     db: AsyncSession,
 ) -> None:
+    """Generic NO-cancels behavior — for every operation type EXCEPT
+    record_payment, which now amends instead of cancelling outright (see
+    test_handle_pending_operation_reply_no_on_record_payment_resumes_for_amend
+    below). update_gst is used here specifically because it still exercises
+    the plain cancel path.
+    """
+    company = await _make_company(db)
+
+    op = await create_pending_operation(
+        db,
+        company,
+        PendingOperationType.update_gst,
+        {"scope": "all", "gst_rate": "18"},
+    )
+    await db.commit()
+
+    reply = await handle_pending_operation_reply(db, company, op, "no")
+    await db.commit()
+
+    assert "cancelled" in reply.lower()
+    remaining = await db.scalar(select(PendingOperation).where(PendingOperation.id == op.id))
+    assert remaining is None
+    assert company.active_pending_operation_id is None
+
+
+@pytest.mark.asyncio
+async def test_handle_pending_operation_reply_no_on_record_payment_resumes_for_amend(
+    db: AsyncSession,
+) -> None:
+    """A declined record_payment confirmation (fix for the "must restart the
+    whole flow to fix a typo'd amount" bug) resumes the guided flow one step
+    back — at awaiting_amount, with the party/direction/invoice already
+    known — instead of a bare cancel. No payment is written either way.
+    """
     company = await _make_company(db)
     dealer = await _make_dealer(db, company.id, "Ram Traders")
     await _make_invoice(db, company.id, dealer.id, "INV-PO3", Decimal("10000.00"))
@@ -218,7 +255,9 @@ async def test_handle_pending_operation_reply_no_cancels_without_executing(
     reply = await handle_pending_operation_reply(db, company, op, "no")
     await db.commit()
 
-    assert "cancelled" in reply.lower()
+    assert "cancelled" not in reply.lower()
+    assert "not recorded" in reply.lower()
+    assert "how much" in reply.lower()
     remaining = await db.scalar(select(PendingOperation).where(PendingOperation.id == op.id))
     assert remaining is None
     assert company.active_pending_operation_id is None
@@ -226,6 +265,23 @@ async def test_handle_pending_operation_reply_no_cancels_without_executing(
         (await db.execute(select(Payment).where(Payment.company_id == company.id))).scalars().all()
     )
     assert payment_count == 0
+
+    assert company.active_workflow == "record_payment"
+    assert company.workflow_scratch == {
+        "step": "awaiting_amount",
+        "direction": "receivable",
+        "party_name": "Ram Traders",
+        "invoice_id": None,
+        "invoice_number": None,
+    }
+
+    # The corrected amount now walks through date -> preview exactly like a
+    # fresh payment, landing on a new PendingOperation.
+    from app.services.workflows.payment_flow import handle_payment_workflow_message
+
+    reply2 = await handle_payment_workflow_message(db, company, "9500")
+    await db.commit()
+    assert "when was this paid" in reply2.lower()
 
 
 @pytest.mark.asyncio
