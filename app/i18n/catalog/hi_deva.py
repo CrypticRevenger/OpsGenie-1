@@ -1204,15 +1204,22 @@ MESSAGES: dict[str, str] = {
     "evening.net_cash": "Net Cash Movement: {amount}",
     "evening.outstanding": "Outstanding Receivables: {amount}",
     "evening.priority_header": "Priority Actions:",
-    # ── Dealer self-service (Phase 1, read-only) — DRAFT for founder review ─
+    # ── Dealer self-service (Phases 1-2, read-only) — DRAFT for founder review
     "dealer.balance.header": "नमस्ते {dealer_name}, {business_name} के साथ आपका account:",
     "dealer.balance.outstanding": "💰 {amount} outstanding",
     "dealer.balance.no_outstanding": "✅ कोई outstanding balance नहीं है",
     "dealer.balance.next_due": "📅 अगला due: {date}",
     "dealer.balance.last_payment": "🧾 आखिरी payment: {amount} ({date} को)",
+    "dealer.statement.ready": (
+        "आपका {business_name} के साथ account statement ({period}) तैयार है।\nDownload "
+        "({ttl} min valid):\n{links}"
+    ),
+    "dealer.statement.not_configured": (
+        "माफ़ कीजिए, अभी statement उपलब्ध नहीं है — कृपया सीधे {business_name} से contact करें।"
+    ),
     "dealer.help": (
-        "मैं इनमें मदद कर सकता हूं:\n\nBALANCE — अपना outstanding balance चेक करें\nHELP — यह "
-        "message फिर से देखें"
+        "मैं इनमें मदद कर सकता हूं:\n\nBALANCE — अपना outstanding balance चेक करें\nSTATEMENT — "
+        "अपना account statement चेक करें (PDF/Excel)\nHELP — यह message फिर से देखें"
     ),
     "dealer.unrecognized": (
         "माफ़ कीजिए, मुझे यह समझ नहीं आया। अपना outstanding चेक करने के लिए BALANCE, या और "

@@ -575,20 +575,27 @@ def generate_export_link(
     to "issue" it, so there's nothing to store or revoke. Same HMAC signing
     convention already used to verify Meta's webhook payloads.
 
-    The signature only ever covers `company_id:expires_at` (unchanged from
-    the original all-time-workbook link) — `report`/`format`/period/`party`
-    ride along as plain query params, not signed. That's deliberate: a valid
-    link already grants the holder read access to everything in that
-    company's full workbook, so a report-scoped link (strictly less data)
-    doesn't need a tighter guarantee than the one that already exists.
-    Default call (no new kwargs) produces the exact same URL as before this
-    was extended.
+    The signature covers `company_id:expires_at` plus `party_id` whenever a
+    party is present (unchanged from the original all-time-workbook link when
+    `party_id` is None). `report`/`format`/period still ride along as plain
+    unsigned query params — those only ever narrow which *company-wide* data
+    a valid link can reach, which a holder can already get in full via the
+    unscoped link, so they don't need a tighter guarantee. `party_id` is
+    different: it's the actual access-control boundary for a party-scoped
+    link (e.g. a single dealer's own statement, see
+    app/services/dealer_self_service.py), so it must be part of what's
+    signed — otherwise the holder of one dealer's link could edit the `party`
+    query param to read a different dealer's ledger. Default call (no
+    `party_id`) produces the exact same URL/signature as before this was
+    extended.
     """
     settings = get_settings()
     if not settings.export_link_secret:
         raise ValueError("EXPORT_LINK_SECRET is not configured.")
     expires_at = int(time.time()) + settings.export_link_ttl_minutes * 60
     message = f"{company.id}:{expires_at}"
+    if party_id is not None:
+        message += f":{party_id}"
     signature = hmac.new(
         settings.export_link_secret.encode(), message.encode(), hashlib.sha256
     ).hexdigest()
@@ -612,13 +619,25 @@ def generate_export_link(
     return url
 
 
-def verify_export_link(company_id: uuid.UUID, expires_at: int, signature: str) -> bool:
+def verify_export_link(
+    company_id: uuid.UUID,
+    expires_at: int,
+    signature: str,
+    *,
+    party_id: uuid.UUID | None = None,
+) -> bool:
+    """`party_id` must be passed whenever the request carries a `party` query
+    param — see generate_export_link's docstring for why it's part of the
+    signed message rather than a free-riding query param.
+    """
     settings = get_settings()
     if not settings.export_link_secret:
         return False
     if time.time() > expires_at:
         return False
     message = f"{company_id}:{expires_at}"
+    if party_id is not None:
+        message += f":{party_id}"
     expected = hmac.new(
         settings.export_link_secret.encode(), message.encode(), hashlib.sha256
     ).hexdigest()

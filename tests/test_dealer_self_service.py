@@ -13,6 +13,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from app.core.config import get_settings
 from app.models.company import Company
 from app.models.dealer import Dealer
 from app.models.invoice import Invoice, InvoiceDirection, InvoiceSource, InvoiceStatus
@@ -22,6 +23,7 @@ from app.services.dealer_self_service import (
     DealerMatch,
     dealer_balance_reply,
     dealer_help_reply,
+    dealer_statement_reply,
     find_dealer_company,
     handle_dealer_message,
 )
@@ -244,6 +246,64 @@ async def test_dealer_balance_reply_scoped_to_one_dealer_only(db: AsyncSession) 
     assert other_dealer.name not in reply
 
 
+# ── dealer_statement_reply ───────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_dealer_statement_reply_returns_excel_and_pdf_links(db: AsyncSession) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company)
+
+    reply = await dealer_statement_reply(db, company, dealer)
+
+    assert company.business_name in reply
+    assert "Excel:" in reply
+    assert "PDF:" in reply
+    assert f"party={dealer.id}" in reply
+
+
+@pytest.mark.asyncio
+async def test_dealer_statement_reply_scoped_to_one_dealer_only(db: AsyncSession) -> None:
+    """The link's party matches this dealer, not any other dealer on the same
+    company — proven by checking the actual returned URL, not just that a
+    link was returned. See test_signed_link_party_id_is_part_of_the_signature
+    in tests/test_company_export.py for proof the link is also tamper-proof.
+    """
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company)
+    other_dealer = await _make_dealer(db, company, name="Shyam Distributors")
+
+    reply = await dealer_statement_reply(db, company, dealer)
+
+    assert f"party={dealer.id}" in reply
+    assert str(other_dealer.id) not in reply
+
+
+@pytest.mark.asyncio
+async def test_dealer_statement_reply_not_configured(db: AsyncSession, monkeypatch) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "export_link_secret", None)
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company)
+
+    reply = await dealer_statement_reply(db, company, dealer)
+
+    assert "Excel:" not in reply
+    assert company.business_name in reply
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("text", ["statement", "STATEMENT", "my statement", "ledger", "my ledger"])
+async def test_handle_dealer_message_statement_synonyms(db: AsyncSession, text: str) -> None:
+    company = await _make_company(db)
+    dealer = await _make_dealer(db, company)
+
+    reply = await handle_dealer_message(db, company, dealer, text)
+
+    assert "Excel:" in reply
+    assert f"party={dealer.id}" in reply
+
+
 # ── dealer_help_reply / handle_dealer_message ─────────────────────────────────
 
 
@@ -252,6 +312,7 @@ async def test_dealer_help_reply_is_minimal(db: AsyncSession) -> None:
     company = await _make_company(db)
     reply = dealer_help_reply(company)
     assert "BALANCE" in reply
+    assert "STATEMENT" in reply
     assert "HELP" in reply
 
 

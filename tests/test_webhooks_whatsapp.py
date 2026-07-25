@@ -1971,7 +1971,7 @@ async def test_onboarding_outranks_pending_follow_up(db: AsyncSession, monkeypat
     assert company.pending_follow_up_invoice_id is not None  # follow-up untouched
 
 
-# ── Dealer self-service (Phase 1, read-only) ─────────────────────────────────
+# ── Dealer self-service (Phases 1-2, read-only) ──────────────────────────────
 # See app/services/dealer_self_service.py for the unit-level reply-builder
 # tests; these prove the webhook-level wiring — a sender that matches no
 # Company's own whatsapp_number but does match an opted-in dealer's phone
@@ -2022,6 +2022,62 @@ async def test_dealer_self_service_enabled_replies_with_balance(
     assert len(sent) == 1
     assert "Ram Traders" in sent[0]
     assert "No outstanding balance" in sent[0]
+
+    log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company.id))
+    assert log.notification_type == "dealer_self_service"
+
+
+@pytest.mark.asyncio
+async def test_dealer_self_service_enabled_replies_with_statement(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Phase 2 — webhook-level wiring for the ledger/statement command,
+    mirroring the balance test above. See tests/test_dealer_self_service.py
+    for the reply-builder unit tests and tests/test_company_export.py for
+    proof the underlying signed link can't be tampered to reach another
+    dealer's data.
+    """
+    company = Company(
+        business_name="Dealer SS Co",
+        owner_name="Owner",
+        whatsapp_number=_unique_phone(),
+        dealer_self_service_enabled=True,
+    )
+    db.add(company)
+    await db.commit()
+    await db.refresh(company)
+
+    dealer_phone = _unique_phone()
+    dealer = Dealer(company_id=company.id, name="Ram Traders", phone=dealer_phone)
+    db.add(dealer)
+    await db.commit()
+    await db.refresh(dealer)
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        assert to == dealer_phone
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+    monkeypatch.setattr(
+        "app.api.webhooks.whatsapp.answer_question",
+        AsyncMock(side_effect=AssertionError("dealer messages must never reach the LLM")),
+    )
+
+    bare_sender = dealer_phone.removeprefix("+")
+    body = json.dumps(_messages_payload(sender=bare_sender, text="statement")).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+    assert len(sent) == 1
+    assert "Excel:" in sent[0]
+    assert f"party={dealer.id}" in sent[0]
 
     log = await db.scalar(select(NotificationLog).where(NotificationLog.company_id == company.id))
     assert log.notification_type == "dealer_self_service"

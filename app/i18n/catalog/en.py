@@ -1308,15 +1308,22 @@ MESSAGES: dict[str, str] = {
     "evening.net_cash": "Net Cash Movement: {amount}",
     "evening.outstanding": "Outstanding Receivables: {amount}",
     "evening.priority_header": "Priority Actions:",
-    # ── Dealer self-service (Phase 1, read-only) ────────────────────────────
+    # ── Dealer self-service (Phases 1-2, read-only) ─────────────────────────
     "dealer.balance.header": "Hi {dealer_name}, here's your account with {business_name}:",
     "dealer.balance.outstanding": "💰 {amount} outstanding",
     "dealer.balance.no_outstanding": "✅ No outstanding balance",
     "dealer.balance.next_due": "📅 Next due: {date}",
     "dealer.balance.last_payment": "🧾 Last payment: {amount} on {date}",
+    "dealer.statement.ready": (
+        "Your account statement with {business_name} ({period}) is ready.\nDownload (valid "
+        "{ttl} min):\n{links}"
+    ),
+    "dealer.statement.not_configured": (
+        "Sorry, statements aren't available right now — please contact {business_name} directly."
+    ),
     "dealer.help": (
-        "I can help you with:\n\nBALANCE — check your outstanding balance\nHELP — show this "
-        "message"
+        "I can help you with:\n\nBALANCE — check your outstanding balance\nSTATEMENT — get your "
+        "account statement (PDF/Excel)\nHELP — show this message"
     ),
     "dealer.unrecognized": (
         "Sorry, I didn't understand that. Reply BALANCE to check your outstanding, or HELP for "
