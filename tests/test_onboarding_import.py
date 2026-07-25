@@ -434,7 +434,15 @@ async def test_import_with_another_companys_token_is_rejected(client: AsyncClien
 async def test_import_with_a_tampered_token_is_rejected(client: AsyncClient) -> None:
     company_id, token = await _register_company(client)
     expiry, _, signature = token.partition(".")
-    tampered = f"{expiry}.{'1' if signature[-1] == '0' else '0'}{signature[1:]}"
+    # Flip the last signature character to something guaranteed *different* —
+    # the previous version decided which digit to flip in based on the LAST
+    # character but then replaced the FIRST one, so whenever signature[0]
+    # already happened to equal the replacement digit the "tampered" token was
+    # silently identical to the real one (~1 run in 16), a pre-existing flake
+    # of the exact same class already fixed in test_company_export.py's
+    # test_public_export_endpoint_rejects_tampered_signature.
+    tampered_signature = signature[:-1] + ("1" if signature[-1] == "0" else "0")
+    tampered = f"{expiry}.{tampered_signature}"
 
     resp = await client.post(
         f"/onboard/{company_id}/import",
