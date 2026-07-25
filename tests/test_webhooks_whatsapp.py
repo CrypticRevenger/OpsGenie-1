@@ -2278,3 +2278,51 @@ async def test_continue_or_end_prompt_after_write_immediate_flow(
     assert company.active_workflow is None
     assert company.pending_continue_prompt is None
     assert "switched" not in sent[-1].lower()
+
+
+@pytest.mark.asyncio
+async def test_continue_or_end_prompt_new_command_starts_it_not_fed_as_answer(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """Real bug: while the "do that again, or done?" prompt was pending, a
+    tapped interactive-list row (read back verbatim as its `/slash_command`
+    id, per _extract_text_body) got treated as free-form input to the old,
+    already-finished flow's restart instead of as the distinct new command it
+    is — e.g. tapping "Add Product" restarted create_order and fed it
+    "/add_product" as the dealer name, producing a "dealer not found, add as
+    new dealer?" reply that echoed the internal command id back at the
+    founder. A recognized trigger arriving here must start *that* workflow
+    directly.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "add dealer")
+        await _send(client, bare_sender, "one by one")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "skip")
+        await _send(client, bare_sender, "skip")
+        await _send(client, bare_sender, "done")
+        assert "do that again" in sent[-1].lower()
+
+        # Simulates a tapped "Add Product" list row — its id is read back
+        # exactly like typed text, "/add_product".
+        await _send(client, bare_sender, "/add_product")
+        assert "not" not in sent[-1].lower()  # not a "dealer not found" reply
+        assert "/add_product" not in sent[-1]  # never echo the raw command id
+        assert "one by one" in sent[-1].lower()  # product.mode_prompt, verbatim
+
+    company = await db.get(Company, company_id)
+    assert company.active_workflow == "add_product"
+    assert company.active_workflow_start_trigger == "/add_product"
+    assert company.pending_continue_prompt is None

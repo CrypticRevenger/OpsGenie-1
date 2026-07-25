@@ -1198,13 +1198,29 @@ async def _resolve_continue_or_end(db: AsyncSession, company: Company, text: str
     immediately re-dispatches `text` as the restarted flow's first answer —
     the "single go" convenience of typing the next party/dealer/etc. name
     directly instead of first replying "yes" and waiting to be asked again.
+
+    A recognized workflow-start trigger arriving here — typed, or a tapped
+    interactive-list row read back verbatim as its id (see
+    _extract_text_body) — is a distinct new command, not an answer to "do
+    that again?". It must start *that* command, not be fed as literal input
+    to the just-ended flow's restart (the real bug this closes: tapping
+    "Add Product" from the menu while this prompt was pending restarted the
+    old create-order flow and fed it the tapped row's raw id, "/add_product",
+    as the dealer name — producing a "dealer not found, add as new dealer?"
+    reply that echoed the internal command id back at the founder).
     """
     loc = resolve_locale(company)
     trigger = company.pending_continue_prompt
     stripped = text.strip()
+    stripped_lower = stripped.lower()
     company.pending_continue_prompt = None
     if _is(stripped, "done", "no", "n", "end", "finish", "stop", "cancel"):
         return t("workflow.continue_or_end_closing", loc)
+    if stripped_lower in _WORKFLOW_START_TRIGGERS:
+        new_starter = _WORKFLOW_START_TRIGGERS[stripped_lower]
+        reply = new_starter(company)
+        company.active_workflow_start_trigger = stripped_lower
+        return reply
     starter = _WORKFLOW_START_TRIGGERS.get(trigger) if trigger else None
     if starter is None:
         return t("workflow.continue_or_end_closing", loc)
