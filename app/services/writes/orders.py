@@ -112,6 +112,7 @@ async def create_order(
     dealer_name: str,
     items: list[dict],
     advance_paid: Decimal | None = None,
+    advance_payment_method: str | None = None,
     dealer_phone: str | None = None,
 ) -> CreateOrderResult:
     """Record a WhatsApp-guided order as a receivable invoice against a
@@ -124,6 +125,10 @@ async def create_order(
     transitions (Paid/Partially_Paid), the Payment/BusinessEvent audit
     trail, and "amount exceeds outstanding" all come for free and can never
     drift from how every other payment in this system is recorded.
+    advance_payment_method ("cash"/"online", from the ADVANCE sub-flow's own
+    method question — see app/services/writes/pending_operation.py) is
+    ignored when advance_paid is None/zero, same as every other advance-only
+    field here.
 
     dealer_phone (optional) only ever applies when this order is creating a
     brand-new dealer — order_flow.py's awaiting_new_dealer_phone step
@@ -241,7 +246,7 @@ async def create_order(
             party_name=dealer.name,
             amount=advance,
             payment_date=today,
-            method="",
+            method=advance_payment_method or "",
             voucher_reference="",
             source_file="whatsapp",
             row_number=0,

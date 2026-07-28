@@ -883,6 +883,9 @@ async def test_advance_reply_asks_amount_then_updates_preview(
         assert "how much" in sent[-1].lower()
 
         await _send(client, bare_sender, "200")
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
+
+        await _send(client, bare_sender, "cash")
         preview = sent[-1]
         assert "confirm" in preview.lower()
         assert "200" in preview  # Payment Made
@@ -918,6 +921,7 @@ async def test_advance_then_yes_creates_partially_paid_invoice_with_payment_row(
         await _send(client, bare_sender, "done")
         await _send(client, bare_sender, "advance")
         await _send(client, bare_sender, "200")
+        await _send(client, bare_sender, "online")
 
         await _send(client, bare_sender, "YES")
         assert "created" in sent[-1].lower()
@@ -932,6 +936,7 @@ async def test_advance_then_yes_creates_partially_paid_invoice_with_payment_row(
     payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
     assert payment is not None
     assert payment.amount == Decimal("200.00")
+    assert payment.method == "online"
 
 
 @pytest.mark.asyncio
@@ -955,6 +960,7 @@ async def test_advance_covering_full_total_creates_paid_invoice(
         await _send(client, bare_sender, "done")
         await _send(client, bare_sender, "advance")
         await _send(client, bare_sender, "550")  # full amount paid upfront
+        await _send(client, bare_sender, "cash")
 
         await _send(client, bare_sender, "YES")
         assert "created" in sent[-1].lower()
@@ -1022,6 +1028,9 @@ async def test_advance_non_numeric_reasked(db: AsyncSession, monkeypatch) -> Non
         assert "greater than zero" in sent[-1].lower()
 
         await _send(client, bare_sender, "100")
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
+
+        await _send(client, bare_sender, "cash")
         assert "confirm" in sent[-1].lower()
         assert "100" in sent[-1]
 
@@ -1053,14 +1062,17 @@ async def test_advance_amount_of_one_or_two_not_swallowed_as_yes_no(
         await _send(client, bare_sender, "advance")
 
         await _send(client, bare_sender, "1")
-        # Read as an advance amount (re-shown preview asking to confirm),
-        # not as YES (which would have created the order immediately).
-        assert "confirm" in sent[-1].lower()
+        # Read as an advance amount (moves on to the method question), not as
+        # YES (which would have created the order immediately).
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
 
     invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))
     assert invoice is None  # not created yet — still awaiting confirmation
 
     async with await _anon_client() as client:
+        # "YES" here also escapes the still-pending method question (same
+        # convention as the amount step) — confirms with the ₹1 advance
+        # already recorded above, method left unset.
         await _send(client, bare_sender, "YES")
 
     invoice = await db.scalar(select(Invoice).where(Invoice.company_id == company_id))

@@ -739,6 +739,8 @@ MESSAGES: dict[str, str] = {
     "payment.got_it_no_invoice": "Got it. {message}",
     "payment.amount_invalid": "Please send an amount, e.g. 25000.",
     "payment.amount_positive": "Please send an amount greater than zero.",
+    "payment.method_ask": "Cash or Online? Reply 1 Cash or 2 Online.",
+    "payment.method_invalid": "Please reply 1 Cash or 2 Online.",
     "payment.date_ask": (
         "When was this paid? Reply 'today', 'yesterday', '3 days ago', or skip for today."
     ),

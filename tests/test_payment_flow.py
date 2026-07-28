@@ -173,6 +173,9 @@ async def test_full_walk_existing_dealer_yes_commits(db: AsyncSession, monkeypat
         assert len(sent) == 3  # re-asked, didn't advance
 
         await _send(client, bare_sender, "10000")
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
+
+        await _send(client, bare_sender, "cash")
         assert "when was this paid" in sent[-1].lower()
 
         await _send(client, bare_sender, "today")
@@ -186,6 +189,7 @@ async def test_full_walk_existing_dealer_yes_commits(db: AsyncSession, monkeypat
     payment = await db.scalar(select(Payment).where(Payment.company_id == company_id))
     assert payment is not None
     assert payment.amount == Decimal("10000.00")
+    assert payment.method == "cash"
     remaining_op = await db.scalar(
         select(PendingOperation).where(PendingOperation.company_id == company_id)
     )
@@ -194,6 +198,49 @@ async def test_full_walk_existing_dealer_yes_commits(db: AsyncSession, monkeypat
     company = await db.get(Company, company_id)
     assert company.active_workflow is None
     assert company.workflow_scratch is None
+
+
+@pytest.mark.asyncio
+async def test_method_invalid_reasked_then_numeric_shorthand_accepted(
+    db: AsyncSession, monkeypatch
+) -> None:
+    """The awaiting_method step re-asks on garbage input, and accepts both
+    the word ("online") and its numeric shorthand ("2") — same convention as
+    the dealer/supplier ("1"/"2") and yes/no ("y"/"n") choices elsewhere in
+    this flow.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_sender = phone.removeprefix("+")
+    await _make_dealer_with_invoice(db, company_id, "Ram Traders", "INV-PF8", Decimal("7000.00"))
+
+    sent: list[str] = []
+
+    async def _fake_send(to: str, body: str) -> WhatsAppSendResult:
+        sent.append(body)
+        return WhatsAppSendResult(message_id=f"wamid.{uuid.uuid4().hex}")
+
+    monkeypatch.setattr("app.api.webhooks.whatsapp.send_text_message", _fake_send)
+
+    async with await _anon_client() as client:
+        await _send(client, bare_sender, "record payment")
+        await _send(client, bare_sender, "Ram Traders")
+        await _send(client, bare_sender, "7000")
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
+
+        await _send(client, bare_sender, "UPI")  # not a recognized choice
+        assert "1 cash" in sent[-1].lower() and "2 online" in sent[-1].lower()
+
+        await _send(client, bare_sender, "2")  # numeric shorthand for Online
+        assert "when was this paid" in sent[-1].lower()
+
+        await _send(client, bare_sender, "today")
+        await _send(client, bare_sender, "YES")
+        assert "recorded" in sent[-1].lower()
+
+    payment = await db.scalar(select(Payment).where(Payment.company_id == company_id))
+    assert payment is not None
+    assert payment.method == "online"
 
 
 @pytest.mark.asyncio
@@ -223,6 +270,7 @@ async def test_no_on_record_payment_amends_instead_of_restarting(
         await _send(client, bare_sender, "record payment")
         await _send(client, bare_sender, "Ram Traders")
         await _send(client, bare_sender, "5000")
+        await _send(client, bare_sender, "cash")
         await _send(client, bare_sender, "today")
         assert "confirm" in sent[-1].lower()
 
@@ -244,6 +292,7 @@ async def test_no_on_record_payment_amends_instead_of_restarting(
 
         # Corrected amount, without re-typing the party name.
         await _send(client, bare_sender, "4500")
+        await _send(client, bare_sender, "online")
         await _send(client, bare_sender, "today")
         assert "confirm" in sent[-1].lower()
         assert "4,500" in sent[-1] or "4500" in sent[-1]
@@ -254,6 +303,7 @@ async def test_no_on_record_payment_amends_instead_of_restarting(
     payment = await db.scalar(select(Payment).where(Payment.company_id == company_id))
     assert payment is not None
     assert payment.amount == Decimal("4500.00")
+    assert payment.method == "online"
 
 
 @pytest.mark.asyncio
@@ -380,6 +430,7 @@ async def test_garbage_days_ago_reasked_not_crashed(db: AsyncSession, monkeypatc
         await _send(client, bare_sender, "record payment")
         await _send(client, bare_sender, "Ram Traders")
         await _send(client, bare_sender, "5000")
+        await _send(client, bare_sender, "cash")
         # Garbage input at the date step must be re-asked, never a 500 (_send
         # already asserts status_code == 200).
         await _send(client, bare_sender, "800000 days ago")
@@ -458,6 +509,7 @@ async def test_multiple_open_invoices_asks_which_one(db: AsyncSession, monkeypat
         assert "how much" in sent[-1].lower()
 
         await _send(client, bare_sender, "30000")
+        await _send(client, bare_sender, "cash")
         await _send(client, bare_sender, "today")
         assert "confirm" in sent[-1].lower()
         assert "INV-NEW" in sent[-1]
@@ -507,6 +559,7 @@ async def test_multiple_open_invoices_all_falls_back_to_fifo(db: AsyncSession, m
         assert "how much" in sent[-1].lower()
 
         await _send(client, bare_sender, "60000")
+        await _send(client, bare_sender, "cash")
         await _send(client, bare_sender, "today")
         assert "confirm" in sent[-1].lower()
         assert "invoice" not in sent[-1].lower()  # no specific target named
@@ -561,6 +614,7 @@ async def test_duplicate_payment_warns_but_still_records(db: AsyncSession, monke
         await _send(client, bare_sender, "record payment")
         await _send(client, bare_sender, "Ram Traders")
         await _send(client, bare_sender, "10000")
+        await _send(client, bare_sender, "cash")
         await _send(client, bare_sender, "today")
         assert "confirm" in sent[-1].lower()
         assert "similar to a payment already recorded" in sent[-1].lower()
@@ -612,6 +666,7 @@ async def test_different_amount_no_duplicate_warning(db: AsyncSession, monkeypat
         await _send(client, bare_sender, "record payment")
         await _send(client, bare_sender, "Ram Traders")
         await _send(client, bare_sender, "25000")  # different amount — no match
+        await _send(client, bare_sender, "cash")
         await _send(client, bare_sender, "today")
         assert "confirm" in sent[-1].lower()
         assert "similar to a payment already recorded" not in sent[-1].lower()
@@ -680,6 +735,7 @@ async def test_continue_or_end_prompt_after_payment_completes(
         await _send(client, bare_sender, "record payment")
         await _send(client, bare_sender, "Ram Traders")
         await _send(client, bare_sender, "5000")
+        await _send(client, bare_sender, "cash")
         await _send(client, bare_sender, "today")
         await _send(client, bare_sender, "YES")
         assert "recorded" in sent[-1].lower()
@@ -690,6 +746,7 @@ async def test_continue_or_end_prompt_after_payment_completes(
         assert "how much" in sent[-1].lower()
 
         await _send(client, bare_sender, "2000")
+        await _send(client, bare_sender, "online")
         await _send(client, bare_sender, "today")
         await _send(client, bare_sender, "YES")
         assert "recorded" in sent[-1].lower()
@@ -746,6 +803,9 @@ async def test_mid_flow_trigger_asks_before_switching(db: AsyncSession, monkeypa
         # The payment flow resumed exactly where it left off — still
         # awaiting the amount, no need to re-enter the party.
         await _send(client, bare_sender, "5000")
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
+
+        await _send(client, bare_sender, "cash")
         assert "when was this paid" in sent[-1].lower()
 
         await _send(client, bare_sender, "today")

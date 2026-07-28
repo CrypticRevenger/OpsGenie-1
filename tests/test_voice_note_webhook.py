@@ -256,6 +256,9 @@ async def test_voice_note_answers_a_yes_no_pending_confirmation(
         assert "how much did they pay you" in sent[-1].lower()
 
         await _send_text(client, bare_sender, "1500")
+        assert "cash" in sent[-1].lower() and "online" in sent[-1].lower()
+
+        await _send_text(client, bare_sender, "cash")
         assert "when was this paid" in sent[-1].lower()
 
         await _send_text(client, bare_sender, "today")
