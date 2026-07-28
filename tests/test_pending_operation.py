@@ -281,7 +281,11 @@ async def test_handle_pending_operation_reply_no_on_record_payment_resumes_for_a
 
     reply2 = await handle_payment_workflow_message(db, company, "9500")
     await db.commit()
-    assert "when was this paid" in reply2.lower()
+    assert "cash" in reply2.lower() and "online" in reply2.lower()
+
+    reply3 = await handle_payment_workflow_message(db, company, "cash")
+    await db.commit()
+    assert "when was this paid" in reply3.lower()
 
 
 @pytest.mark.asyncio

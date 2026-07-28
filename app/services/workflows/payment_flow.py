@@ -104,6 +104,19 @@ def _parse_dealer_or_supplier_choice(stripped: str) -> str | None:
     return None
 
 
+def _parse_payment_method(stripped: str) -> str | None:
+    """ "1"/"cash" -> cash, "2"/"online" -> online — shared by this flow's
+    awaiting_method step and the create_order ADVANCE sub-flow
+    (app/services/writes/pending_operation.py), same question either way.
+    """
+    lowered = stripped.lower()
+    if lowered in ("1", "cash"):
+        return "cash"
+    if lowered in ("2", "online"):
+        return "online"
+    return None
+
+
 async def _find_dealer(db: AsyncSession, company_id: uuid.UUID, name: str) -> Dealer | None:
     return await db.scalar(
         select(Dealer).where(
@@ -308,6 +321,15 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
         if amount <= 0:
             return t("payment.amount_positive", loc)
         scratch["amount"] = str(amount)
+        scratch["step"] = "awaiting_method"
+        company.workflow_scratch = scratch
+        return t("payment.method_ask", loc)
+
+    if step == "awaiting_method":
+        method = _parse_payment_method(stripped)
+        if method is None:
+            return t("payment.method_invalid", loc)
+        scratch["method"] = method
         scratch["step"] = "awaiting_date"
         company.workflow_scratch = scratch
         return t("payment.date_ask", loc)
@@ -374,6 +396,7 @@ async def handle_payment_workflow_message(db: AsyncSession, company: Company, te
                 "party_name": party_name,
                 "amount": str(amount),
                 "payment_date": payment_date.isoformat(),
+                "method": scratch.get("method"),
                 "invoice_id": scratch.get("invoice_id"),
                 # Cosmetic only (which invoice the preview names) — re-read on
                 # a declined confirm's amend-resume (see

@@ -132,6 +132,7 @@ async def execute_pending_operation(
                     party_name=payload["party_name"],
                     amount=Decimal(payload["amount"]),
                     payment_date=date.fromisoformat(payload["payment_date"]),
+                    method=payload.get("method"),
                     invoice_id=uuid.UUID(payload_invoice_id) if payload_invoice_id else None,
                 )
         except (ValueError, KeyError, TypeError) as exc:
@@ -189,6 +190,7 @@ async def execute_pending_operation(
                     advance_paid=(
                         Decimal(payload["advance_paid"]) if payload.get("advance_paid") else None
                     ),
+                    advance_payment_method=payload.get("advance_payment_method"),
                     dealer_phone=payload.get("dealer_phone"),
                 )
         except (ValueError, KeyError, TypeError) as exc:
@@ -474,11 +476,13 @@ async def handle_pending_operation_reply(
     loc = resolve_locale(company)
 
     if op.operation_type == PendingOperationType.create_order:
-        # Local import: order_flow.py imports create_pending_operation from
-        # this module, so importing it back at module level here would be a
-        # circular import — same reason payment_reminder_confirm is imported
-        # locally below, not at the top of this file.
+        # Local import: order_flow.py/payment_flow.py both import
+        # create_pending_operation from this module, so importing them back
+        # at module level here would be a circular import — same reason
+        # payment_reminder_confirm is imported locally below, not at the top
+        # of this file.
         from app.services.workflows.order_flow import compute_order_math, render_order_preview
+        from app.services.workflows.payment_flow import _parse_payment_method
 
         if (
             op.payload.get("awaiting_advance_amount")
@@ -498,12 +502,33 @@ async def handle_pending_operation_reply(
                 **op.payload,
                 "advance_paid": str(advance),
                 "awaiting_advance_amount": False,
+                "awaiting_advance_method": True,
+            }
+            return t("payment.method_ask", loc)
+        # Same escape set as the amount step above — "yes"/"no" here means
+        # "confirm/cancel now, don't ask the method question", not a cash/
+        # online choice (no overlap: valid answers are "1"/"cash"/"2"/
+        # "online"). The advance amount already validated above still
+        # applies; only the method stays unrecorded, same as it always has
+        # been for every advance before this feature existed.
+        if (
+            op.payload.get("awaiting_advance_method")
+            and stripped not in _ADVANCE_AMOUNT_ESCAPE_YES
+            and stripped not in _ADVANCE_AMOUNT_ESCAPE_NO
+        ):
+            method = _parse_payment_method(text.strip())
+            if method is None:
+                return t("payment.method_invalid", loc)
+            op.payload = {
+                **op.payload,
+                "advance_payment_method": method,
+                "awaiting_advance_method": False,
             }
             return render_order_preview(
                 dealer_name=op.payload["dealer_name"],
                 items=op.payload["items"],
                 company_gst_rate=company.gst_rate,
-                advance_paid=advance,
+                advance_paid=Decimal(op.payload["advance_paid"]),
                 duplicate_invoice_number=op.payload["duplicate_invoice_number"],
                 credit_limit_breach=op.payload["credit_limit_breach"],
                 loc=loc,

@@ -730,6 +730,8 @@ MESSAGES: dict[str, str] = {
     "payment.got_it_no_invoice": "Thik achi. {message}",
     "payment.amount_invalid": "Daya kari gotie amount pathantu, jaise 25000.",
     "payment.amount_positive": "Daya kari zero tharu adhika amount pathantu.",
+    "payment.method_ask": "Cash na Online? 1 Cash na 2 Online reply karantu.",
+    "payment.method_invalid": "Daya kari 1 Cash na 2 Online reply karantu.",
     "payment.date_ask": (
         "Eha kebe pay hela? Reply 'today', 'yesterday', '3 days ago', kimba skip aji paain."
     ),

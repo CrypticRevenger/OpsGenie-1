@@ -46,6 +46,7 @@ async def record_payment(
     party_name: str,
     amount: Decimal,
     payment_date: date_type,
+    method: str | None = None,
     invoice_id: uuid.UUID | None = None,
 ) -> RecordPaymentResult:
     """Record a WhatsApp-guided payment against a party's open invoices.
@@ -54,6 +55,12 @@ async def record_payment(
     invoice-picker) instead of spreading across every open invoice — see
     allocate_payment_fifo's own docstring for the None-preserves-FIFO
     contract.
+
+    method ("cash"/"online", from the guided flow's awaiting_method step —
+    see app/services/workflows/payment_flow.py) is optional so this stays
+    callable exactly as before wherever a caller genuinely has no method to
+    report; None collapses to "" for allocate_payment_fifo the same way a
+    CSV row with a blank method column already does.
 
     Raises ValueError (via allocate_payment_fifo) if the party has no open
     invoice on file, the named invoice is no longer open, or the amount
@@ -70,7 +77,7 @@ async def record_payment(
         party_name=party_name,
         amount=amount,
         payment_date=payment_date,
-        method="",
+        method=method or "",
         voucher_reference="",
         source_file="whatsapp",
         row_number=0,

@@ -678,6 +678,8 @@ MESSAGES: dict[str, str] = {
     "payment.got_it_no_invoice": "ठीक है। {message}",
     "payment.amount_invalid": "कृपया एक amount भेजें, जैसे 25000।",
     "payment.amount_positive": "कृपया zero से ज़्यादा amount भेजें।",
+    "payment.method_ask": "Cash या Online? कृपया 1 Cash या 2 Online reply करें।",
+    "payment.method_invalid": "कृपया 1 Cash या 2 Online reply करें।",
     "payment.date_ask": (
         "यह कब pay हुआ? Reply 'today', 'yesterday', '3 days ago', या skip आज के लिए।"
     ),
