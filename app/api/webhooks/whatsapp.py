@@ -15,9 +15,12 @@ confirmation ("YES"/"NO" awaiting an invoice/payment preview), if one
 exists; else (Phase 9) a pending invoice due-date follow-up conversation, if
 one is active; else (Phase 8) a numbered-menu command ("1"-"4", via
 app.services.query_menu's CommandRouter); else a plain keyword that starts a
-guided write workflow (e.g. "record payment"); else the free-form LLM
-assistant (app.services.assistant), which answers natural-language questions
-from real figures and never performs a write itself. Onboarding outranks
+guided write workflow (e.g. "record payment"); else a fuzzy, local match
+against the read-only instant reports (app.services.agent.intent_matcher —
+a paraphrase like "provide me the stock I have" resolves here, never a
+write-triggering phrase); else the free-form LLM assistant
+(app.services.assistant), which answers natural-language questions from
+real figures and never performs a write itself. Onboarding outranks
 everything (mid-setup a "1" is an answer, not "Cash Position"); an active
 write workflow and a pending confirmation both outrank the follow-up/menu
 checks for the same reason the follow-up check already outranked the menu —
@@ -83,6 +86,7 @@ from app.models.notification_log import NotificationLog
 from app.models.pending_operation import PendingOperationType
 from app.models.supplier import Supplier
 from app.services import instant_reports
+from app.services.agent.intent_matcher import FuzzyCommandMatcher
 from app.services.assistant import ASSISTANT_NOTIFICATION_TYPE, answer_question
 from app.services.briefing import generate_briefing, latest_briefing_today
 from app.services.company_export import generate_export_link
@@ -923,6 +927,29 @@ _INSTANT_COMMANDS: dict[str, Callable[[AsyncSession, Company], Awaitable[str]]] 
     "/disable_dealer_self_service": _disable_dealer_self_service_reply,
 }
 
+# Handlers a fuzzy near-miss must never be allowed to reach: every one
+# mutates state or changes a setting, unlike the read-only reports the fuzzy
+# matcher exists to cover. Filtered out of _INSTANT_COMMANDS by handler
+# identity (not by phrase text), so any future phrase reusing one of these
+# handlers is automatically excluded too, with no second list of strings to
+# keep in sync. See app/services/agent/intent_matcher.py's own docstring for
+# why this boundary exists at all.
+_FUZZY_MATCH_EXCLUDED_HANDLERS = {
+    start_void_payment_workflow,
+    start_void_order_workflow,
+    _opt_in_all_dealers_reply,
+    _enable_dealer_self_service_reply,
+    _disable_dealer_self_service_reply,
+    _change_language_reply,
+}
+_fuzzy_matcher = FuzzyCommandMatcher(
+    {
+        phrase: handler
+        for phrase, handler in _INSTANT_COMMANDS.items()
+        if handler not in _FUZZY_MATCH_EXCLUDED_HANDLERS
+    }
+)
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/whatsapp", tags=["webhooks:whatsapp"])
@@ -1262,7 +1289,8 @@ async def _handle_text_message(
     this module's own docstring (onboarding > continue-or-end prompt >
     workflow-interrupt prompt > active workflow > pending confirm >
     follow-up > menu trigger > instant command > deterministic free text >
-    LLM assistant). Shared by real inbound text/interactive messages and a
+    fuzzy instant-command match > LLM assistant). Shared by real inbound
+    text/interactive messages and a
     transcribed voice note (see _handle_voice_note) — a voice note is just
     another way to produce `text`, so it must resolve through the exact same
     priority order, never a separate/simpler path.
@@ -1407,6 +1435,14 @@ async def _handle_text_message(
             command = text.strip().lower()
             notification_type = "instant_command"
             reply = deterministic
+        elif (fuzzy := _fuzzy_matcher.match(text)) is not None:
+            # A paraphrase of one of the read-only reports above ("provide me
+            # the stock I have") — local RapidFuzz matching, never the LLM,
+            # and never a write-triggering command (see
+            # _FUZZY_MATCH_EXCLUDED_HANDLERS above).
+            command = text.strip().lower()
+            notification_type = "instant_command"
+            reply = await fuzzy(db, company)
         else:
             # Anything else -> the grounded LLM assistant, which answers
             # free-form questions from real figures and never forwards an
