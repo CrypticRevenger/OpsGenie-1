@@ -231,6 +231,19 @@ class Settings(BaseSettings):
         default=200, alias="CONVERSATION_TURN_RETENTION_LIMIT"
     )
 
+    # Local, deterministic fuzzy matching (see app/services/agent/
+    # intent_matcher.py) — sits between the exact-match _INSTANT_COMMANDS
+    # dict and the LLM assistant in the webhook's reply ladder, so a
+    # paraphrase of a known read-only report ("provide me the stock I have")
+    # resolves without depending on a free-tier LLM's tool-calling reliability
+    # or the money-safety guard. instant_fuzzy_threshold is RapidFuzz's
+    # 0-100 token_set_ratio scale; kept conservative by default (only
+    # confident matches pass) since a false positive here answers the wrong
+    # report rather than just failing to answer — expect to tune this once
+    # real message traffic shows where it should sit.
+    instant_fuzzy_match_enabled: bool = Field(default=True, alias="INSTANT_FUZZY_MATCH_ENABLED")
+    instant_fuzzy_threshold: float = Field(default=78.0, alias="INSTANT_FUZZY_THRESHOLD")
+
     # Default region for parsing a dealer/supplier phone number typed without
     # an explicit country code (see app/services/phone.py) — distinct from
     # Company.whatsapp_number's own validation, which always requires an
