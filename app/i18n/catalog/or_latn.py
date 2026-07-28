@@ -220,7 +220,9 @@ MESSAGES: dict[str, str] = {
     "reports.download.ready": (
         "Apanka {report_name} ({period}) taiyar.\nDownload ({ttl} min valid):\n{links}"
     ),
-    "reports.ledger.not_found": "'{name}' saha milu thiba kichi dealer kimba supplier milila nahin.",
+    "reports.ledger.not_found": (
+        "'{name}' saha milu thiba kichi dealer kimba supplier milila nahin."
+    ),
     # ── Business Trends report ────────────────────────────────────────────
     "reports.trend.headline": (
         "📈 Collections {collections_pct}, Payments {payments_pct}, Net Cash {net_delta} · "
