@@ -146,39 +146,46 @@
             <div class="field">
               <label for="import_receivable_file">Dealer invoices <span
                   style="color:var(--ink-faint); font-weight:400;">(money owed to you)</span></label>
-              <input id="import_receivable_file" name="import_receivable_file" type="file" accept=".csv,.xlsx,.pdf">
+              <input id="import_receivable_file" name="import_receivable_file" type="file" accept=".csv,.xlsx,.pdf"
+                multiple>
               <div class="hint">Sales register / outstanding receivables — optional, .csv, .xlsx, or .pdf
-                (Tally invoice printouts)</div>
+                (Tally invoice printouts). Select as many files as you have — e.g. a separate PDF per
+                invoice book.</div>
             </div>
             <div class="field">
               <label for="import_payable_file">Supplier invoices <span
                   style="color:var(--ink-faint); font-weight:400;">(money you owe)</span></label>
-              <input id="import_payable_file" name="import_payable_file" type="file" accept=".csv,.xlsx,.pdf">
+              <input id="import_payable_file" name="import_payable_file" type="file" accept=".csv,.xlsx,.pdf"
+                multiple>
               <div class="hint">Purchase register / outstanding payables — optional, .csv, .xlsx, or .pdf
-                (Tally invoice printouts)</div>
+                (Tally invoice printouts). Select as many files as you have.</div>
             </div>
             <div class="field">
               <label for="import_product_file">Product &amp; current stock <span
                   style="color:var(--ink-faint); font-weight:400;">(your catalogue)</span></label>
-              <input id="import_product_file" name="import_product_file" type="file" accept=".csv,.xlsx">
-              <div class="hint">Name, purchase price, selling price, unit, stock, GST% — optional, .csv or
-                .xlsx</div>
+              <input id="import_product_file" name="import_product_file" type="file" accept=".csv,.xlsx,.pdf"
+                multiple>
+              <div class="hint">Name, purchase price, selling price, unit, stock, GST% — optional, .csv, .xlsx,
+                or a Tally "Stock Group Summary" PDF (one per GST-rate group — select them all at once,
+                e.g. 12%, 18%, exempted, etc.)</div>
             </div>
             <div class="field">
               <label for="import_receivable_payments_file">Payments received <span
                   style="color:var(--ink-faint); font-weight:400;">(from dealers)</span></label>
               <input id="import_receivable_payments_file" name="import_receivable_payments_file" type="file"
-                accept=".csv,.xlsx,.pdf">
+                accept=".csv,.xlsx,.pdf" multiple>
               <div class="hint">Receipt vouchers / receipts register — optional, .csv, .xlsx, or .pdf.
-                Matched against the dealer invoices above, so upload those first.</div>
+                Select as many files as you have. Matched against the dealer invoices above, so upload those
+                first.</div>
             </div>
             <div class="field">
               <label for="import_payable_payments_file">Payments made <span
                   style="color:var(--ink-faint); font-weight:400;">(to suppliers)</span></label>
               <input id="import_payable_payments_file" name="import_payable_payments_file" type="file"
-                accept=".csv,.xlsx,.pdf">
+                accept=".csv,.xlsx,.pdf" multiple>
               <div class="hint">Payment vouchers / payments register — optional, .csv, .xlsx, or .pdf.
-                Matched against the supplier invoices above, so upload those first.</div>
+                Select as many files as you have. Matched against the supplier invoices above, so upload
+                those first.</div>
             </div>
           </div>
 

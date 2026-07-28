@@ -44,11 +44,12 @@ async def _get_company_or_404(company_id: uuid.UUID, db: AsyncSession) -> Compan
 @router.post(
     "/import",
     response_model=ImportResponse,
-    summary="Import a CSV/Excel/PDF file of invoices or payments",
+    summary="Import a CSV/Excel/PDF file of invoices, payments, or products",
     description=(
         "Accepts a Tally, Vyapar, or OpsGenie-canonical CSV/Excel export, or a "
-        "Tally-style PDF (voucher/invoice printouts — see app/services/importer/"
-        "pdf_extractor.py) for file_kind=invoices/payments. "
+        "Tally-style PDF (voucher/invoice printouts, or a 'Stock Group Summary' "
+        "report for file_kind=products — see app/services/importer/"
+        "pdf_extractor.py) for any file_kind. "
         "One bad row (or unparseable PDF page) never fails the whole file — "
         "failures are reported per row, not raised. Re-uploading the same file "
         "is safe (idempotent)."
