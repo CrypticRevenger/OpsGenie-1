@@ -24,14 +24,14 @@ _HELP_TEXT = """*OpsGenie Help*
 • top debtors / who owes most — sabuthu besi baki thiba dealers
 • overdue / overdue dealers — kete dina late & risk level (kimba 4 / /dealer_risk)
 • balance <name> — gotie dealer ra baki, jaise balance Ram Traders
-• add dealer (kimba /add_dealer) — natun dealer add karantu: naam, phone, credit dina
+• add dealer (kimba /add_dealer) — nuya dealer add karantu: naam, phone, credit dina
 • edit dealer (kimba /edit_dealer) — phone, credit limit, terms, GSTIN, kimba reminders badalantu
 
 *Suppliers (jieman ku apana denti)*
 • suppliers / all suppliers — pratyeka supplier phone & baki saha
 • top creditors — jieman ku apana sabuthu besi denti
 • balance <name> — gotie supplier ra baki
-• add supplier (kimba /add_supplier) — natun supplier add karantu: naam, phone, credit dina
+• add supplier (kimba /add_supplier) — nuya supplier add karantu: naam, phone, credit dina
 • edit supplier (kimba /edit_supplier) — supplier ra phone, credit limit, terms, kimba GSTIN
 
 *Asuthiba Cash Flow*
@@ -39,19 +39,19 @@ _HELP_TEXT = """*OpsGenie Help*
 • payments / upcoming payments — suppliers ku deba, asanta 7 dina (kimba 3 / /suppliers)
 
 *Inventory*
-• inventory / products / stock — natun add hoithiba products (stock qty, selling price)
-• all inventory — pratyeka product, kebala natun nuhe
+• inventory / products / stock — nuya add hoithiba products (stock qty, selling price)
+• all inventory — pratyeka product, kebala nuya nuhe
 • stock <product> — gotie item check karantu, jaise stock Rice
 
 *Transactions*
-• invoices / recent invoices — natun invoices (number, party, total, status, dates)
-• all invoices — pratyeka invoice, kebala natun nuhe
-• payments / recent payments — natun record hoithiba payments
-• all payments / all time payments — pratyeka payment, kebala natun nuhe
+• invoices / recent invoices — nuya invoices (number, party, total, status, dates)
+• all invoices — pratyeka invoice, kebala nuya nuhe
+• payments / recent payments — nuya record hoithiba payments
+• all payments / all time payments — pratyeka payment, kebala nuya nuhe
 • faq / policy — apanka save hoithiba business policy (delivery days, returns, minimum order)"""
 
 _HELP_TEXT_MORE = """*Products Manage karantu* (guided, gotie gotie prashna)
-• add product (kimba /add_product) — natun item: name, stock, unit, selling price, purchase price
+• add product (kimba /add_product) — nuya item: name, stock, unit, selling price, purchase price
 • update stock (kimba /update_stock) — product ra stock badalantu
 • update price (kimba /update_price) — product ra selling price badalantu
 • update purchase price (kimba /update_purchase_price) — supplier ku jaha denti taha badalantu
@@ -114,17 +114,17 @@ MESSAGES: dict[str, str] = {
     "reports.cash.no_shortage": "E saptahare cash kami hebani.",
     # ── Collections report ─────────────────────────────────────────────────
     "reports.collections.header": "📥 Baki Collections",
-    "reports.collections.none": "Asanta 7 dinare kono collection asiba nahin.",
+    "reports.collections.none": "Asanta 7 dinare kichi collection asiba nahin.",
     "reports.collections.total": "E saptahare total expected: {amount}",
     # ── Supplier payments report ───────────────────────────────────────────
     "reports.suppliers.header": "📤 Supplier Payments Baki",
-    "reports.suppliers.none": "Asanta 7 dinare kono supplier payment baki nahin.",
+    "reports.suppliers.none": "Asanta 7 dinare kichi supplier payment baki nahin.",
     "reports.suppliers.total": "E saptahare total deba: {amount}",
     "reports.suppliers.cash_ok": "cash jathesta achi",
     "reports.suppliers.cash_short": "cash kami padipare",
     # ── Dealer risk report ─────────────────────────────────────────────────
     "reports.risk.header": "⚠ Dealer Risk Summary",
-    "reports.risk.none": "Ebe kono overdue dealer nahin.",
+    "reports.risk.none": "Ebe kichi overdue dealer nahin.",
     "reports.risk.high": "High Risk:",
     "reports.risk.medium": "Medium Risk:",
     "reports.risk.low": "Low Risk:",
@@ -147,21 +147,21 @@ MESSAGES: dict[str, str] = {
     "reports.summary.overdue_count": "Overdue dealers: {count}",
     "reports.summary.overdue_hint": " — detail paain 'overdue' pathantu.",
     # ── Priorities ─────────────────────────────────────────────────────────
-    "reports.priorities.none": "🎯 Ebe kichi urgent nahin — kono priority action nahin.",
+    "reports.priorities.none": "🎯 Ebe kichi urgent nahin — kichi priority action nahin.",
     "reports.priorities.header": "🎯 Priorities",
     # ── Dealer / supplier lists ────────────────────────────────────────────
-    "reports.dealers.none": "Apanka pakhare ebe kono dealer nahin.",
+    "reports.dealers.none": "Apanka pakhare ebe kichi dealer nahin.",
     "reports.dealers.header": "👥 Dealers ({count}):",
-    "reports.suppliers_list.none": "Apanka pakhare ebe kono supplier nahin.",
+    "reports.suppliers_list.none": "Apanka pakhare ebe kichi supplier nahin.",
     "reports.suppliers_list.header": "🚚 Suppliers ({count}):",
     "reports.party.no_phone": "phone nahin",
     "reports.party.line": "{name} — {phone} — baki {amount}",
-    "reports.top_debtors.none": "Ebe kono dealer pakhare apanka kichi baki nahin.",
+    "reports.top_debtors.none": "Ebe kichi dealer pakhare apanka kichi baki nahin.",
     "reports.top_debtors.header": "💰 Top Debtors",
-    "reports.top_creditors.none": "Ebe apana kono supplier ku kichi denti nahin.",
+    "reports.top_creditors.none": "Ebe apana kichi supplier ku kichi denti nahin.",
     "reports.top_creditors.header": "💸 Top Creditors",
     # ── Inventory ──────────────────────────────────────────────────────────
-    "reports.inventory.none": "Apanka catalogue re ebe kono product nahin.",
+    "reports.inventory.none": "Apanka catalogue re ebe kichi product nahin.",
     "reports.inventory.label_recent": "Recent Inventory",
     "reports.inventory.label_all": "Sabu Inventory",
     "reports.inventory.header_partial": "📦 {label} ({count} of {total}):",
@@ -171,11 +171,11 @@ MESSAGES: dict[str, str] = {
     ),
     "reports.product.price_not_set": "price set nahin",
     # ── FAQs ───────────────────────────────────────────────────────────────
-    "reports.faq.none": "Apanka pakhare ebe kono save policy nahin.",
+    "reports.faq.none": "Apanka pakhare ebe kichi save policy nahin.",
     "reports.faq.header": "❓ FAQs ({count}):",
     "reports.faq.qa": "Q: {question}\nA: {answer}",
     # ── Invoices ───────────────────────────────────────────────────────────
-    "reports.invoices.none": "Apanka pakhare ebe kono invoice nahin.",
+    "reports.invoices.none": "Apanka pakhare ebe kichi invoice nahin.",
     "reports.invoices.label_recent": "Recent Invoices",
     "reports.invoices.label_all": "Sabu Invoices",
     "reports.invoices.header_partial": "📄 {label} ({count} of {total}):",
@@ -186,7 +186,7 @@ MESSAGES: dict[str, str] = {
     "reports.invoices.line": "{number} — {party} — {amount} — {status} — {due}",
     "reports.unknown_party": "unknown party",
     # ── Payments ───────────────────────────────────────────────────────────
-    "reports.payments.none": "Apanka pakhare ebe kono payment record nahin.",
+    "reports.payments.none": "Apanka pakhare ebe kichi payment record nahin.",
     "reports.payments.label_recent": "Recent Payments",
     "reports.payments.label_all": "Sabu Payments",
     "reports.payments.header_partial": "💵 {label} ({count} of {total}):",
@@ -201,7 +201,7 @@ MESSAGES: dict[str, str] = {
     "reports.balance.dealer_owes": "{party} apananku {amount} deba achi.",
     "reports.balance.you_owe": "Apana {party} ku {amount} deba achi.",
     # ── Stock item ─────────────────────────────────────────────────────────
-    "reports.stock.not_found": "'{name}' saha milu thiba kono product milila nahin.",
+    "reports.stock.not_found": "'{name}' saha milu thiba kichi product milila nahin.",
     "reports.stock.line": "{name} — {stock} stock re — {price}",
     # ── Sales impact ───────────────────────────────────────────────────────
     "reports.sales.revenue": "revenue {amount}",
@@ -220,7 +220,7 @@ MESSAGES: dict[str, str] = {
     "reports.download.ready": (
         "Apanka {report_name} ({period}) taiyar.\nDownload ({ttl} min valid):\n{links}"
     ),
-    "reports.ledger.not_found": "'{name}' saha milu thiba kono dealer kimba supplier milila nahin.",
+    "reports.ledger.not_found": "'{name}' saha milu thiba kichi dealer kimba supplier milila nahin.",
     # ── Business Trends report ────────────────────────────────────────────
     "reports.trend.headline": (
         "📈 Collections {collections_pct}, Payments {payments_pct}, Net Cash {net_delta} · "
@@ -247,7 +247,7 @@ MESSAGES: dict[str, str] = {
     # ── Delivery/read status ("delivery status") ────────────────────────────
     "reports.delivery_status.header": "📨 Delivery Status",
     "reports.delivery_status.none": (
-        "Ebe paryanta kono invoice kimba broadcast dealer mananku pathajai nahin."
+        "Ebe paryanta kichi invoice kimba broadcast dealer mananku pathajai nahin."
     ),
     "reports.delivery_status.line": "{label} ({when}): {counts}",
     "reports.delivery_status.invoice_label": "{invoice} → {party}",
@@ -457,10 +457,10 @@ MESSAGES: dict[str, str] = {
     "onboarding.bulk_error": "Eha bujhi hela nahin: {error}",
     "onboarding.opening.ask": "Ebe apanka business re kete cash achi? (jaise 320000)",
     "onboarding.opening.invalid": "Daya kari gotie amount pathantu, jaise 320000.",
-    "onboarding.receivable.ask": "Kono dealer pakhare ebe apanka paisa baki achi ki? (yes/no)",
+    "onboarding.receivable.ask": "kichi dealer pakhare ebe apanka paisa baki achi ki? (yes/no)",
     "onboarding.receivable.which": "Kaun dealer apananku deba? (naam)",
     "onboarding.receivable.confirm_new": (
-        "Mo pakhare '{name}' naam re dealer ebe nahin — natun dealer bhabare add karibi ki? "
+        "Mo pakhare '{name}' naam re dealer ebe nahin — nuya dealer bhabare add karibi ki? "
         "(yes/no)"
     ),
     "onboarding.receivable.amount_ask": "{party} apananku kete deba? (jaise 42000)",
@@ -469,12 +469,12 @@ MESSAGES: dict[str, str] = {
         "{party} thu payment kebe expect karanti? (jaise Friday, 15 days, kimba next week)"
     ),
     "onboarding.receivable.recorded": (
-        "{amount} {party} thu record hela. Au kono dealer deba? (yes/no)"
+        "{amount} {party} thu record hela. Au kichi dealer deba? (yes/no)"
     ),
-    "onboarding.payable.ask": "Kono supplier payment pending achi ki? (yes/no)",
+    "onboarding.payable.ask": "kichi supplier payment pending achi ki? (yes/no)",
     "onboarding.payable.which": "Kaun supplier ku apana deba? (naam)",
     "onboarding.payable.confirm_new": (
-        "Mo pakhare '{name}' naam re supplier ebe nahin — natun supplier bhabare add karibi ki? "
+        "Mo pakhare '{name}' naam re supplier ebe nahin — nuya supplier bhabare add karibi ki? "
         "(yes/no)"
     ),
     "onboarding.payable.amount_ask": "Apana {party} ku kete deba? (jaise 82000)",
@@ -483,11 +483,11 @@ MESSAGES: dict[str, str] = {
         "{party} ku payment kebe due? (jaise Friday, 15 days, kimba next week)"
     ),
     "onboarding.payable.recorded": (
-        "{amount} {party} ku record hela. Au kono supplier pending? (yes/no)"
+        "{amount} {party} ku record hela. Au kichi supplier pending? (yes/no)"
     ),
     "onboarding.yes_no_invalid": "Daya kari yes kimba no reply karantu.",
     "onboarding.date_invalid": (
-        "Kshama karantu, se date bujhi heli nahin. "
+        "Kshama karantu, se date bujhi hela nahin. "
         "Try karantu jaise Friday, 15 days, kimba next week."
     ),
     "onboarding.briefing.ask": (
@@ -586,15 +586,15 @@ MESSAGES: dict[str, str] = {
     "menu.row.top_creditors.title": "Top Creditors",
     "menu.row.top_creditors.desc": "Jieman ku apana sabuthu besi deba achi",
     "menu.row.inventory.title": "Recent Inventory",
-    "menu.row.inventory.desc": "Natun products, stock & price",
+    "menu.row.inventory.desc": "nuya products, stock & price",
     "menu.row.invoices.title": "Recent Invoices",
-    "menu.row.invoices.desc": "Natun invoices, latest aage",
+    "menu.row.invoices.desc": "nuya invoices, latest aage",
     "menu.row.recent_payments.title": "Recent Payments",
-    "menu.row.recent_payments.desc": "Natun record heithiba payments",
+    "menu.row.recent_payments.desc": "nuya record heithiba payments",
     "menu.row.faq.title": "FAQs",
     "menu.row.faq.desc": "Aapanka save heithiba business policies",
     "menu.row.add_product.title": "Product Add karantu",
-    "menu.row.add_product.desc": "Natun item add karantu",
+    "menu.row.add_product.desc": "nuya item add karantu",
     "menu.row.update_stock.title": "Stock Update karantu",
     "menu.row.update_stock.desc": "Product ra stock qty badalantu",
     "menu.row.update_price.title": "Price Update karantu",
@@ -612,19 +612,19 @@ MESSAGES: dict[str, str] = {
     "menu.row.update_gst.title": "GST Update karantu",
     "menu.row.update_gst.desc": "Sabu kimba gotie product ra GST badalantu",
     "menu.row.add_dealer.title": "Dealer Add Karantu",
-    "menu.row.add_dealer.desc": "Natun dealer add karantu",
+    "menu.row.add_dealer.desc": "nuya dealer add karantu",
     "menu.row.add_supplier.title": "Supplier Add Karantu",
-    "menu.row.add_supplier.desc": "Natun supplier add karantu",
+    "menu.row.add_supplier.desc": "nuya supplier add karantu",
     "menu.row.export_data.title": "Data Export karantu",
     "menu.row.export_data.desc": "Nija Excel data download karantu",
     "menu.row.morning_briefing.title": "Morning Briefing",
     "menu.row.morning_briefing.desc": "Aji ra briefing punarbara pathantu",
     "menu.row.all_inventory.title": "Sabu Inventory",
-    "menu.row.all_inventory.desc": "Pratyeka product, kebala natun nuhe",
+    "menu.row.all_inventory.desc": "Pratyeka product, kebala nuya nuhe",
     "menu.row.all_invoices.title": "Sabu Invoices",
-    "menu.row.all_invoices.desc": "Pratyeka invoice, kebala natun nuhe",
+    "menu.row.all_invoices.desc": "Pratyeka invoice, kebala nuya nuhe",
     "menu.row.all_payments.title": "Sabu Payments",
-    "menu.row.all_payments.desc": "Pratyeka payment, kebala natun nuhe",
+    "menu.row.all_payments.desc": "Pratyeka payment, kebala nuya nuhe",
     "menu.row.gst_report.title": "GST Report",
     "menu.row.gst_report.desc": "Sales o purchase register, duhenka pain",
     "menu.row.sales_register.title": "Sales Register",
@@ -721,10 +721,10 @@ MESSAGES: dict[str, str] = {
         "(jahathu apana kinanti)? Reply 1 Dealer kimba 2 Supplier."
     ),
     "payment.new_party_type_invalid": "Daya kari 1 Dealer kimba 2 Supplier reply karantu.",
-    "payment.add_new_party": "'{name}' ku natun {kind} add karibe? yes/no",
+    "payment.add_new_party": "'{name}' ku nuya {kind} add karibe? yes/no",
     "payment.no_open_invoice": (
         "Mun kebala existing invoice birudhare payment record kari paribi, au {party} ra "
-        "{kind} hisabare kono open invoice nahin. Prathame semananka paain invoice tiari "
+        "{kind} hisabare kichi open invoice nahin. Prathame semananka paain invoice tiari "
         "karantu, tapare 'record payment' puni kuhantu."
     ),
     "payment.got_it_no_invoice": "Thik achi. {message}",
@@ -734,7 +734,7 @@ MESSAGES: dict[str, str] = {
         "Eha kebe pay hela? Reply 'today', 'yesterday', '3 days ago', kimba skip aji paain."
     ),
     "payment.date_invalid": (
-        "Kshama karantu, se date bujhi heli nahin. Try 'today', 'yesterday', '3 days ago'."
+        "Kshama karantu, se date bujhi hela nahin. Try 'today', 'yesterday', '3 days ago'."
     ),
     "payment.verb_from": "thu",
     "payment.verb_to": "ku",
@@ -753,9 +753,9 @@ MESSAGES: dict[str, str] = {
     "order.need_dealer": "Daya kari dealer naam kuhantu.",
     "order.dealer_found": "{dealer} paain order. Kaun product?",
     "order.add_new_dealer": (
-        "Mo pakhare '{dealer}' dealer hisabare nahin. Semananku natun dealer add karibe? yes/no"
+        "Mo pakhare '{dealer}' dealer hisabare nahin. Semananku nuya dealer add karibe? yes/no"
     ),
-    "order.new_dealer_added": "Thik achi, {dealer} ku natun dealer add heba. Kaun product?",
+    "order.new_dealer_added": "Thik achi, {dealer} ku nuya dealer add heba. Kaun product?",
     "order.need_one_product": "Prathame anteast gotie product add karantu, kimba 'cancel'.",
     "order.need_product": "Daya kari product naam kuhantu, kimba 'done' jadi sarigala.",
     "order.quantity_ask": "{product} ra kete {unit}?",
@@ -872,7 +872,7 @@ MESSAGES: dict[str, str] = {
         "Kauna dealer kimba supplier ra payment edit karibe? Semananka naam pathantu, "
         "kimba 'cancel'."
     ),
-    "edit.no_payments_for_party": "{name} paain kono payment milila nahin.",
+    "edit.no_payments_for_party": "{name} paain kichi payment milila nahin.",
     "edit.payment_pick_ask": (
         "{name} paain {count} sampratika payments milila:\n{listing}\n"
         "Number pathantu, kimba 'cancel'."
@@ -892,9 +892,9 @@ MESSAGES: dict[str, str] = {
         "Sabu products (company default) ra GST update karantu, kimba gotie product ra? "
         "Reply 'all' kimba product naam."
     ),
-    "gst.rate_ask_all": "{target} paain natun default GST rate kete? (0-100, kimba 'cancel')",
+    "gst.rate_ask_all": "{target} paain nuya default GST rate kete? (0-100, kimba 'cancel')",
     "gst.rate_ask_product": (
-        "{target} paain natun GST rate kete? (0-100, 'clear' override hatai company default "
+        "{target} paain nuya GST rate kete? (0-100, 'clear' override hatai company default "
         "use karibaku, kimba 'cancel')"
     ),
     "gst.not_found": (
@@ -902,7 +902,7 @@ MESSAGES: dict[str, str] = {
     ),
     "gst.rate_invalid": "Daya kari 0 ru 100 madhyare number pathantu, jaise 18.",
     "gst.all_products": "sabu products",
-    "gst.no_override": "kono override nahin (company default use karantu)",
+    "gst.no_override": "kichi override nahin (company default use karantu)",
     "gst.rate_pct": "{rate}%",
     "gst.preview": "{target} ra GST {rate_text} set karantu. Reply YES confirm, NO cancel.",
     # ── Product ────────────────────────────────────────────────────────────
@@ -910,7 +910,7 @@ MESSAGES: dict[str, str] = {
         "Chaluntu products add karantu. Reply 'one by one' gotie gotie, kimba 'bulk' sabu ekathi "
         "puura details saha (jaise Rice, 300, 400, kg, 100, 5). Kebe bi 'done' rokibaku."
     ),
-    "product.no_products_added": "OK, kono product add heli nahin.",
+    "product.no_products_added": "OK, kichi product add hela nahin.",
     "product.all_done": "Products add kariba sarigala.",
     "product.name_or_done": "Product naam pathantu (jaise Rice), kimba 'done' rokibaku.",
     "product.mode_invalid": (
@@ -937,7 +937,7 @@ MESSAGES: dict[str, str] = {
     "product.delete_confirm": (
         "{description} delete karibe? Eha undo heba nahin. Reply YES delete, NO cancel."
     ),
-    "product.delete_no": "OK, delete heli nahin.",
+    "product.delete_no": "OK, delete hela nahin.",
     "product.delete_confirm_invalid": (
         "Daya kari YES delete paain, kimba NO cancel paain reply karantu."
     ),
@@ -955,11 +955,11 @@ MESSAGES: dict[str, str] = {
     "product.update_name_prompt": (
         "Kaun product ra {label} update karibaku? Naam pathantu, kimba 'cancel'."
     ),
-    "product.current_price": ("{name} ra ebe price {current}. Natun price kete heba? (jaise 450)"),
+    "product.current_price": ("{name} ra ebe price {current}. nuya price kete heba? (jaise 450)"),
     "product.current_purchase": (
-        "{name} ra ebe purchase price {current}. Natun purchase price kete heba? (jaise 300)"
+        "{name} ra ebe purchase price {current}. nuya purchase price kete heba? (jaise 300)"
     ),
-    "product.current_stock": ("{name} ra ebe stock {current}. Natun stock kete heba? (jaise 100)"),
+    "product.current_stock": ("{name} ra ebe stock {current}. nuya stock kete heba? (jaise 100)"),
     "product.value_invalid": "Daya kari gotie number pathantu, jaise 450.",
     "product.value_nonneg": "Daya kari zero kimba tharu adhika number pathantu.",
     "product.value_positive": "Daya kari zero tharu adhika number pathantu.",
@@ -980,12 +980,12 @@ MESSAGES: dict[str, str] = {
     ),
     "stock_take.value_invalid": "Daya kari eka number pathantu, jemiti 40, +15, kimba -3.",
     "stock_take.line_added": "{name}: {old} → {new}. Parabartee product pathantu, kimba 'done'.",
-    "stock_take.nothing_to_apply": "Thik achi, kono paribartana hela nahin.",
+    "stock_take.nothing_to_apply": "Thik achi, kichi paribartana hela nahin.",
     "stock_take.reason_ask": "Kahinki? Eka chota reason pathantu, kimba 'skip'.",
     "stock_take.confirm_prompt": (
         "{summary}\nApply karibaku YES pathantu, kimba cancel karibaku NO."
     ),
-    "stock_take.failed": "Stock take apply heli nahin: {error}. Daya kari puni arambha karantu.",
+    "stock_take.failed": "Stock take apply hela nahin: {error}. Daya kari puni arambha karantu.",
     "stock_take.result_line": "- {name}: {new}",
     "stock_take.success": "✅ {count} product(s) ra stock update hela:\n{lines}{warning}",
     # ── Marketing broadcast (guided workflow) ───────────────────────────────
@@ -1001,7 +1001,7 @@ MESSAGES: dict[str, str] = {
         "Dealer nama pathantu, eka line re eka (kimba comma re alaga), kimba 'cancel'."
     ),
     "broadcast.dealer_names_none_matched": (
-        "Ei nama manankaru kono ta bhi file re thiba dealer sathe match hela nahin: {names}. "
+        "Ei nama manankaru kichi ta bhi file re thiba dealer sathe match hela nahin: {names}. "
         "Daya kari puni cheshta karantu, kimba 'cancel'."
     ),
     "broadcast.dealer_names_unmatched": (
@@ -1031,7 +1031,7 @@ MESSAGES: dict[str, str] = {
         "kimba 'bulk' sabu ekathi pathaibaku (jaise Ram Traders, 9876543210, 15). "
         "Jekaunasi samaya re rahibaku 'done'."
     ),
-    "party.dealer.no_added": "Thik achi, kono dealer add hela nahin.",
+    "party.dealer.no_added": "Thik achi, kichi dealer add hela nahin.",
     "party.dealer.all_done": "Sabu dealers add hoigala.",
     "party.dealer.name_or_done": (
         "Dealer ra naam pathantu (jaise Ram Traders), kimba rahibaku 'done'."
@@ -1044,7 +1044,7 @@ MESSAGES: dict[str, str] = {
         "kimba 'bulk' sabu ekathi pathaibaku (jaise Metro Distributors, 9988776655, 30). "
         "Jekaunasi samaya re rahibaku 'done'."
     ),
-    "party.supplier.no_added": "Thik achi, kono supplier add hela nahin.",
+    "party.supplier.no_added": "Thik achi, kichi supplier add hela nahin.",
     "party.supplier.all_done": "Sabu suppliers add hoigala.",
     "party.supplier.name_or_done": (
         "Supplier ra naam pathantu (jaise Metro Distributors), kimba rahibaku 'done'."
@@ -1122,11 +1122,11 @@ MESSAGES: dict[str, str] = {
     "party.edit.value_preview": "{name} ra {field} badalei {new} karibe?",
     "party.edit.success": "✅ {name} ra {field} {new} hela (purbaru {old} thila).",
     # ── Void payment / void order ───────────────────────────────────────────
-    "void.payment_none": "Undo karibaku kono WhatsApp payment milila nahin.",
+    "void.payment_none": "Undo karibaku kichi WhatsApp payment milila nahin.",
     "void.payment_preview": (
         "Invoice {invoice_number} paain {party} ra {amount} payment void karibe?"
     ),
-    "void.order_none": "Undo karibaku kono WhatsApp order milila nahin.",
+    "void.order_none": "Undo karibaku kichi WhatsApp order milila nahin.",
     "void.order_has_payment": (
         "Order {invoice_number} re purbaru payment record achi — prathame payment "
         "void karantu, tapare puni cesta karantu."
@@ -1137,7 +1137,7 @@ MESSAGES: dict[str, str] = {
     # ── Pending-operation results ──────────────────────────────────────────
     "pending.reply_yes_no": "Reply YES confirm karibaku kimba NO cancel karibaku.",
     "pending.payment_failed": (
-        "Se payment record heli nahin: {error}. Daya kari puni arambha karantu."
+        "Se payment record hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.payment_success": (
         "✅ {amount} {party} {verb} record hela.\n"
@@ -1145,14 +1145,14 @@ MESSAGES: dict[str, str] = {
         "Baki outstanding: {outstanding}"
     ),
     "pending.payment_declined_amend": (
-        "Record heli nahin. {question}\n(Kimba rokibaku 'cancel' pathantu.)"
+        "Record hela nahin. {question}\n(Kimba rokibaku 'cancel' pathantu.)"
     ),
-    "pending.order_failed": "Se order tiari heli nahin: {error}. Daya kari puni arambha karantu.",
+    "pending.order_failed": "Se order tiari hela nahin: {error}. Daya kari puni arambha karantu.",
     "pending.order_line": "- {quantity} x {product} = {total}",
     "pending.order_stock_warning": "\n⚠️ Ebe stock negative: {products}",
     "pending.order_pdf_sent": "\nPDF {dealer} ku pathana hela.",
     "pending.order_pdf_not_sent": (
-        "\n(PDF {dealer} ku pathana heli nahin — "
+        "\n(PDF {dealer} ku pathana hela nahin — "
         "phone nahin kimba WhatsApp delivery ebe set nahin.)"
     ),
     "pending.order_pdf_sent_to_founder": (
@@ -1165,41 +1165,41 @@ MESSAGES: dict[str, str] = {
         "Subtotal: {subtotal}\nGST: {gst}\nTotal: {total}\n"
         "Payment Made: {payment_made}\nBalance Due: {balance_due}{warning}{pdf_note}"
     ),
-    "pending.gst_failed": "GST update heli nahin: {error}. Daya kari puni arambha karantu.",
+    "pending.gst_failed": "GST update hela nahin: {error}. Daya kari puni arambha karantu.",
     "pending.gst_success": "✅ {target} ra GST {rate} set hela.",
     "pending.gst_rate_default": "company default",
     "pending.void_payment_failed": (
-        "Se payment void heli nahin: {error}. Daya kari puni arambha karantu."
+        "Se payment void hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.void_payment_success": (
         "✅ Invoice {invoice_number} paain {party} ra {amount} payment void hela."
     ),
     "pending.void_order_failed": (
-        "Se order void heli nahin: {error}. Daya kari puni arambha karantu."
+        "Se order void hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.void_order_success": (
         "✅ {dealer} ra order {invoice_number} void hela (total {total})."
     ),
     "pending.edit_invoice_failed": (
-        "Se invoice edit heli nahin: {error}. Daya kari puni arambha karantu."
+        "Se invoice edit hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.edit_invoice_success": (
         "✅ Invoice {number} ra {field} {new} hela (purbaru {old} thila)."
     ),
     "pending.edit_payment_failed": (
-        "Se payment edit heli nahin: {error}. Daya kari puni arambha karantu."
+        "Se payment edit hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.edit_payment_success": (
         "✅ Invoice {number} ra payment ra {field} {new} hela (purbaru {old} thila)."
     ),
     "pending.broadcast_failed": (
-        "Se broadcast pathaa heli nahin: {error}. Daya kari puni arambha karantu."
+        "Se broadcast pathaa hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.broadcast_success": (
         "✅ Broadcast {total} madhyaru {sent} dealer(s) ku pathagala ({failed} fail hela)."
     ),
     "pending.opt_in_all_failed": (
-        "Dealer manaku opt in karaa heli nahin: {error}. Daya kari puni arambha karantu."
+        "Dealer manaku opt in karaa hela nahin: {error}. Daya kari puni arambha karantu."
     ),
     "pending.opt_in_all_success": "✅ {count} dealer(s) marketing broadcasts re opt in hela.",
     "pending.unknown": "Se confirmation re kichi bhul heigala. Daya kari puni arambha karantu.",
@@ -1230,11 +1230,11 @@ MESSAGES: dict[str, str] = {
     "followup.ask_expected_date": (
         "{dealer} thu payment kebe expect karanti?\nExample: Friday, 3 days, next week"
     ),
-    "followup.confirm_invalid": "Bujhi heli nahin. Reply 1, 2, kimba 3.",
+    "followup.confirm_invalid": "Bujhi hela nahin. Reply 1, 2, kimba 3.",
     "followup.amount_invalid": (
-        "Se amount bujhi heli nahin. Daya kari gotie number pathantu, jaise 25000."
+        "Se amount bujhi hela nahin. Daya kari gotie number pathantu, jaise 25000."
     ),
-    "followup.date_invalid": "Se date bujhi heli nahin.\nExample: Friday, 3 days, next week",
+    "followup.date_invalid": "Se date bujhi hela nahin.\nExample: Friday, 3 days, next week",
     "followup.rescheduled": (
         "Note karagala. {number} follow-up {when} paain schedule hela.\n"
         "{dealer} kali ra briefing re flag achi."
@@ -1244,7 +1244,7 @@ MESSAGES: dict[str, str] = {
         "⏰ Payment Reminder\n\n"
         "{supplier} ra {amount} payment {when} due achi.\n"
         "{cash_line}\n"
-        "Kono action darkar nahin jabaju cash position na badle."
+        "kichi action darkar nahin jebe jain cash position na badle."
     ),
     "notify.when_today": "aji",
     "notify.when_tomorrow": "kali",
@@ -1269,12 +1269,12 @@ MESSAGES: dict[str, str] = {
     "reminder_confirm.amount_invalid": "Daya kari gotie amount pathantu, jaise 25000.",
     "reminder_confirm.amount_positive": "Daya kari zero tharu adhika amount pathantu.",
     "reminder_confirm.reschedule_ask": (
-        "Thik achi — e reminder ku reschedule karibaku natun date reply karantu (jaise "
+        "Thik achi — e reminder ku reschedule karibaku nuya date reply karantu (jaise "
         "'tomorrow', 'next week', '3 days'), kimba 'skip' jadi ebe bhi due rakhibaku achi — "
         "mun punibi yaad karaibi."
     ),
     "reminder_confirm.reschedule_invalid": (
-        "Se date bujhi heli nahin. Try 'tomorrow', 'next week', '3 days' — kimba 'skip'."
+        "Se date bujhi hela nahin. Try 'tomorrow', 'next week', '3 days' — kimba 'skip'."
     ),
     "reminder_confirm.rescheduled": (
         "Thik achi — {supplier} ra payment ebe {date} re due achi. Se samay paakhare punibi "
@@ -1285,8 +1285,8 @@ MESSAGES: dict[str, str] = {
     "notify.dealer_alert": (
         "⚠ Collection Alert\n\n"
         "{dealer} — {amount} — ebe {days} dina overdue.\n"
-        "3 dina ru kono follow-up nahin.\n"
-        "Suggestion: natun order dei aage aji call karantu."
+        "3 dina ru kichi follow-up nahin.\n"
+        "Suggestion: nuya order dei aage aji call karantu."
     ),
     "notify.dealer_direct_reminder": (
         "Hi {dealer}, eha {business} tarafaru eka yaad karai deba — {amount} ra payment "
