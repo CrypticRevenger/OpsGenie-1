@@ -332,11 +332,14 @@ async def test_import_products_alias_headers_and_missing_fields(client: AsyncCli
 
 
 @pytest.mark.asyncio
-async def test_import_products_rejects_zero_and_negative_price_row_only(
+async def test_import_products_rejects_zero_price_row_only(
     client: AsyncClient,
 ) -> None:
-    """A bad price/stock fails only that row — the rest of the file still
-    imports (per this importer's per-row SAVEPOINT isolation)."""
+    """A bad price fails only that row — the rest of the file still imports
+    (per this importer's per-row SAVEPOINT isolation). A negative stock
+    figure is real data (e.g. Tally's "(-)" closing quantity — units sold
+    with no matching purchase on file), not a bad row: it's imported as-is,
+    same as Product.stock_quantity already allows for any other write path."""
     company_id, token = await _register_company(client)
     csv_bytes = (
         b"Name,Purchase Price,Selling Price,Unit,Stock,GST%\n"
@@ -352,9 +355,9 @@ async def test_import_products_rejects_zero_and_negative_price_row_only(
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert data["import_result"]["rows_succeeded"] == 1
-    assert data["import_result"]["rows_failed"] == 2
-    assert data["summary"]["product_count"] == 1
+    assert data["import_result"]["rows_succeeded"] == 2
+    assert data["import_result"]["rows_failed"] == 1
+    assert data["summary"]["product_count"] == 2
 
 
 @pytest.mark.asyncio

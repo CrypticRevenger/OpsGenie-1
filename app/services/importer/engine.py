@@ -56,6 +56,7 @@ from app.services.importer.parties import find_or_create_party
 from app.services.importer.pdf_extractor import (
     extract_invoice_rows_from_pdf,
     extract_payment_rows_from_pdf,
+    extract_product_rows_from_pdf,
 )
 from app.services.importer.result import ImportResult
 
@@ -250,10 +251,7 @@ def parse_file(
     lower = filename.lower()
     if lower.endswith(".pdf"):
         if file_kind == "products":
-            raise UnsupportedFileError(
-                "PDF import isn't supported yet for product/stock catalogues — "
-                "please upload a .csv or .xlsx file."
-            )
+            return extract_product_rows_from_pdf(contents, filename)
         if file_kind == "payments":
             return extract_payment_rows_from_pdf(contents, filename)
         if direction is None:
@@ -569,6 +567,14 @@ async def run_import(
         raise UnrecognisedFormatError(f"Missing required columns: {', '.join(missing)}")
 
     for row_number, raw_row in enumerate(rows, start=1):
+        pdf_skip_reason = raw_row.get("_pdf_skip_reason", "").strip()
+        if pdf_skip_reason:
+            # A non-final page of a multi-page invoice (see pdf_extractor.py's
+            # _ContinuedInvoicePage) — not a failure, nothing wrong happened;
+            # the invoice's complete data is captured from its own final
+            # page. No DB work needed for this row at all.
+            result.add_skipped(row_number, pdf_skip_reason, raw_value=str(raw_row))
+            continue
         try:
             async with db.begin_nested():
                 pdf_parse_error = raw_row.get("_pdf_parse_error", "").strip()
