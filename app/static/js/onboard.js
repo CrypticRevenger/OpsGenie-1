@@ -3,11 +3,14 @@
 // creates the company (POST /onboard); step 3 branches on whether the
 // distributor is starting fresh or importing existing data — "Start a new
 // business" skips straight to Activate, "Import existing data" continues to
-// step 4; step 4's "Import & Continue" optionally uploads a dealer-invoices
-// and/or supplier-invoices file (POST /onboard/{id}/import, once per file
-// present) and shows a reconciliation summary before letting the distributor
-// move on; step 5's "Activate Account" is the only call that turns the
-// company on (POST /onboard/{id}/activate). Everything else is client-side.
+// step 4; step 4's "Import & Continue" optionally uploads every file picked
+// across the five categories (POST /onboard/{id}/import, once per file — a
+// distributor doesn't know in advance how many PDFs/CSVs their export is
+// split into, e.g. one "Stock Group Summary" PDF per GST-rate group, so
+// each field's <input> accepts any number of files) and shows a
+// reconciliation summary before letting the distributor move on; step 5's
+// "Activate Account" is the only call that turns the company on (POST
+// /onboard/{id}/activate). Everything else is client-side.
 (function () {
   const LANGUAGE_LABELS = { en: "English", hi: "Hindi", or: "Odia" };
 
@@ -179,7 +182,36 @@
     return data; // OnboardImportResponse: { import_result, summary }
   }
 
-  function renderImportSummary(summary, rowProblems) {
+  // Each of the 5 fields may hold any number of files (a real Tally/Vyapar
+  // export is often split across several — e.g. one PDF per GST-rate stock
+  // group). The backend still takes exactly one file per call, so this
+  // uploads them one at a time, in the order selected. One file being
+  // rejected outright (corrupt PDF, unrecognised columns) never stops the
+  // rest of the batch — everything before it already committed, and there's
+  // no reason a later, unrelated file shouldn't still go in — same
+  // one-bad-unit-doesn't-fail-the-whole-import principle the backend already
+  // applies per *row*, just at the file level. Failures are collected
+  // instead of thrown, and reported to the distributor once the batch ends.
+  async function uploadImportFiles(fileKind, direction, fileList, onProgress) {
+    let lastResponse = null;
+    const rowProblems = [];
+    const fileFailures = [];
+    const files = Array.from(fileList || []);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (onProgress) onProgress(i + 1, files.length);
+      try {
+        const response = await uploadImportFile(fileKind, direction, file);
+        lastResponse = response;
+        rowProblems.push(...response.import_result.errors);
+      } catch (err) {
+        fileFailures.push({ filename: file.name, reason: err.message || "Something went wrong." });
+      }
+    }
+    return { lastResponse, rowProblems, fileFailures };
+  }
+
+  function renderImportSummary(summary, rowProblems, fileFailures) {
     const totalInvoices = summary.receivable_invoice_count + summary.payable_invoice_count;
     const rows = [
       ["Products", summary.product_count],
@@ -196,15 +228,21 @@
     summaryEl.style.display = "";
     document.getElementById("importUploadFields").style.display = "none";
 
-    if (rowProblems.length > 0) {
-      showBanner(
-        "step4Banner",
-        `${rowProblems.length} row(s) couldn't be imported and were skipped — you can add those individually later.`,
-        "warning"
+    const messages = [];
+    if (fileFailures && fileFailures.length > 0) {
+      const names = fileFailures.map((f) => f.filename).join(", ");
+      messages.push(
+        fileFailures.length === 1
+          ? `1 file couldn't be imported (${names}) — check its format and upload it again if needed.`
+          : `${fileFailures.length} files couldn't be imported (${names}) — check their format and upload them again if needed.`
       );
-    } else {
-      showBanner("step4Banner", "");
     }
+    if (rowProblems.length > 0) {
+      messages.push(
+        `${rowProblems.length} row(s) couldn't be imported and were skipped — you can add those individually later.`
+      );
+    }
+    showBanner("step4Banner", messages.join(" "), "warning");
 
     state.importSummaryShown = true;
     state.importSummary = summary;
@@ -217,48 +255,58 @@
       showStep(5);
       return;
     }
-    const receivableFile = form.elements["import_receivable_file"].files[0];
-    const payableFile = form.elements["import_payable_file"].files[0];
-    const productFile = form.elements["import_product_file"].files[0];
-    const receivablePaymentsFile = form.elements["import_receivable_payments_file"].files[0];
-    const payablePaymentsFile = form.elements["import_payable_payments_file"].files[0];
-    if (
-      !receivableFile && !payableFile && !productFile &&
-      !receivablePaymentsFile && !payablePaymentsFile
-    ) {
+    // Payments FIFO-allocate against already-imported open invoices, so
+    // both payments categories are listed (and therefore uploaded) last —
+    // after the invoices above have landed.
+    const categories = [
+      { fileKind: "invoices", direction: "receivable", files: form.elements["import_receivable_file"].files },
+      { fileKind: "invoices", direction: "payable", files: form.elements["import_payable_file"].files },
+      { fileKind: "products", direction: null, files: form.elements["import_product_file"].files },
+      {
+        fileKind: "payments",
+        direction: "receivable",
+        files: form.elements["import_receivable_payments_file"].files,
+      },
+      { fileKind: "payments", direction: "payable", files: form.elements["import_payable_payments_file"].files },
+    ];
+    const totalFiles = categories.reduce((sum, c) => sum + c.files.length, 0);
+    if (totalFiles === 0) {
       showStep(5);
       return;
     }
     showBanner("step4Banner", "");
     const btn = document.getElementById("importBtn");
     btn.disabled = true;
-    btn.textContent = "Importing…";
+    let filesDone = 0;
+    const showProgress = () => {
+      btn.textContent = totalFiles > 1 ? `Importing… (${filesDone}/${totalFiles})` : "Importing…";
+    };
+    showProgress();
     try {
       let lastResponse = null;
       const rowProblems = [];
-      if (receivableFile) {
-        lastResponse = await uploadImportFile("invoices", "receivable", receivableFile);
-        rowProblems.push(...lastResponse.import_result.errors);
+      const fileFailures = [];
+      for (const category of categories) {
+        if (category.files.length === 0) continue;
+        const result = await uploadImportFiles(category.fileKind, category.direction, category.files, () => {
+          filesDone += 1;
+          showProgress();
+        });
+        if (result.lastResponse) lastResponse = result.lastResponse;
+        rowProblems.push(...result.rowProblems);
+        fileFailures.push(...result.fileFailures);
       }
-      if (payableFile) {
-        lastResponse = await uploadImportFile("invoices", "payable", payableFile);
-        rowProblems.push(...lastResponse.import_result.errors);
+      if (!lastResponse) {
+        // Every single selected file was rejected outright — nothing to
+        // reconcile, so there's no summary to show and no reason to advance.
+        showBanner(
+          "step4Banner",
+          "None of the selected files could be imported. Check their format and try again."
+        );
+        btn.textContent = "Import & Continue";
+        return;
       }
-      if (productFile) {
-        lastResponse = await uploadImportFile("products", null, productFile);
-        rowProblems.push(...lastResponse.import_result.errors);
-      }
-      // Payments FIFO-allocate against already-imported open invoices, so
-      // they're uploaded last — after the invoices above have landed.
-      if (receivablePaymentsFile) {
-        lastResponse = await uploadImportFile("payments", "receivable", receivablePaymentsFile);
-        rowProblems.push(...lastResponse.import_result.errors);
-      }
-      if (payablePaymentsFile) {
-        lastResponse = await uploadImportFile("payments", "payable", payablePaymentsFile);
-        rowProblems.push(...lastResponse.import_result.errors);
-      }
-      renderImportSummary(lastResponse.summary, rowProblems);
+      renderImportSummary(lastResponse.summary, rowProblems, fileFailures);
     } catch (err) {
       showBanner("step4Banner", err.message || "Network error. Please try again.");
       btn.textContent = "Import & Continue";

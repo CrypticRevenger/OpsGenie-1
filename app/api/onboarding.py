@@ -177,13 +177,14 @@ async def submit_onboarding(
         "product/stock catalogue, from an existing export instead of typing "
         "everything into WhatsApp. Same importer as the founder admin route "
         "(Tally/Vyapar/OpsGenie-canonical CSV/Excel, plus Tally-style PDF "
-        "voucher/invoice printouts for file_kind=invoices/payments), scoped to "
-        "one direction per call, matching how a real sales register vs. "
-        "purchase register export works. Payments FIFO-allocate against "
-        "already-imported open invoices for that party, so an invoices file "
-        "for a given party should be imported before its payments file. "
-        "Returns the import result plus a fresh reconciliation summary so the "
-        "distributor can confirm it looks right before continuing."
+        "voucher/invoice printouts for file_kind=invoices/payments and a Tally "
+        "'Stock Group Summary' PDF — one GST-rate group per file — for "
+        "file_kind=products), scoped to one direction per call, matching how a "
+        "real sales register vs. purchase register export works. Payments "
+        "FIFO-allocate against already-imported open invoices for that party, "
+        "so an invoices file for a given party should be imported before its "
+        "payments file. Returns the import result plus a fresh reconciliation "
+        "summary so the distributor can confirm it looks right before continuing."
     ),
 )
 async def import_onboarding_data(
