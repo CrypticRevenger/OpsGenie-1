@@ -9,7 +9,13 @@ does two things standard CSV importers don't need to:
    needed, real-world payment exports are far less varied than invoice exports.
 2. FIFO-allocates each payment across the party's open invoices, oldest
    invoice_date first, splitting across invoices when one payment covers more
-   than the oldest invoice's remaining balance.
+   than the oldest invoice's remaining balance. A payment that outsizes the
+   party's *total* open balance (real-world case: a receipt also clears part
+   of an opening balance that predates every invoice actually on file, e.g.
+   Siddha Mahaveer Agencies in the Phase 3 dataset — one ₹57,747 invoice on
+   file against ₹1,10,000 of receipts) still pays off everything currently
+   open in full here rather than being rejected wholesale — see
+   allocate_payment_fifo's `allow_partial_allocation`.
 
 Idempotency note: the extracted real payment register's printed "No." turned
 out to be a recurring ledger/account code (e.g. "35" = bank account), reused
@@ -167,6 +173,7 @@ async def allocate_payment_fifo(
     source: PaymentSource = PaymentSource.csv_import,
     created_by: str = "import",
     invoice_id: uuid.UUID | None = None,
+    allow_partial_allocation: bool = False,
 ) -> list[tuple[Invoice, Decimal, Payment]]:
     """Returns the (invoice, amount_allocated, payment) splits actually made —
     the CSV import path ignores this; app/services/writes/payments.py's
@@ -180,6 +187,22 @@ async def allocate_payment_fifo(
     user explicitly chose) a single invoice. None preserves the original
     FIFO-across-all-open-invoices behavior, unchanged for CSV imports (which
     never name an invoice) and for a party with only one open invoice.
+
+    `allow_partial_allocation` (default False, preserving the original
+    all-or-nothing behavior for every existing caller — WhatsApp's
+    record_payment and writes/orders.py both leave it off) exists for
+    run_payment_import's bulk CSV/PDF path specifically. A live WhatsApp
+    conversation has a human to correct an amount that's too big for what's
+    on file; a historical import doesn't — rejecting the whole payment there
+    just because it doesn't map cleanly onto today's known invoices (e.g. it
+    also covers part of an opening balance that predates every invoice
+    actually on file for that party) silently overstates that party's
+    outstanding forever, even though the source document proves the money
+    was genuinely received. When set and the payment exceeds total
+    outstanding, this pays off every currently-open invoice for the party in
+    full instead of raising; the unmatched remainder is neither invented as
+    a phantom invoice payment nor silently dropped — see the caller for how
+    it's surfaced.
     """
     if amount <= 0:
         # Defense-in-depth: run_payment_import already guards this with
@@ -207,12 +230,19 @@ async def allocate_payment_fifo(
 
     total_outstanding = sum(remaining_by_invoice.values(), Decimal("0.00"))
     if amount > total_outstanding:
-        raise ValueError(
-            f"payment exceeds total outstanding for {party_name} "
-            f"(outstanding {total_outstanding}, payment {amount})"
-        )
-
-    remaining_to_allocate = amount
+        # total_outstanding <= 0 means every "open" invoice already nets to
+        # zero (a rounding edge case) — there is nothing to apply the
+        # payment to even in best-effort mode, so this still raises exactly
+        # like the no-open-invoice case above rather than "succeeding" at
+        # allocating nothing.
+        if not allow_partial_allocation or total_outstanding <= 0:
+            raise ValueError(
+                f"payment exceeds total outstanding for {party_name} "
+                f"(outstanding {total_outstanding}, payment {amount})"
+            )
+        remaining_to_allocate = total_outstanding
+    else:
+        remaining_to_allocate = amount
     allocations: list[tuple[Invoice, Decimal, Payment]] = []
     for invoice in open_invoices:
         if remaining_to_allocate <= 0:
@@ -312,7 +342,7 @@ async def run_payment_import(
             party = await find_or_create_party(db, company_id, row_direction, party_name)
 
             async with db.begin_nested():
-                await allocate_payment_fifo(
+                allocations = await allocate_payment_fifo(
                     db,
                     company_id=company_id,
                     direction=row_direction,
@@ -325,6 +355,26 @@ async def run_payment_import(
                     source_file=source_file,
                     row_number=row_number,
                     source_row_key=source_row_key,
+                    allow_partial_allocation=True,
+                )
+            applied = sum((allocated for _invoice, allocated, _payment in allocations), Decimal("0.00"))
+            if applied < amount:
+                # allocate_payment_fifo capped this payment at the party's
+                # total_outstanding rather than rejecting it outright (see
+                # its docstring) — the shortfall genuinely couldn't be matched
+                # to any open invoice on file. Not a row failure (the
+                # matchable part was applied for real), but must stay
+                # traceable rather than a silent, unexplained gap between
+                # what this receipt said and what got recorded.
+                logger.warning(
+                    "Payment row %d in %s: only %s of %s matched an open invoice for "
+                    "%s (%s left over, not recorded against any invoice)",
+                    row_number,
+                    filename,
+                    applied,
+                    amount,
+                    party_name,
+                    amount - applied,
                 )
             result.add_success()
         except Exception as exc:  # noqa: BLE001 - row-level isolation is intentional

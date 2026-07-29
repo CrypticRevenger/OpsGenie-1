@@ -149,7 +149,15 @@ async def test_payment_splits_fifo_across_two_invoices(db: AsyncSession) -> None
 
 
 @pytest.mark.asyncio
-async def test_payment_exceeding_outstanding_rejected(db: AsyncSession) -> None:
+async def test_payment_exceeding_outstanding_caps_at_total_outstanding_on_import(
+    db: AsyncSession,
+) -> None:
+    """A bulk import has no human in the loop to correct an amount that's too
+    big — capping and applying what fits (see allocate_payment_fifo's
+    `allow_partial_allocation`) instead of rejecting the whole payment. The
+    Siddha Mahaveer Agencies case from the real Phase 3 dataset: pay off the
+    one open invoice in full, the ₹4000 left over isn't matched to anything.
+    """
     company_id = await _make_company(db)
     dealer_id = await _make_dealer(db, company_id, "Ganesh Store")
     invoice = await _make_invoice(
@@ -164,8 +172,50 @@ async def test_payment_exceeding_outstanding_rejected(db: AsyncSession) -> None:
         filename="payments.csv",
         contents=_csv("Ganesh Store,2026-01-10,9000.00,Bank"),
     )
-    assert result.rows_failed == 1
-    assert "exceeds total outstanding" in result.errors[0].reason
+    assert result.rows_succeeded == 1
+    assert result.rows_failed == 0
+
+    await db.refresh(invoice)
+    assert invoice.status == InvoiceStatus.Paid
+
+    payment = await db.scalar(select(Payment).where(Payment.invoice_id == invoice.id))
+    assert payment is not None
+    assert payment.amount == Decimal("5000.00")  # capped, not the full 9000.00
+
+
+@pytest.mark.asyncio
+async def test_allocate_payment_fifo_still_rejects_overpayment_by_default(
+    db: AsyncSession,
+) -> None:
+    """The capping above is opt-in (`allow_partial_allocation=True`, set only
+    by run_payment_import). Every other caller — WhatsApp's record_payment,
+    writes/orders.py — leaves it off deliberately: a live conversation has a
+    human present to correct an amount that's too big, so it should still get
+    a clean rejection to react to, not a silent partial allocation.
+    """
+    from app.services.importer.payment_row import allocate_payment_fifo
+
+    company_id = await _make_company(db)
+    dealer_id = await _make_dealer(db, company_id, "Ganesh Store Direct")
+    invoice = await _make_invoice(
+        db, company_id, dealer_id, "INV-P4B", date(2026, 1, 5), Decimal("5000.00")
+    )
+
+    with pytest.raises(ValueError, match="exceeds total outstanding"):
+        await allocate_payment_fifo(
+            db,
+            company_id=company_id,
+            direction="receivable",
+            party_id=dealer_id,
+            party_name="Ganesh Store Direct",
+            amount=Decimal("9000.00"),
+            payment_date=date(2026, 1, 10),
+            method="Bank",
+            voucher_reference="",
+            source_file="test.csv",
+            row_number=1,
+            source_row_key="test-key",
+        )
 
     await db.refresh(invoice)
     assert invoice.status == InvoiceStatus.Pending  # untouched
