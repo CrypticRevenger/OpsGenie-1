@@ -34,6 +34,11 @@ jobs:
       WHATSAPP_VERIFY_TOKEN: ci-test-verify-token
       WHATSAPP_APP_SECRET: ci-test-app-secret
       EXPORT_LINK_SECRET: ci-test-export-secret
+      # dealer_statement_reply (app/services/dealer_self_service.py) treats a
+      # missing PUBLIC_BASE_URL the same as a missing EXPORT_LINK_SECRET —
+      # "not configured" — so without this every dealer statement/ledger test
+      # falls back to that message instead of a real Excel/PDF link.
+      PUBLIC_BASE_URL: https://ci-test.example.com
       ONBOARDING_ENABLED: "true"
       SCHEDULER_ENABLED: "false"
       # APP_ENV must stay "development" (Settings' own default) for CI, same
