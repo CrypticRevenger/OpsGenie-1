@@ -20,6 +20,17 @@ jobs:
       # other traffic (e.g. a distributor's WhatsApp message) wakes the
       # process. Same cadence as the /health ping above.
       - name: Trigger scheduled dispatch tick
+        # --max-time 300: a tick that needs to actually generate a briefing
+        # walks LLM_FALLBACKS (app/services/llm/factory.py::generate_with_fallback)
+        # trying each configured provider in order, up to llm_timeout_seconds
+        # (30s) apiece before moving on — with 6 providers configured
+        # (LLM_PROVIDER + LLM_FALLBACKS in .env) that's up to 180s for one
+        # company's briefing alone if several providers are slow rather than
+        # failing fast, before WhatsApp sends or a second concern (e.g. the
+        # evening brief, also LLM-backed) even runs. The endpoint itself
+        # already tolerates this (idempotent, safe to call as often as
+        # needed — see app/api/admin/scheduler.py) — this was only ever the
+        # monitor giving up client-side, not the dispatch failing server-side.
         run: |
-          curl -fsS --max-time 120 -X POST https://opsgenie.onrender.com/admin/scheduler/tick \
+          curl -fsS --max-time 300 -X POST https://opsgenie.onrender.com/admin/scheduler/tick \
             -H "X-API-Key: ${{ secrets.ADMIN_API_KEY }}"
