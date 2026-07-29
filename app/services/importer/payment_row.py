@@ -357,7 +357,9 @@ async def run_payment_import(
                     source_row_key=source_row_key,
                     allow_partial_allocation=True,
                 )
-            applied = sum((allocated for _invoice, allocated, _payment in allocations), Decimal("0.00"))
+            applied = sum(
+                (allocated for _invoice, allocated, _payment in allocations), Decimal("0.00")
+            )
             if applied < amount:
                 # allocate_payment_fifo capped this payment at the party's
                 # total_outstanding rather than rejecting it outright (see
