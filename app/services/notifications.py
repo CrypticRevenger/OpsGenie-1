@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -87,6 +87,10 @@ _STALE_DATA_HOURS = 24
 # next tick forever). Anything over the cap simply waits for the next tick,
 # where it is still due and still undeduped.
 _MAX_SUPPLIER_REMINDERS_PER_TICK = 10
+
+# Sorts ahead of every real reminder timestamp, so a supplier that has never
+# been reminded always wins a contested slot under the cap above.
+_NEVER_REMINDED = datetime.min.replace(tzinfo=UTC)
 
 _STALE_DATA_REASON = "stale_data"
 _BRIEFING_FAILED_REASON = "briefing_failed"
@@ -238,34 +242,39 @@ async def _recent_activity_exists(
     return found is not None
 
 
-async def _suppliers_reminded_since(
+async def _supplier_last_reminded(
     db: AsyncSession,
     *,
     company_id: uuid.UUID,
     supplier_ids: set[uuid.UUID],
-    since: datetime,
-) -> set[uuid.UUID]:
-    """Which of `supplier_ids` already got a reminder inside the quiet window.
+) -> dict[uuid.UUID, datetime]:
+    """When each of `supplier_ids` was last sent a payment reminder.
 
     The batched counterpart to _recent_activity_exists for the one caller that
-    asks the same question about many entities at once: a company with a long
-    payables list would otherwise issue one round-trip per open bill just to
-    decide what to skip (87 of them on the live pilot). One IN-query answers
-    all of them, and `ix_activity_timelines_company_entity` already covers the
-    (company_id, entity_type, entity_id) lookup.
+    asks about many entities at once: a company with a long payables list would
+    otherwise issue one round-trip per open bill just to decide what to skip
+    (87 of them on the live pilot). One grouped query answers all of them, and
+    `ix_activity_timelines_company_entity` already covers the (company_id,
+    entity_type, entity_id) lookup.
+
+    Returns the timestamp rather than a bare "inside the quiet window?" boolean
+    because the caller needs it twice: once to apply the window, and again to
+    decide fairly which suppliers to drop when more are due than one tick may
+    send. A supplier absent from the result has never been reminded.
     """
     if not supplier_ids:
-        return set()
-    rows = await db.scalars(
-        select(ActivityTimeline.entity_id).where(
+        return {}
+    rows = await db.execute(
+        select(ActivityTimeline.entity_id, func.max(ActivityTimeline.event_timestamp))
+        .where(
             ActivityTimeline.company_id == company_id,
             ActivityTimeline.entity_type == ActivityEntityType.supplier,
             ActivityTimeline.entity_id.in_(supplier_ids),
             ActivityTimeline.event_type == ActivityEventType.reminder_sent,
-            ActivityTimeline.event_timestamp >= since,
         )
+        .group_by(ActivityTimeline.entity_id)
     )
-    return set(rows.all())
+    return dict(rows.all())
 
 
 async def _recent_business_event_exists(
@@ -319,11 +328,10 @@ async def check_supplier_payment_reminders(
     # collapse aren't dropped from view: their count and total ride along on
     # the surviving reminder (see `extra_*` below), and each becomes eligible
     # for its own reminder once this supplier's quiet window lapses.
-    reminded_supplier_ids = await _suppliers_reminded_since(
+    last_reminded = await _supplier_last_reminded(
         db,
         company_id=company.id,
         supplier_ids={payment.supplier_id for payment in snapshot.expected_payments_7d},
-        since=since,
     )
 
     due_payments = []
@@ -332,7 +340,8 @@ async def check_supplier_payment_reminders(
     for payment in snapshot.expected_payments_7d:
         if (payment.due_date - today).days > _SUPPLIER_REMINDER_DAYS:
             continue
-        if payment.supplier_id in reminded_supplier_ids:
+        previous = last_reminded.get(payment.supplier_id)
+        if previous is not None and previous >= since:
             continue
         if payment.supplier_id in collapsed:
             count, total = collapsed[payment.supplier_id]
@@ -349,6 +358,14 @@ async def check_supplier_payment_reminders(
     # one message per distinct supplier, so reaching the cap takes a genuinely
     # long supplier list. Anything trimmed here is still due and still
     # undeduped on the next tick.
+    #
+    # Which ones get trimmed matters. Dropping the tail of the due_date
+    # ordering would starve the same suppliers forever: this rule runs on a
+    # daily tick against a 24h window, so every eligible supplier comes back
+    # eligible together each day, in the same order, and the ones past the cap
+    # would never once be reached. Choosing by least-recently-reminded instead
+    # (never-reminded first) makes a supplier skipped today the strongest
+    # candidate tomorrow, so the cap rotates rather than starves.
     if len(due_payments) > _MAX_SUPPLIER_REMINDERS_PER_TICK:
         logger.warning(
             "Company %s has %d suppliers due a reminder this tick — capping at %d.",
@@ -356,7 +373,17 @@ async def check_supplier_payment_reminders(
             len(due_payments),
             _MAX_SUPPLIER_REMINDERS_PER_TICK,
         )
-        due_payments = due_payments[:_MAX_SUPPLIER_REMINDERS_PER_TICK]
+        kept = {
+            payment.supplier_id
+            for payment in sorted(
+                due_payments,
+                key=lambda p: last_reminded.get(p.supplier_id) or _NEVER_REMINDED,
+            )[:_MAX_SUPPLIER_REMINDERS_PER_TICK]
+        }
+        # Re-filter the original list rather than using the sorted one, so the
+        # survivors keep their due_date order — the most urgent bill must stay
+        # first, since that's the one offered as the interactive confirm below.
+        due_payments = [p for p in due_payments if p.supplier_id in kept]
 
     # Only the first bill this tick becomes an interactive "did you pay
     # this?" confirmation — Company.active_workflow/active_pending_operation_id
