@@ -350,6 +350,99 @@ async def test_status_update_from_known_recipient_writes_business_event(
     assert event.payload["recipient"] == phone
 
 
+async def _post_status(recipient: str, message_id: str, status: str) -> None:
+    body = json.dumps(
+        _statuses_payload(recipient=recipient, message_id=message_id, status=status)
+    ).encode()
+    async with await _anon_client() as client:
+        resp = await client.post(
+            "/webhooks/whatsapp",
+            content=body,
+            headers={"Content-Type": "application/json", "X-Hub-Signature-256": _sign(body)},
+        )
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_never_regresses_on_out_of_order_webhooks(
+    db: AsyncSession,
+) -> None:
+    """Regression (found in production — 126 logs affected): Meta delivers
+    status webhooks out of order and redelivers them, and the handler assigned
+    delivery_status unconditionally, so a late or repeated `sent` overwrote a
+    `read` that had already arrived. The founder-facing Delivery Status report
+    reads this column, so the row then claimed a message was never read.
+    """
+    phone = _unique_phone()
+    company_id = await _make_company(db, phone)
+    bare_recipient = phone.removeprefix("+")
+    message_id = f"wamid.{uuid.uuid4().hex}"
+    db.add(
+        NotificationLog(
+            company_id=company_id,
+            notification_type="invoice_document",
+            recipient_whatsapp=phone,
+            message_text="invoice",
+            whatsapp_message_id=message_id,
+            delivery_status="sent",
+        )
+    )
+    await db.commit()
+
+    await _post_status(bare_recipient, message_id, "read")
+    await _post_status(bare_recipient, message_id, "sent")  # late redelivery
+    await _post_status(bare_recipient, message_id, "delivered")  # out of order
+
+    log = await db.scalar(
+        select(NotificationLog).where(NotificationLog.whatsapp_message_id == message_id)
+    )
+    assert log is not None
+    await db.refresh(log)
+    assert log.delivery_status == "read"
+
+
+@pytest.mark.asyncio
+async def test_delivery_status_applies_for_a_dealer_recipient(db: AsyncSession) -> None:
+    """Regression: statuses were only applied when recipient_id matched a
+    company's own WhatsApp number, so everything sent to a *dealer* — invoice
+    delivery, direct overdue reminders, broadcasts — stayed frozen at "sent"
+    forever. The wamid is globally unique, so no company lookup is needed.
+    """
+    company_id = await _make_company(db, _unique_phone())
+    dealer_phone = _unique_phone()
+    message_id = f"wamid.{uuid.uuid4().hex}"
+    db.add(
+        NotificationLog(
+            company_id=company_id,
+            notification_type="invoice_document",
+            recipient_whatsapp=dealer_phone,
+            message_text="invoice",
+            whatsapp_message_id=message_id,
+            delivery_status="sent",
+        )
+    )
+    await db.commit()
+
+    await _post_status(dealer_phone.removeprefix("+"), message_id, "read")
+
+    log = await db.scalar(
+        select(NotificationLog).where(NotificationLog.whatsapp_message_id == message_id)
+    )
+    assert log is not None
+    await db.refresh(log)
+    assert log.delivery_status == "read"
+
+    # …but still no audit event attributed to a company that can't be
+    # identified from a dealer's number alone.
+    event = await db.scalar(
+        select(BusinessEvent).where(
+            BusinessEvent.event_type == BusinessEventType.whatsapp_status_received,
+            BusinessEvent.payload["message_id"].astext == message_id,
+        )
+    )
+    assert event is None
+
+
 @pytest.mark.asyncio
 async def test_status_update_unknown_recipient_returns_200_and_writes_nothing(
     db: AsyncSession,

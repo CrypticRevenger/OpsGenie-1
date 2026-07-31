@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Uuid, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -26,6 +26,11 @@ class ImportLog(UUIDMixin, Base):
     """A record of a single CSV or Excel import attempt."""
 
     __tablename__ = "import_logs"
+    __table_args__ = (
+        # snapshot.py::data_freshness_hours takes max(imported_at) for one
+        # company on every snapshot build — once per company per scheduler tick.
+        Index("ix_import_logs_company_imported", "company_id", "imported_at"),
+    )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -28,6 +28,7 @@ class CashSnapshot(UUIDMixin, Base):
     """A recorded opening-balance snapshot for a company."""
 
     __tablename__ = "cash_snapshots"
+    __table_args__ = (Index("ix_cash_snapshots_company_id", "company_id"),)
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

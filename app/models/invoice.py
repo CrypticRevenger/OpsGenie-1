@@ -83,6 +83,12 @@ class Invoice(UUIDMixin, TimestampMixin, Base):
         Index("ix_invoices_company_id", "company_id"),
         Index("ix_invoices_company_status", "company_id", "status"),
         Index("ix_invoices_company_due_date", "company_id", "due_date"),
+        # Per-party lookups (outstanding balance, ledger, statement PDF, the
+        # register builders) all filter one party column plus a status set.
+        # The party column leads so the FK's own ON DELETE SET NULL scan is
+        # covered by the same index.
+        Index("ix_invoices_dealer_status", "dealer_id", "status"),
+        Index("ix_invoices_supplier_status", "supplier_id", "status"),
     )
 
     company_id: Mapped[uuid.UUID] = mapped_column(

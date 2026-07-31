@@ -1078,10 +1078,27 @@ async def _record_status_event(db: AsyncSession, company: Company, status_entry:
     )
 
 
+# Meta's delivery statuses form a one-way ladder: sent → delivered → read.
+# `failed` is terminal and only ever follows `sent` (a message that failed was
+# never delivered or read), and it outranks everything so a real failure is
+# never masked by a stale earlier status. Ranked so a status webhook can only
+# ever move a NotificationLog *forward* — see _update_notification_delivery_status.
+_DELIVERY_STATUS_RANK = {"sent": 1, "delivered": 2, "read": 3, "failed": 4}
+
+
 async def _update_notification_delivery_status(db: AsyncSession, status_entry: dict) -> None:
     """Closes the trace loop: a status webhook's `id` is the same "wamid"
     send_text_message() returned when the reply was sent — match it back to
     the NotificationLog row that recorded that send.
+
+    Only ever advances the status. Meta delivers these webhooks out of order
+    and redelivers them (the same at-least-once delivery the inbound-message
+    path guards with an advisory lock), so a plain assignment lets a late or
+    repeated `sent` overwrite a `delivered`/`read` that already arrived. That
+    isn't cosmetic: NotificationLog.delivery_status is what the founder-facing
+    "Delivery Status" report reads (app/services/instant_reports.py), so a
+    regressed row tells them an invoice they sent was never read when it was.
+    Found in production — 126 logs had regressed this way.
     """
     message_id = status_entry.get("id")
     new_status = status_entry.get("status")
@@ -1090,8 +1107,17 @@ async def _update_notification_delivery_status(db: AsyncSession, status_entry: d
     log = await db.scalar(
         select(NotificationLog).where(NotificationLog.whatsapp_message_id == message_id)
     )
-    if log is not None:
-        log.delivery_status = new_status
+    if log is None:
+        return
+
+    new_rank = _DELIVERY_STATUS_RANK.get(new_status)
+    current_rank = _DELIVERY_STATUS_RANK.get(log.delivery_status or "")
+    # An unrecognised status (Meta adds one, or our own pre-webhook marker is
+    # still in place) can't be ordered against the ladder — record it rather
+    # than silently dropping it. Two known statuses are ordered strictly.
+    if new_rank is not None and current_rank is not None and new_rank <= current_rank:
+        return
+    log.delivery_status = new_status
 
 
 async def _record_reply_sent_event(
@@ -1954,15 +1980,33 @@ async def receive_whatsapp_webhook(
                             )
 
             for status_entry in value.get("statuses", []):
+                # Update the NotificationLog first, and unconditionally: the
+                # wamid is globally unique (uq_notification_logs_whatsapp_
+                # message_id), so this needs no company at all. Statuses for
+                # anything we sent to a *dealer* — invoice delivery, direct
+                # overdue reminders, broadcasts, dealer self-service replies —
+                # carry the dealer's number as recipient_id and so never match
+                # a company below; gating this on that lookup silently froze
+                # every one of those rows at "sent" forever, including in the
+                # founder-facing Delivery Status report.
+                await _update_notification_delivery_status(db, status_entry)
+
+                # The BusinessEvent audit row does need a company to belong
+                # to. Only the distributor's own number identifies one here
+                # (a dealer's number can map to several — see
+                # find_dealer_company), so a non-founder recipient gets the
+                # log row above without an event, rather than a guessed
+                # attribution in someone's audit trail.
                 recipient = _normalize_to_e164(status_entry.get("recipient_id", ""))
                 company = await _find_company_by_whatsapp_number(db, recipient)
                 if company is None:
-                    logger.warning(
-                        "WhatsApp status for unknown recipient %s — skipping.", recipient
+                    logger.info(
+                        "WhatsApp status for non-founder recipient %s — "
+                        "delivery status recorded, no audit event.",
+                        recipient,
                     )
                     continue
                 await _record_status_event(db, company, status_entry)
-                await _update_notification_delivery_status(db, status_entry)
 
     # Always 200 once signature-checked and structurally valid — Meta retries
     # aggressively on non-2xx. Per-message lookup misses are logged, not

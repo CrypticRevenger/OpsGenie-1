@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Uuid, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Uuid, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -92,6 +92,21 @@ class BusinessEvent(UUIDMixin, Base):
     __table_args__ = (
         Index("ix_business_events_company_created", "company_id", "created_at"),
         Index("ix_business_events_company_type", "company_id", "event_type"),
+        # Inbound-WhatsApp dedup guard, created as raw DDL by migration
+        # a3c7e1f92b4d. Mirrored here purely so autogenerate sees it: while it
+        # existed only in the migration, `alembic revision --autogenerate`
+        # reported it as an index to DROP, and taking that suggestion would
+        # silently remove the atomic guarantee that stops Meta's retries from
+        # producing two replies to one message (see the webhook's
+        # IntegrityError branch). Expression + WHERE clause spelled exactly as
+        # the migration wrote them so no drift is detected either way.
+        Index(
+            "uq_business_events_wa_inbound_msg",
+            "company_id",
+            text("(payload->>'message_id')"),
+            unique=True,
+            postgresql_where=text("event_type = 'whatsapp_message_received'"),
+        ),
     )
 
     company_id: Mapped[uuid.UUID] = mapped_column(

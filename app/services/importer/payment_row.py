@@ -100,15 +100,24 @@ def _source_row_key(
     return f"{direction}|{party_name.lower()}|{payment_date.isoformat()}|{amount}"
 
 
-async def _already_imported(db: AsyncSession, company_id: uuid.UUID, source_row_key: str) -> bool:
-    existing = await db.scalar(
-        select(BusinessEvent.id).where(
+async def _imported_source_row_keys(db: AsyncSession, company_id: uuid.UUID) -> set[str]:
+    """Every payment source_row_key this company has already imported.
+
+    Loaded once per file instead of one existence query per row: a payment
+    register is routinely hundreds of rows, and each row's check was its own
+    round-trip against business_events (the table that grows fastest in this
+    schema). The caller keeps this set current as it writes, so dedup *within*
+    one file still works exactly as it did when each row re-queried — see
+    run_payment_import.
+    """
+    rows = await db.scalars(
+        select(BusinessEvent.payload["source_row_key"].astext).where(
             BusinessEvent.company_id == company_id,
             BusinessEvent.event_type == BusinessEventType.payment_received,
-            BusinessEvent.payload["source_row_key"].astext == source_row_key,
+            BusinessEvent.payload["source_row_key"].astext.is_not(None),
         )
     )
-    return existing is not None
+    return set(rows.all())
 
 
 async def open_invoices_with_outstanding(
@@ -308,6 +317,11 @@ async def run_payment_import(
     if missing:
         raise UnrecognisedFormatError(f"Missing required columns: {', '.join(missing)}")
 
+    # Seeded once from what's already on file, then kept current below as this
+    # file's own rows land — so a row duplicated *within* the file is still
+    # skipped, which is what the old per-row query did via autoflush.
+    imported_row_keys = await _imported_source_row_keys(db, company_id)
+
     for row_number, raw_row in enumerate(rows, start=1):
         try:
             pdf_parse_error = raw_row.get("_pdf_parse_error", "").strip()
@@ -331,7 +345,7 @@ async def run_payment_import(
             source_file = canonical.get("source_file", "").strip() or filename
 
             source_row_key = _source_row_key(row_direction, party_name, payment_date, amount)
-            if await _already_imported(db, company_id, source_row_key):
+            if source_row_key in imported_row_keys:
                 result.add_skipped(row_number, f"payment for {party_name} already imported")
                 continue
 
@@ -378,6 +392,11 @@ async def run_payment_import(
                     party_name,
                     amount - applied,
                 )
+            # Only now — the SAVEPOINT above has committed, so this row's
+            # payment_received events are really on file. A row that raised
+            # instead had its events rolled back with the savepoint and must
+            # stay re-importable.
+            imported_row_keys.add(source_row_key)
             result.add_success()
         except Exception as exc:  # noqa: BLE001 - row-level isolation is intentional
             logger.warning("Payment row %d failed in %s: %s", row_number, filename, exc)

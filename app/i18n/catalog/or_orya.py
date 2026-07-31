@@ -1130,6 +1130,9 @@ MESSAGES: dict[str, str] = {
         "{cash_line}\n"
         "Cash position ନ ବଦଳିଲେ କୌଣସି action ଦରକାର ନାହିଁ।"
     ),
+    "notify.supplier_reminder_more_bills": (
+        "ଏହି supplier ର ଆଉ {count} ଟି bill(s) ବି open ଅଛି, ମୋଟ {amount}।"
+    ),
     "notify.when_today": "ଆଜି",
     "notify.when_tomorrow": "କାଲି",
     "notify.when_overdue": "{days} ଦିନ ପୂର୍ବେ",
