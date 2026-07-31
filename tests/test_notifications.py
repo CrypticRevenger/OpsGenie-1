@@ -357,6 +357,49 @@ async def test_supplier_reminder_caps_the_number_of_messages_per_tick(
 
 
 @pytest.mark.asyncio
+async def test_supplier_reminder_cap_rotates_instead_of_starving(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """The cap must not drop the same suppliers every tick.
+
+    This rule runs on a daily tick against a 24h quiet window, so every
+    eligible supplier comes back eligible together each day in the same
+    due_date order. Trimming the tail would mean the suppliers past the cap
+    are never reached even once. Least-recently-reminded wins a contested
+    slot, so yesterday's skipped supplier is today's strongest candidate.
+    """
+    company = await _make_company(db)
+    bills = [
+        _supplier_payment(supplier_name=f"Supplier {index}", due_date=TODAY)
+        for index in range(_MAX_SUPPLIER_REMINDERS_PER_TICK + 3)
+    ]
+    snap = _snapshot(company.id, expected_payments_7d=bills)
+
+    first = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+    assert first == _MAX_SUPPLIER_REMINDERS_PER_TICK
+    reminded_first = {
+        b.supplier_id for b in bills if any(b.supplier_name in s[1] for s in recorded_sends)
+    }
+    assert len(reminded_first) == _MAX_SUPPLIER_REMINDERS_PER_TICK
+
+    # Next day's tick: the whole quiet window has lapsed, so everyone is
+    # eligible again — but the three never-reminded suppliers must go first.
+    recorded_sends.clear()
+    next_day = NOW + timedelta(hours=25)
+    second = await check_supplier_payment_reminders(db, company, snap, next_day)
+    await db.commit()
+
+    assert second == _MAX_SUPPLIER_REMINDERS_PER_TICK
+    reminded_second = {
+        b.supplier_id for b in bills if any(b.supplier_name in s[1] for s in recorded_sends)
+    }
+    starved = {b.supplier_id for b in bills} - reminded_first
+    assert starved, "test setup: some suppliers must have missed the first tick"
+    assert starved <= reminded_second, "suppliers skipped by the cap were starved again"
+
+
+@pytest.mark.asyncio
 async def test_supplier_reminder_dedups_within_24h(db: AsyncSession, recorded_sends) -> None:
     company = await _make_company(db)
     payment = _supplier_payment(due_date=TODAY + timedelta(days=1))
