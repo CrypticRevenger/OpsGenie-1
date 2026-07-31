@@ -40,6 +40,7 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +77,16 @@ _SUPPLIER_REMINDER_DAYS = 1
 _DEALER_ALERT_QUIET_DAYS = 3  # "no follow-up recorded in 3 days"
 _SUPPLIER_REMINDER_QUIET_HOURS = 24
 _STALE_DATA_HOURS = 24
+
+# Hard ceiling on how many supplier reminders one tick may send, on top of the
+# per-supplier quiet window below. The window already collapses a supplier's
+# bills into a single message, so a company would need this many *distinct*
+# suppliers all due at once to reach here — but a distributor with a long
+# supplier list must never be blasted with an unbounded burst of individual
+# WhatsApp messages (Meta throttles those, and the ones it drops just retry
+# next tick forever). Anything over the cap simply waits for the next tick,
+# where it is still due and still undeduped.
+_MAX_SUPPLIER_REMINDERS_PER_TICK = 10
 
 _STALE_DATA_REASON = "stale_data"
 _BRIEFING_FAILED_REASON = "briefing_failed"
@@ -227,6 +238,36 @@ async def _recent_activity_exists(
     return found is not None
 
 
+async def _suppliers_reminded_since(
+    db: AsyncSession,
+    *,
+    company_id: uuid.UUID,
+    supplier_ids: set[uuid.UUID],
+    since: datetime,
+) -> set[uuid.UUID]:
+    """Which of `supplier_ids` already got a reminder inside the quiet window.
+
+    The batched counterpart to _recent_activity_exists for the one caller that
+    asks the same question about many entities at once: a company with a long
+    payables list would otherwise issue one round-trip per open bill just to
+    decide what to skip (87 of them on the live pilot). One IN-query answers
+    all of them, and `ix_activity_timelines_company_entity` already covers the
+    (company_id, entity_type, entity_id) lookup.
+    """
+    if not supplier_ids:
+        return set()
+    rows = await db.scalars(
+        select(ActivityTimeline.entity_id).where(
+            ActivityTimeline.company_id == company_id,
+            ActivityTimeline.entity_type == ActivityEntityType.supplier,
+            ActivityTimeline.entity_id.in_(supplier_ids),
+            ActivityTimeline.event_type == ActivityEventType.reminder_sent,
+            ActivityTimeline.event_timestamp >= since,
+        )
+    )
+    return set(rows.all())
+
+
 async def _recent_business_event_exists(
     db: AsyncSession,
     *,
@@ -261,20 +302,61 @@ async def check_supplier_payment_reminders(
     since = now - timedelta(hours=_SUPPLIER_REMINDER_QUIET_HOURS)
     sent = 0
 
+    # One reminder per SUPPLIER per quiet window — not one per bill.
+    #
+    # The dedup below is keyed on supplier_id and has always meant exactly
+    # that, but it used to be evaluated for every bill *before* any of this
+    # tick's reminders were sent, so a supplier with N open bills passed the
+    # check N separate times and got N separate WhatsApp messages in one
+    # burst. Observed on the live pilot: 87 open payables across 11 suppliers
+    # (47 of them for a single supplier) produced 88 messages a day, ~32 of
+    # which Meta throttled. Failed sends deliberately skip the dedup marker
+    # so they retry (see below) — which meant the same oversized burst, and
+    # the same ~32 failures, repeated every single day.
+    #
+    # Collapsing to one bill per supplier here fixes the flood at its source
+    # and leaves the marker semantics untouched. The bills that lose the
+    # collapse aren't dropped from view: their count and total ride along on
+    # the surviving reminder (see `extra_*` below), and each becomes eligible
+    # for its own reminder once this supplier's quiet window lapses.
+    reminded_supplier_ids = await _suppliers_reminded_since(
+        db,
+        company_id=company.id,
+        supplier_ids={payment.supplier_id for payment in snapshot.expected_payments_7d},
+        since=since,
+    )
+
     due_payments = []
+    # supplier_id -> (bills collapsed into that supplier's reminder, their total)
+    collapsed: dict[uuid.UUID, tuple[int, Decimal]] = {}
     for payment in snapshot.expected_payments_7d:
         if (payment.due_date - today).days > _SUPPLIER_REMINDER_DAYS:
             continue
-        if await _recent_activity_exists(
-            db,
-            company_id=company.id,
-            entity_type=ActivityEntityType.supplier,
-            entity_id=payment.supplier_id,
-            event_types=(ActivityEventType.reminder_sent,),
-            since=since,
-        ):
+        if payment.supplier_id in reminded_supplier_ids:
             continue
+        if payment.supplier_id in collapsed:
+            count, total = collapsed[payment.supplier_id]
+            collapsed[payment.supplier_id] = (count + 1, total + payment.amount)
+            continue
+        # expected_payments_7d is ordered by due_date (snapshot.py::
+        # _expected_payments_7d), so the first bill seen for a supplier is its
+        # most urgent — the right one to lead the reminder with, and the right
+        # one to offer the interactive "have you paid this?" confirm on.
+        collapsed[payment.supplier_id] = (0, Decimal("0.00"))
         due_payments.append(payment)
+
+    # Defense in depth: the per-supplier collapse above already bounds this to
+    # one message per distinct supplier, so reaching the cap takes a genuinely
+    # long supplier list. Anything trimmed here is still due and still
+    # undeduped on the next tick.
+    if len(due_payments) > _MAX_SUPPLIER_REMINDERS_PER_TICK:
+        logger.warning(
+            "Company %s has %d suppliers due a reminder this tick — capping at %d.",
+            company.id,
+            len(due_payments),
+            _MAX_SUPPLIER_REMINDERS_PER_TICK,
+        )
+        due_payments = due_payments[:_MAX_SUPPLIER_REMINDERS_PER_TICK]
 
     # Only the first bill this tick becomes an interactive "did you pay
     # this?" confirmation — Company.active_workflow/active_pending_operation_id
@@ -348,6 +430,19 @@ async def check_supplier_payment_reminders(
             when=when,
             cash_line=cash_line,
         )
+        extra_count, extra_total = collapsed[payment.supplier_id]
+        if extra_count:
+            # This supplier's other open bills, collapsed into this one
+            # message rather than sent as separate reminders. Stated as a
+            # count and a total so the founder still knows the full exposure
+            # to this supplier — the lead bill's own amount above is only
+            # part of it.
+            message = f"{message}\n\n" + t(
+                "notify.supplier_reminder_more_bills",
+                loc,
+                count=extra_count,
+                amount=format_inr(extra_total),
+            )
         if index == 0 and can_start_confirm:
             question = start_reminder_confirm(
                 company,

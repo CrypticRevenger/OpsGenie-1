@@ -1123,6 +1123,9 @@ MESSAGES: dict[str, str] = {
         "{cash_line}\n"
         "कोई action की ज़रूरत नहीं जब तक cash position न बदले।"
     ),
+    "notify.supplier_reminder_more_bills": (
+        "इस supplier के {count} और bill(s) भी open हैं, कुल {amount}।"
+    ),
     "notify.when_today": "आज",
     "notify.when_tomorrow": "कल",
     "notify.when_overdue": "{days} दिन पहले",

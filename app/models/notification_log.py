@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -25,6 +25,11 @@ class NotificationLog(UUIDMixin, Base):
     """A record of a single outbound WhatsApp notification."""
 
     __tablename__ = "notification_logs"
+    __table_args__ = (
+        # instant_reports.py's Delivery Status report reads one company's most
+        # recent rows, ordered by sent_at desc.
+        Index("ix_notification_logs_company_sent", "company_id", "sent_at"),
+    )
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

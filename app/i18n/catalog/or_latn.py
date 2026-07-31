@@ -1250,6 +1250,9 @@ MESSAGES: dict[str, str] = {
         "{cash_line}\n"
         "kichi action darkar nahin jebe jain cash position na badle."
     ),
+    "notify.supplier_reminder_more_bills": (
+        "Ei supplier ra ara {count} ta bill(s) bi open achi, mota {amount}."
+    ),
     "notify.when_today": "aji",
     "notify.when_tomorrow": "kali",
     "notify.when_overdue": "{days} dina agaru",

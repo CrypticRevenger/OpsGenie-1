@@ -10,7 +10,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Numeric, String, Uuid
+from sqlalchemy import ForeignKey, Index, Numeric, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -26,6 +26,11 @@ class InvoiceItem(UUIDMixin, Base):
     """A single line on an invoice."""
 
     __tablename__ = "invoice_items"
+    __table_args__ = (
+        # Items are always fetched (or EXISTS-tested) by their parent invoice;
+        # also covers the FK's ON DELETE CASCADE scan.
+        Index("ix_invoice_items_invoice_id", "invoice_id"),
+    )
 
     invoice_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),

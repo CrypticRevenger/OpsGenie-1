@@ -30,6 +30,7 @@ from app.models.invoice_item import InvoiceItem
 from app.models.notification_log import NotificationLog
 from app.models.product import Product
 from app.services.notifications import (
+    _MAX_SUPPLIER_REMINDERS_PER_TICK,
     check_cash_shortage_forecast,
     check_dealer_overdue_alerts,
     check_predue_invoice_nudges,
@@ -290,6 +291,69 @@ async def test_supplier_reminder_skips_when_due_beyond_24h(
     await db.commit()
     assert sent == 0
     assert recorded_sends == []
+
+
+@pytest.mark.asyncio
+async def test_supplier_reminder_sends_one_message_per_supplier_not_per_bill(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """Regression (found against live prod data): the per-supplier 24h dedup
+    was evaluated for every bill *before* any of the tick's reminders were
+    sent, so a supplier with N open bills passed the check N times and got N
+    separate WhatsApp messages in one burst. The live pilot had 87 open
+    payables across 11 suppliers — 47 of them for one supplier — and was
+    receiving 88 messages a day, ~32 of which Meta throttled.
+    """
+    company = await _make_company(db)
+    supplier_id = uuid.uuid4()
+    bills = [
+        _supplier_payment(
+            supplier_id=supplier_id,
+            supplier_name="Shakti Traders",
+            amount=Decimal("1000.00"),
+            due_date=TODAY - timedelta(days=days_overdue),
+            invoice_number=f"INV-{index}",
+        )
+        # Ordered most-urgent-first, the way snapshot.py::_expected_payments_7d
+        # emits them (ORDER BY due_date).
+        for index, days_overdue in enumerate((30, 20, 10))
+    ]
+    snap = _snapshot(company.id, expected_payments_7d=bills)
+
+    sent = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == 1
+    assert len(recorded_sends) == 1
+    body = recorded_sends[0][1]
+    # The lead bill is the most urgent one, and the two it collapsed are
+    # still accounted for rather than silently dropped.
+    assert "30 day(s) ago" in body
+    assert "2 more bill(s)" in body
+    assert "2,000" in body
+
+
+@pytest.mark.asyncio
+async def test_supplier_reminder_caps_the_number_of_messages_per_tick(
+    db: AsyncSession, recorded_sends
+) -> None:
+    """Even with every bill belonging to a distinct supplier, one tick must
+    not blast an unbounded number of WhatsApp messages — Meta throttles the
+    burst, and a throttled reminder deliberately skips its dedup marker, so
+    an uncapped burst re-fails identically on every subsequent tick.
+    """
+    company = await _make_company(db)
+    bills = [
+        _supplier_payment(supplier_name=f"Supplier {index}", due_date=TODAY)
+        for index in range(_MAX_SUPPLIER_REMINDERS_PER_TICK + 5)
+    ]
+    snap = _snapshot(company.id, expected_payments_7d=bills)
+
+    sent = await check_supplier_payment_reminders(db, company, snap, NOW)
+    await db.commit()
+
+    assert sent == _MAX_SUPPLIER_REMINDERS_PER_TICK
+    assert len(recorded_sends) == _MAX_SUPPLIER_REMINDERS_PER_TICK
 
 
 @pytest.mark.asyncio

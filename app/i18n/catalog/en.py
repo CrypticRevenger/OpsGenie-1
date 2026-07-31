@@ -1219,6 +1219,9 @@ MESSAGES: dict[str, str] = {
         "{cash_line}\n"
         "No action needed unless cash position has changed."
     ),
+    "notify.supplier_reminder_more_bills": (
+        "This supplier also has {count} more bill(s) open, totalling {amount}."
+    ),
     "notify.when_today": "today",
     "notify.when_tomorrow": "tomorrow",
     "notify.when_overdue": "{days} day(s) ago",

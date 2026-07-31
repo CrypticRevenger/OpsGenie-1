@@ -119,6 +119,30 @@ async def recently_messaged(
     return found is not None
 
 
+async def phones_in_session_window(
+    db: AsyncSession, company_id: uuid.UUID, phones: set[str], since: datetime
+) -> set[str]:
+    """Which of `phones` messaged this company inside WhatsApp's 24h free-form
+    session window — the batched form of recently_messaged.
+
+    A broadcast asks this same question once per recipient, and the answer
+    decides free-form-vs-template for each. Asking it per dealer meant one
+    JSONB round-trip per recipient against business_events, the fastest-growing
+    table in the schema; one IN-query answers the whole list.
+    """
+    if not phones:
+        return set()
+    rows = await db.scalars(
+        select(BusinessEvent.payload["from"].astext).where(
+            BusinessEvent.company_id == company_id,
+            BusinessEvent.event_type == BusinessEventType.whatsapp_message_received,
+            BusinessEvent.payload["from"].astext.in_(phones),
+            BusinessEvent.created_at >= since,
+        )
+    )
+    return set(rows.all())
+
+
 async def _already_messaged_in_batch(
     db: AsyncSession, company_id: uuid.UUID, batch_id: uuid.UUID
 ) -> set[str]:
@@ -163,6 +187,10 @@ async def send_broadcast(
     dealers = [d for d in dealers if d.phone][: settings.max_broadcast_recipients]
     since = datetime.now(UTC) - timedelta(hours=SESSION_WINDOW_HOURS)
 
+    in_session_window = await phones_in_session_window(
+        db, company.id, {d.phone for d in dealers}, since
+    )
+
     already_sent = await _already_messaged_in_batch(db, company.id, batch_id)
     if already_sent:
         logger.warning(
@@ -181,7 +209,7 @@ async def send_broadcast(
             continue
         message_id: str | None = None
         try:
-            if await recently_messaged(db, company.id, dealer.phone, since):
+            if dealer.phone in in_session_window:
                 result = await send_text_message(dealer.phone, message)
             elif not settings.broadcast_template_name:
                 raise WhatsAppNotConfiguredError("BROADCAST_TEMPLATE_NAME not configured")
