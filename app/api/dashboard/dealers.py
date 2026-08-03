@@ -1,7 +1,14 @@
 """Dashboard dealer routes — create/edit/delete forms over
 app/api/admin/dealers.py, plus a JSON delete-preview passthrough that
-dashboard.js fetches to show the real cascade-delete impact before
-confirm() (see contiune.md's dealer/supplier delete landmine).
+dashboard.js fetches to show the real cascade-delete impact before confirm().
+
+The preview exists because deleting a dealer is never a lone-row delete:
+invoices.dealer_id/supplier_id are both ondelete="SET NULL" under a
+CheckConstraint("dealer_id IS NOT NULL OR supplier_id IS NOT NULL"), so
+nulling a dealer's invoices would violate that CHECK. The delete therefore
+has to take the dealer's invoices with it (and, by CASCADE, their
+invoice_items and payments) — which is exactly what the founder needs to see
+spelled out before confirming.
 """
 
 from __future__ import annotations

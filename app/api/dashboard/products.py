@@ -1,8 +1,9 @@
 """Dashboard product routes — create/edit/delete over app/api/admin/products.py.
 
 No delete-preview here (unlike dealers/suppliers): product delete is a plain
-row delete, invoice_items.product_id just goes null (SET NULL, no CHECK
-constraint) — see contiune.md's delete-landmine section.
+row delete, invoice_items.product_id just goes null (SET NULL, with no CHECK
+constraint over it to violate), so nothing cascades and there is no impact to
+warn about.
 """
 
 from __future__ import annotations

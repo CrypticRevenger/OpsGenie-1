@@ -60,3 +60,6 @@ z_issue*
 # Invoice/sample PDFs are produced at request time; dbenums.json is an audit dump.
 *.pdf
 dbenums.json
+
+# Personal planning scratch notes — kept local, not part of the public repo
+notes/
