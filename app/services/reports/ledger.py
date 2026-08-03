@@ -1,5 +1,5 @@
-"""Party ledger statement — the "single most-requested Tally report" per
-PROJECT_STATUS.md: opening balance -> every invoice (debit)/payment (credit)
+"""Party ledger statement — the single most-requested Tally report:
+opening balance -> every invoice (debit)/payment (credit)
 in the period, chronologically, with a running balance -> closing balance.
 
 Sign convention matches app/services/party_outstanding.py exactly (invoice

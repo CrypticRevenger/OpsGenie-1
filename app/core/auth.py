@@ -2,8 +2,8 @@
 
 A single static API key protects every /admin/* route (see app/main.py,
 where this is wired as a router-level dependency). There is no User model,
-login flow, or session state — this is still a single-founder tool, per
-SPEC.md: "Authentication / API keys | When external users are onboarded."
+login flow, or session state — this is still a single-founder tool by
+design; real per-user auth arrives when external users are onboarded.
 """
 
 from __future__ import annotations

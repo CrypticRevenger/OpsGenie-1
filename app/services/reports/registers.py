@@ -2,8 +2,8 @@
 a rate-wise summary sheet — the standard GSTR-1 register shape, taxable
 value + GST split by rate, per invoice line), and the day book.
 
-The sales/purchase register doubles as PROJECT_STATUS.md's "GST reports"
-and "sales & purchase registers" bullets — one GST-annotated register per
+The sales/purchase register doubles as the roadmap's "GST reports"
+and "sales & purchase registers" items — one GST-annotated register per
 direction satisfies both rather than building a near-duplicate report twice.
 No CGST/SGST/IGST split: Dealer/Supplier carry no state/place-of-supply
 field, so this is a register for manual GSTR-1 entry, not a filing-ready

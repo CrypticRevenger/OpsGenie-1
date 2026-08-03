@@ -1,4 +1,4 @@
-"""RecommendationEngine — per SPEC.md TDD.
+"""RecommendationEngine — per the technical design.
 
 "Pure Python. No LLM. Reads snapshot. Outputs ranked action list as
 structured JSON... Claude receives this list and converts to natural

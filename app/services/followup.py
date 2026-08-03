@@ -1,4 +1,4 @@
-"""InvoiceDueDateFollowUpService — SPEC.md V0.1 Step 13.
+"""InvoiceDueDateFollowUpService — V0.1 Step 13.
 
 "On the invoice due date, ask the distributor whether payment has been
 received and route their reply back through the same business logic a

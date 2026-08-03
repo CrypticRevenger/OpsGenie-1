@@ -7,8 +7,8 @@ everything fresh rather than trusting the preview. Relationships are never
 lazy-loaded (an explicit query instead, same as followup.py) — AsyncSession
 has no implicit lazy-load support.
 
-Scope is deliberately narrow (see PROJECT_STATUS.md "Edit / correction /
-data-management" and the plan behind it): only the single most-recently
+Scope is deliberately narrow (the "edit / correction / data-management"
+decision and the plan behind it): only the single most-recently
 recorded WhatsApp payment/order can be targeted (the guided flow in
 app/services/workflows/void_flow.py enforces that lookup), and voiding an
 order that already has a payment against it is refused outright rather than

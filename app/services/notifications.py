@@ -1,4 +1,4 @@
-"""NotificationEngine — SPEC.md V0.1 Step 14.
+"""NotificationEngine — V0.1 Step 14.
 
 "Pure Python rules. No LLM. Runs on schedule and on event triggers." Four
 proactive alert rules, each independently checkable and safe to re-run every

@@ -72,4 +72,4 @@ CREATE DATABASE opsgenie;
 
 ## Next Steps
 
-Phase 1 adds all ORM models and the initial Alembic migration defined in [`SPEC.md`](../SPEC.md) (TDD schema section).
+Phase 1 adds all ORM models and the initial Alembic migration. Run `make migrate` to apply them; the models themselves live under `app/models/`.

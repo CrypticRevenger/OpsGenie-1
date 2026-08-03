@@ -5,8 +5,8 @@ Called only from app/services/writes/pending_operation.py's
 execute_pending_operation, at confirm time. Re-fetches everything fresh,
 never commits (the caller commits once).
 
-Deliberately narrow scope (see PROJECT_STATUS.md "Edit / correction /
-data-management" and the plan behind it — an earlier, more "clever" version
+Deliberately narrow scope (the "edit / correction / data-management"
+decision and the plan behind it — an earlier, more "clever" version
 that auto-reallocated payments across invoices via FIFO was cut after
 review as too risky/hard to explain): editing an invoice is refused outright
 the moment it has any payment recorded against it, regardless of which

@@ -141,7 +141,7 @@ async def extract_invoice_from_image(image_bytes: bytes, mime_type: str) -> Extr
         # FastAPI's generic 500 handler, and Meta retries a webhook 500
         # indefinitely against an inbound message whose dedup row is already
         # committed — the same wedged-retry-loop shape already fixed once for
-        # order creation (see PROJECT_STATUS.md's audit-pass entry).
+        # order creation during an earlier audit pass.
         logger.warning("Invoice photo OCR: unexpected provider failure: %s", exc)
         return None
 

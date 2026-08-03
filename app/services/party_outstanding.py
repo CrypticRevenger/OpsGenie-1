@@ -1,4 +1,4 @@
-"""DealerOutstandingCalculator — per SPEC.md TDD.
+"""DealerOutstandingCalculator — per the technical design.
 
 "Calculates outstanding for a dealer as: sum of total_amount for all
 receivable invoices in status Pending, Partially_Paid, or Overdue, minus sum

@@ -1,4 +1,4 @@
-"""LLMProvider — the seam that makes SPEC.md's engineering principle literally
+"""LLMProvider — the seam that makes this project's engineering principle literally
 true in code, not just prose: "If you replace the LLM provider with any other
 model tomorrow, every number and every recommendation must remain identical.
 Only phrasing may change."

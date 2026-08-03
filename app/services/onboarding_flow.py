@@ -1,4 +1,4 @@
-"""Guided WhatsApp onboarding — SPEC extension (onboarding.md).
+"""Guided WhatsApp onboarding — a spec extension.
 
 A resumable, one-field-at-a-time setup conversation for a newly-activated
 self-serve company. Same contract and layering as

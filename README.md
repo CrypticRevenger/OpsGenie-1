@@ -17,7 +17,7 @@ OpsGenie converts existing business records (Tally/Vyapar exports) into daily op
 
 Deterministic business engine validated against real distributor data; 295 tests passing.
 
-Product requirements and technical design: [`SPEC.md`](SPEC.md) · API reference: [`docs/api.md`](docs/api.md)
+API reference: [`docs/api.md`](docs/api.md) · Getting started: [`docs/getting-started.md`](docs/getting-started.md)
 
 ## Quick Start
 
@@ -87,8 +87,8 @@ From the product spec — these never change:
 ## Documentation
 
 - [Getting Started](docs/getting-started.md)
-- [Product & Technical Spec](SPEC.md)
+- [API Reference](docs/api.md)
 
 ## License
 
-Proprietary — all rights reserved.
+Proprietary — all rights reserved. See [LICENSE](LICENSE).

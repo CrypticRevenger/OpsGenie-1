@@ -1,4 +1,4 @@
-"""APScheduler dispatch — SPEC.md V0.1 Step 15.
+"""APScheduler dispatch — V0.1 Step 15.
 
 "APScheduler inside FastAPI lifespan for 8am briefing and notification
 schedules." One recurring poll job (every SCHEDULER_POLL_INTERVAL_MINUTES)

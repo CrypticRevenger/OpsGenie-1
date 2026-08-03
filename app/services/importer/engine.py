@@ -5,7 +5,7 @@ Everything upstream of this module (``detector``, ``BaseImporter`` subclasses,
 unchanged. This module is what actually turns parsed rows into ``Invoice`` /
 ``Payment`` records.
 
-Design invariants (see SPEC.md ImportService + the Phase 3 plan):
+Design invariants (the ImportService contract + the Phase 3 plan):
 
 * One bad row never fails the whole file — each row runs inside its own
   SAVEPOINT (``db.begin_nested()``); a failure rolls back only that row and

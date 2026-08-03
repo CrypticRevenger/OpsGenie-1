@@ -1,4 +1,4 @@
-"""BriefingService — per SPEC.md TDD. The only AI component in this project.
+"""BriefingService — per the technical design. The only AI component here.
 
 "LLMs only understand language and generate natural responses. Everything
 else belongs to deterministic code... If you replace the LLM provider with

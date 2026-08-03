@@ -16,8 +16,8 @@ Timestamps are ISO 8601 with timezone (`2026-07-01T14:00:00Z`).
 ### Authentication
 Every `/admin/*` route requires a shared secret via the `X-API-Key` header, checked against
 `ADMIN_API_KEY` in the server's environment. `/health` is intentionally unauthenticated (for
-infra probes). There is no per-user login — this is still a single-founder tool, per SPEC.md:
-"Authentication / API keys | When external users are onboarded." A missing/wrong key, or a
+infra probes). There is no per-user login — this is still a single-founder tool by design;
+per-user authentication arrives when external users are onboarded. A missing/wrong key, or a
 server with `ADMIN_API_KEY` unset, all return the same generic response:
 
 ```json
@@ -459,8 +459,8 @@ Validation errors (422) use the expanded format:
 
 ## Roadmap notes
 
-This document was last written at Phase 2 and hasn't tracked every endpoint added since — see
-`SPEC.md` for the authoritative feature roadmap. Items below are resolved as of Phase 6:
+This document was last written at Phase 2 and hasn't tracked every endpoint added since; the
+authoritative feature roadmap is maintained privately. Items below are resolved as of Phase 6:
 
 | Item | Status |
 |------|--------|

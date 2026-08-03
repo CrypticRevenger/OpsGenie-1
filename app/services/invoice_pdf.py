@@ -1,5 +1,5 @@
-"""Invoice PDF generation — V0.2 (SPEC.md's "PDF generated -> sent to
-Ram Traders" step of the WhatsApp invoice creation flow).
+"""Invoice PDF generation — V0.2 (the "PDF generated -> sent to Ram
+Traders" step of the WhatsApp invoice creation flow).
 
 Pure function: takes the same CreateOrderResult app/services/writes/orders.py
 already computed (no re-derivation, no DB access) and a Company for

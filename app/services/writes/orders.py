@@ -31,7 +31,7 @@ from app.services.importer.payment_row import allocate_payment_fifo
 from app.services.snapshot import business_now
 
 _CENTS = Decimal("0.01")
-# SPEC.md's V0.2 "Invoice Creation" example ("Due: 14 days from today") — used
+# The V0.2 "Invoice Creation" example ("Due: 14 days from today") — used
 # whenever the dealer has no payment_terms_days on file.
 _DEFAULT_DUE_DAYS = 14
 

@@ -1,5 +1,4 @@
-"""WhatsApp inbound webhook — Phase 7 (SPEC.md V0.1 Step 11) + Phase 8
-(SPEC.md V0.1 Step 12).
+"""WhatsApp inbound webhook — Phase 7 (V0.1 Step 11) + Phase 8 (V0.1 Step 12).
 
 Not under /admin — Meta calls this endpoint directly and cannot send an
 X-API-Key header. It has its own two independent security mechanisms
@@ -209,8 +208,8 @@ _WORKFLOW_HANDLERS: dict[str, Callable[[AsyncSession, Company, str], Awaitable[s
 
 # Registry: exact-match keyword -> starter that sets active_workflow and
 # returns the flow's first question verbatim. Deterministic trigger,
-# deliberately not agent tool-calling (see deployment.md's Phase 2A scope
-# note): a tool's reply would flow through LLM narration, which can't
+# deliberately not agent tool-calling (a Phase 2A scope decision): a
+# tool's reply would flow through LLM narration, which can't
 # guarantee the flow's exact question wording. Same deterministic spirit as
 # menu_router — no fuzzy NLP, and a new workflow's triggers are just more
 # entries here, not a new elif branch.
@@ -223,7 +222,7 @@ _WORKFLOW_START_TRIGGERS: dict[str, Callable[[Company], str]] = {
     "create order": start_order_workflow,
     "place order": start_order_workflow,
     "record order": start_order_workflow,
-    # V0.2 — SPEC.md's Conversation 4 calls this "invoice creation"; it's the
+    # V0.2 — the spec's Conversation 4 calls this "invoice creation"; it's the
     # exact same flow/handler as "create order" above (both produce a real
     # Invoice row), just an alias for the phrasing distributors may use.
     "create invoice": start_order_workflow,

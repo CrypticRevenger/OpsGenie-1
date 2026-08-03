@@ -1,4 +1,4 @@
-"""Numbered query menu — SPEC.md V0.1 Step 12.
+"""Numbered query menu — V0.1 Step 12.
 
 Four canned reports built purely from an already-computed Snapshot (Phase
 5A) — no new business logic, risk scoring, or thresholds invented here.

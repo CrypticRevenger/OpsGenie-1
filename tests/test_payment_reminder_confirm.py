@@ -1,7 +1,7 @@
 """app/services/workflows/payment_reminder_confirm.py — the guided "did you
 actually pay this supplier bill?" flow. No dedicated test file existed before
-this (flagged as a gap in PROJECT_STATUS.md's Timeline when the context-
-restatement/cancel-escape fix landed on 2026-07-22); this adds coverage for
+this (flagged as a gap when the context-restatement/cancel-escape fix
+landed on 2026-07-22); this adds coverage for
 that existing behavior plus the new "help"/"menu" orientation-word handling
 (a real production report, 2026-07-24: typing "help" mid-reminder fell
 through to the generic "didn't understand, reply 1/2" restatement with no

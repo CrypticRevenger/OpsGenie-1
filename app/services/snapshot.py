@@ -1,4 +1,4 @@
-"""BusinessSnapshotService — per SPEC.md TDD.
+"""BusinessSnapshotService — per the technical design.
 
 "Single function build_snapshot(company_id) returning complete structured
 state." A plain dataclass, deliberately not a Pydantic/FastAPI model — the
