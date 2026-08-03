@@ -20,6 +20,12 @@ jobs:
       # other traffic (e.g. a distributor's WhatsApp message) wakes the
       # process. Same cadence as the /health ping above.
       - name: Trigger scheduled dispatch tick
+        env:
+          # Passed through the environment rather than interpolated into the
+          # script body: `${{ secrets.* }}` splices its value into the shell
+          # command GitHub assembles, so the key's contents get parsed as shell
+          # rather than staying an opaque string.
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
         # --max-time 300: a tick that needs to actually generate a briefing
         # walks LLM_FALLBACKS (app/services/llm/factory.py::generate_with_fallback)
         # trying each configured provider in order, up to llm_timeout_seconds
@@ -32,5 +38,18 @@ jobs:
         # needed — see app/api/admin/scheduler.py) — this was only ever the
         # monitor giving up client-side, not the dispatch failing server-side.
         run: |
+          # A secret that was never created expands to an empty string instead
+          # of failing the workflow, so without this guard the step still sends
+          # the request — just an unauthenticated one — and require_api_key
+          # (app/core/auth.py) answers 401 exactly as designed. curl surfaces
+          # that as a bare "error: 401", which reads as a wrong key or a broken
+          # server when the real cause is that no key was ever configured here.
+          # Say so directly instead; the tick is unrunnable either way.
+          if [ -z "$ADMIN_API_KEY" ]; then
+            echo "::error::ADMIN_API_KEY repository secret is not set. Add it under" \
+                 "Settings > Secrets and variables > Actions, matching the" \
+                 "ADMIN_API_KEY env var on the Render service."
+            exit 1
+          fi
           curl -fsS --max-time 300 -X POST https://opsgenie.onrender.com/admin/scheduler/tick \
-            -H "X-API-Key: ${{ secrets.ADMIN_API_KEY }}"
+            -H "X-API-Key: $ADMIN_API_KEY"
