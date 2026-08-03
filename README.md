@@ -17,8 +17,6 @@ OpsGenie converts existing business records (Tally/Vyapar exports) into daily op
 
 Deterministic business engine validated against real distributor data; 295 tests passing.
 
-API reference: [`docs/api.md`](docs/api.md) · Getting started: [`docs/getting-started.md`](docs/getting-started.md)
-
 ## Quick Start
 
 ```powershell
@@ -46,7 +44,6 @@ app/
   main.py        FastAPI application factory
 alembic/         Database migrations
 tests/           Pytest suite
-docs/            Developer documentation
 scripts/         Dev helper scripts (PowerShell + Bash)
 docker/          Dockerfile and docker-compose
 ```
@@ -83,11 +80,6 @@ From the product spec — these never change:
 - LLMs never own business state, calculate money, or decide recommendations
 - Every briefing number traces to a real database record
 - All business rules live in deterministic Python code
-
-## Documentation
-
-- [Getting Started](docs/getting-started.md)
-- [API Reference](docs/api.md)
 
 ## License
 

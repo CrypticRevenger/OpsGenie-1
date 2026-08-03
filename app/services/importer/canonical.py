@@ -7,8 +7,8 @@ It uses OpsGenie's own column names directly, making it useful for:
 2. Files produced by other accounting software not yet supported.
 3. Integration testing without a real Tally/Vyapar installation.
 
-The canonical format is documented in docs/api.md under
-'Import Format Reference'.
+The canonical format is defined by the column names in
+``app/services/importer/base.py``.
 """
 
 from __future__ import annotations
